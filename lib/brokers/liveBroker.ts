@@ -117,7 +117,7 @@ export async function syncPositionsFromHyperliquid(
 
   try {
     const accountState = await hyperliquidClient.getAccountState(walletAddress);
-    const assetPositions = accountState.assetPositions || [];
+    const assetPositions = (accountState as any).assetPositions || [];
 
     console.log(`[liveBroker] Fetched ${assetPositions.length} positions from Hyperliquid`);
 
