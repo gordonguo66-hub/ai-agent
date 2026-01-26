@@ -195,7 +195,7 @@ export async function updateAccountEquity(
   try {
     const accountState = await hyperliquidClient.getAccountState(walletAddress);
     const equity = Number(accountState.marginSummary.accountValue || 0);
-    const cashBalance = Number(accountState.crossMarginSummary?.totalRawUsd || equity);
+    const cashBalance = Number((accountState as any).marginSummary?.totalRawUsd || equity);
 
     console.log(`[liveBroker] Fetched equity: $${equity.toFixed(2)}, cash: $${cashBalance.toFixed(2)}`);
 
