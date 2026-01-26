@@ -1,0 +1,695 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { AuthGuard } from "@/components/auth-guard";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
+import { useTimezone } from "@/components/timezone-provider";
+import { TIMEZONES, getBrowserTimezone, getTimezoneOffset } from "@/lib/utils/dateFormat";
+import { getBearerToken } from "@/lib/api/clientAuth";
+import { FormattedDate } from "@/components/formatted-date";
+
+// Provider options for saved keys
+const PROVIDERS = [
+  { id: "openai", name: "OpenAI" },
+  { id: "anthropic", name: "Anthropic" },
+  { id: "google", name: "Google / Gemini" },
+  { id: "xai", name: "xAI (Grok)" },
+  { id: "deepseek", name: "DeepSeek" },
+  { id: "meta", name: "Meta (LLaMA)" },
+  { id: "qwen", name: "Qwen" },
+  { id: "glm", name: "GLM" },
+  { id: "perplexity", name: "Perplexity" },
+  { id: "openrouter", name: "OpenRouter" },
+  { id: "together", name: "Together AI" },
+  { id: "groq", name: "Groq" },
+  { id: "fireworks", name: "Fireworks" },
+];
+
+interface SavedApiKey {
+  id: string;
+  provider: string;
+  label: string;
+  key_preview: string;
+  created_at: string;
+}
+
+function SettingsContent() {
+  const { timezone, setTimezone, isLoading } = useTimezone();
+  const [selectedTimezone, setSelectedTimezone] = useState<string>(timezone || "");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [browserTz, setBrowserTz] = useState<string>("");
+
+  // Saved API Keys state
+  const [savedKeys, setSavedKeys] = useState<SavedApiKey[]>([]);
+  const [loadingKeys, setLoadingKeys] = useState(true);
+  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
+  const [newKeyProvider, setNewKeyProvider] = useState("");
+  const [newKeyLabel, setNewKeyLabel] = useState("");
+  const [newKeyValue, setNewKeyValue] = useState("");
+  const [addingKey, setAddingKey] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
+
+  // Exchange Connection state
+  const [connections, setConnections] = useState<any[]>([]);
+  const [loadingConnections, setLoadingConnections] = useState(false);
+  const [exchangeError, setExchangeError] = useState<string | null>(null);
+  const [verifying, setVerifying] = useState<string | null>(null);
+  const [verifyResults, setVerifyResults] = useState<Record<string, any>>({});
+  const [exchangeFormData, setExchangeFormData] = useState({
+    wallet_address: "",
+    key_material_encrypted: "",
+  });
+
+  useEffect(() => {
+    setBrowserTz(getBrowserTimezone());
+    loadSavedKeys();
+    loadExchangeConnections();
+  }, []);
+
+  useEffect(() => {
+    setSelectedTimezone(timezone || "");
+  }, [timezone]);
+
+  // Load saved API keys
+  const loadSavedKeys = async () => {
+    try {
+      setLoadingKeys(true);
+      const bearer = await getBearerToken();
+      if (!bearer) {
+        console.error("No bearer token available");
+        return;
+      }
+
+      const response = await fetch("/api/settings/api-keys", {
+        headers: { Authorization: bearer },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setSavedKeys(data.keys || []);
+      } else {
+        console.error("Failed to load saved keys:", await response.text());
+      }
+    } catch (error) {
+      console.error("Error loading saved keys:", error);
+    } finally {
+      setLoadingKeys(false);
+    }
+  };
+
+  // Add new saved API key
+  const handleAddKey = async () => {
+    if (!newKeyProvider || !newKeyLabel.trim() || !newKeyValue.trim()) {
+      setAddError("All fields are required");
+      return;
+    }
+
+    try {
+      setAddingKey(true);
+      setAddError(null);
+
+      const bearer = await getBearerToken();
+      if (!bearer) {
+        setAddError("Not authenticated");
+        return;
+      }
+
+      const response = await fetch("/api/settings/api-keys", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: bearer,
+        },
+        body: JSON.stringify({
+          provider: newKeyProvider,
+          label: newKeyLabel.trim(),
+          api_key: newKeyValue.trim(),
+        }),
+      });
+
+      if (response.ok) {
+        // Success - reload keys and close dialog
+        await loadSavedKeys();
+        setIsAddDialogOpen(false);
+        setNewKeyProvider("");
+        setNewKeyLabel("");
+        setNewKeyValue("");
+        setAddError(null);
+      } else {
+        const errorData = await response.json();
+        setAddError(errorData.error || "Failed to save API key");
+      }
+    } catch (error: any) {
+      setAddError(error.message || "An error occurred");
+    } finally {
+      setAddingKey(false);
+    }
+  };
+
+  // Delete saved API key
+  const handleDeleteKey = async (keyId: string, label: string) => {
+    if (!confirm(`Delete saved key "${label}"? Strategies using this key will need to select another key.`)) {
+      return;
+    }
+
+    try {
+      const bearer = await getBearerToken();
+      if (!bearer) {
+        alert("Not authenticated");
+        return;
+      }
+
+      const response = await fetch(`/api/settings/api-keys/${keyId}`, {
+        method: "DELETE",
+        headers: { Authorization: bearer },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.affectedStrategies && data.affectedStrategies.length > 0) {
+          alert(
+            `Key deleted. ${data.affectedStrategies.length} strategy(ies) will need a new key: ${data.affectedStrategies.map((s: any) => s.name).join(", ")}`
+          );
+        }
+        await loadSavedKeys();
+      } else {
+        const errorData = await response.json();
+        alert(errorData.error || "Failed to delete key");
+      }
+    } catch (error: any) {
+      alert(error.message || "An error occurred");
+    }
+  };
+
+  // Exchange Connection functions
+  const loadExchangeConnections = async () => {
+    try {
+      const bearer = await getBearerToken();
+      const response = await fetch("/api/exchange-connections", {
+        headers: bearer ? { Authorization: bearer } : undefined,
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setConnections(data.connections || []);
+      }
+    } catch (err) {
+      console.error("Failed to load connections", err);
+    }
+  };
+
+  const handleExchangeSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoadingConnections(true);
+    setExchangeError(null);
+
+    try {
+      const bearer = await getBearerToken();
+      if (!bearer) throw new Error("Unauthorized");
+      const response = await fetch("/api/exchange-connections", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: bearer,
+        },
+        body: JSON.stringify({
+          wallet_address: exchangeFormData.wallet_address,
+          key_material_encrypted: exchangeFormData.key_material_encrypted,
+          venue: "hyperliquid",
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to create connection");
+      }
+
+      // Reset form and reload
+      setExchangeFormData({ wallet_address: "", key_material_encrypted: "" });
+      await loadExchangeConnections();
+    } catch (err: any) {
+      setExchangeError(err.message || "Failed to create connection");
+    } finally {
+      setLoadingConnections(false);
+    }
+  };
+
+  const handleVerifyConnection = async (connectionId: string) => {
+    setVerifying(connectionId);
+    try {
+      const bearer = await getBearerToken();
+      if (!bearer) throw new Error("Unauthorized");
+      
+      const response = await fetch(`/api/exchange-connections/${connectionId}/verify`, {
+        method: "POST",
+        headers: {
+          Authorization: bearer,
+        },
+      });
+
+      const result = await response.json();
+      setVerifyResults({ ...verifyResults, [connectionId]: result });
+    } catch (err: any) {
+      setVerifyResults({ 
+        ...verifyResults, 
+        [connectionId]: { 
+          success: false, 
+          error: err.message || "Verification failed" 
+        } 
+      });
+    } finally {
+      setVerifying(null);
+    }
+  };
+
+  const handleDeleteConnection = async (connectionId: string) => {
+    if (!confirm("Are you sure you want to delete this connection?")) {
+      return;
+    }
+
+    try {
+      const bearer = await getBearerToken();
+      if (!bearer) throw new Error("Unauthorized");
+      
+      const response = await fetch(`/api/exchange-connections/${connectionId}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: bearer,
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to delete connection");
+      }
+
+      // Reload connections
+      await loadExchangeConnections();
+      // Clear verify result for this connection
+      const newResults = { ...verifyResults };
+      delete newResults[connectionId];
+      setVerifyResults(newResults);
+    } catch (err: any) {
+      alert(err.message || "Failed to delete connection");
+    }
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    setSaved(false);
+    try {
+      await setTimezone(selectedTimezone || null);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (error) {
+      console.error("Failed to save timezone:", error);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const currentOffset = getTimezoneOffset(selectedTimezone || undefined);
+  const now = new Date();
+  const previewTime = now.toLocaleString("en-US", {
+    timeZone: selectedTimezone || undefined,
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+
+  return (
+    <div className="min-h-[calc(100vh-4rem)] bg-background">
+      <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
+        <div className="max-w-3xl mx-auto space-y-6">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight mb-2">Settings</h1>
+            <p className="text-muted-foreground">
+              Manage your account preferences and display settings.
+            </p>
+          </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Timezone</CardTitle>
+              <CardDescription>
+                Set your preferred timezone for displaying dates and times across the platform.
+                By default, your browser&apos;s local timezone is used.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {isLoading ? (
+                <div className="text-sm text-muted-foreground">Loading preferences...</div>
+              ) : (
+                <>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Select Timezone</label>
+                    <select
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      value={selectedTimezone}
+                      onChange={(e) => setSelectedTimezone(e.target.value)}
+                    >
+                      {TIMEZONES.map((tz) => (
+                        <option key={tz.value} value={tz.value}>
+                          {tz.label}
+                          {tz.value === "" && browserTz ? ` (${browserTz})` : ""}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-muted-foreground">
+                      Your browser detected timezone: <strong>{browserTz}</strong>
+                    </p>
+                  </div>
+
+                  <div className="rounded-md bg-muted p-4">
+                    <p className="text-sm font-medium mb-1">Preview</p>
+                    <p className="text-lg font-mono">
+                      {previewTime} {currentOffset && <span className="text-muted-foreground text-sm">({currentOffset})</span>}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      This is how times will appear across the platform.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <Button
+                      onClick={handleSave}
+                      disabled={saving || selectedTimezone === (timezone || "")}
+                    >
+                      {saving ? "Saving..." : "Save Preference"}
+                    </Button>
+                    {saved && (
+                      <span className="text-sm text-green-600">Saved!</span>
+                    )}
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Saved API Keys Section */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>Saved API Keys</CardTitle>
+                  <CardDescription>
+                    Save API keys once and reuse them across strategies. Keys are encrypted server-side.
+                  </CardDescription>
+                </div>
+                <Button onClick={() => setIsAddDialogOpen(true)}>Add New Key</Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+                <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Add New API Key</DialogTitle>
+                      <DialogDescription>
+                        Save an API key to reuse it across multiple strategies without pasting it every time.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 pt-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="provider">Provider</Label>
+                        <select
+                          id="provider"
+                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          value={newKeyProvider}
+                          onChange={(e) => setNewKeyProvider(e.target.value)}
+                        >
+                          <option value="">Select provider...</option>
+                          {PROVIDERS.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="label">Label</Label>
+                        <Input
+                          id="label"
+                          placeholder="e.g., Main API Key"
+                          value={newKeyLabel}
+                          onChange={(e) => setNewKeyLabel(e.target.value)}
+                          maxLength={50}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          A descriptive name to identify this key (max 50 chars)
+                        </p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="apiKey">API Key</Label>
+                        <Input
+                          id="apiKey"
+                          type="password"
+                          placeholder="sk-..."
+                          value={newKeyValue}
+                          onChange={(e) => setNewKeyValue(e.target.value)}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Your API key will be encrypted and never displayed again
+                        </p>
+                      </div>
+                      {addError && (
+                        <div className="rounded-md bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-3">
+                          <p className="text-sm text-red-800 dark:text-red-200">{addError}</p>
+                        </div>
+                      )}
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            setIsAddDialogOpen(false);
+                            setNewKeyProvider("");
+                            setNewKeyLabel("");
+                            setNewKeyValue("");
+                            setAddError(null);
+                          }}
+                        >
+                          Cancel
+                        </Button>
+                        <Button onClick={handleAddKey} disabled={addingKey}>
+                          {addingKey ? "Saving..." : "Save Key"}
+                        </Button>
+                      </div>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              
+              {loadingKeys ? (
+                <div className="text-sm text-muted-foreground text-center py-8">
+                  Loading saved keys...
+                </div>
+              ) : savedKeys.length === 0 ? (
+                <div className="text-sm text-muted-foreground text-center py-8">
+                  <p className="mb-2">No saved API keys yet.</p>
+                  <p>Add a key to reuse it across multiple strategies.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Label</TableHead>
+                        <TableHead>Provider</TableHead>
+                        <TableHead>Key Preview</TableHead>
+                        <TableHead>Added</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {savedKeys.map((key) => (
+                        <TableRow key={key.id}>
+                          <TableCell className="font-medium">{key.label}</TableCell>
+                          <TableCell>
+                            <Badge variant="outline">
+                              {PROVIDERS.find((p) => p.id === key.provider)?.name || key.provider}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <code className="text-xs bg-muted px-2 py-1 rounded">
+                              {key.key_preview}
+                            </code>
+                          </TableCell>
+                          <TableCell className="text-sm text-muted-foreground">
+                            {new Date(key.created_at).toLocaleDateString()}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDeleteKey(key.id, key.label)}
+                            >
+                              Delete
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+              <div className="mt-4 p-3 rounded-md bg-muted text-sm text-muted-foreground">
+                <strong>Note:</strong> Keys are encrypted server-side. You can delete them anytime. If a strategy
+                references a deleted key, it will need to select a new key or use a manual key.
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Exchange Connection Section */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Exchange Connection</CardTitle>
+              <CardDescription>
+                Connect your Hyperliquid account to enable live and dry-run trading
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* Security Notice */}
+              <div className="rounded-md bg-yellow-500/10 border border-yellow-500/50 p-3">
+                <p className="text-sm text-muted-foreground">
+                  <strong className="text-yellow-700 dark:text-yellow-400">Security Notice:</strong> Your private key is stored encrypted on our servers. Never share your private key with anyone.
+                </p>
+              </div>
+
+              {/* Add Connection Form */}
+              <div>
+                <h3 className="text-lg font-semibold mb-3">Add Hyperliquid Connection</h3>
+                <form onSubmit={handleExchangeSubmit} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="wallet_address">Wallet Address</Label>
+                    <Input
+                      id="wallet_address"
+                      type="text"
+                      placeholder="0x..."
+                      value={exchangeFormData.wallet_address}
+                      onChange={(e) =>
+                        setExchangeFormData({ ...exchangeFormData, wallet_address: e.target.value })
+                      }
+                      required
+                    />
+                  </div>
+              <div className="space-y-2">
+                    <Label htmlFor="key_material_encrypted">Private Key</Label>
+                    <Input
+                      id="key_material_encrypted"
+                      type="password"
+                      placeholder="Enter your private key"
+                      value={exchangeFormData.key_material_encrypted}
+                      onChange={(e) =>
+                        setExchangeFormData({ ...exchangeFormData, key_material_encrypted: e.target.value })
+                      }
+                      required
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      This will be encrypted before storage
+                    </p>
+                  </div>
+                  {exchangeError && (
+                    <div className="rounded-md bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-3">
+                      <p className="text-sm text-red-800 dark:text-red-200">{exchangeError}</p>
+                    </div>
+                  )}
+                  <Button type="submit" disabled={loadingConnections}>
+                    {loadingConnections ? "Connecting..." : "Connect"}
+                  </Button>
+                </form>
+              </div>
+
+              {/* Existing Connections */}
+              <div>
+                <h3 className="text-lg font-semibold mb-3">Your Connections</h3>
+                {connections.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-8 border rounded-md">
+                    No connections yet. Add one above to get started.
+                  </p>
+                ) : (
+                  <div className="space-y-3">
+                    {connections.map((conn) => (
+                      <div key={conn.id}>
+                        <div className="flex items-center justify-between p-4 border rounded-lg bg-background">
+                          <div>
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="font-medium capitalize">{conn.venue}</span>
+                              <Badge variant="outline" className="text-xs">
+                                {conn.wallet_address.slice(0, 6)}...{conn.wallet_address.slice(-4)}
+                              </Badge>
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              Connected <FormattedDate date={conn.created_at} format="date" />
+                            </p>
+                          </div>
+                          <div className="flex gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleVerifyConnection(conn.id)}
+                              disabled={verifying === conn.id}
+                            >
+                              {verifying === conn.id ? "Verifying..." : "Verify"}
+                            </Button>
+                            <Button
+                              variant="destructive"
+                              size="sm"
+                              onClick={() => handleDeleteConnection(conn.id)}
+                            >
+                              Delete
+                            </Button>
+                          </div>
+                        </div>
+                        {verifyResults[conn.id] && (
+                          <div className={`mt-2 p-3 rounded-lg text-sm ${
+                            verifyResults[conn.id].success 
+                              ? "bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-200 border border-green-300 dark:border-green-800" 
+                              : "bg-red-100 dark:bg-red-900/20 text-red-800 dark:text-red-200 border border-red-300 dark:border-red-800"
+                          }`}>
+                            {verifyResults[conn.id].success ? (
+                              <div>
+                                <div className="font-semibold mb-2">✅ Connection Verified!</div>
+                                <div className="space-y-1 text-xs">
+                                  <div>Account Value: ${verifyResults[conn.id].account?.account_value || 'N/A'}</div>
+                                  <div>Margin Used: ${verifyResults[conn.id].account?.margin_used || 'N/A'}</div>
+                                  <div>Positions: {verifyResults[conn.id].account?.positions_count || 0}</div>
+                                </div>
+                              </div>
+                            ) : (
+                              <div>
+                                <div className="font-semibold mb-1">❌ Verification Failed</div>
+                                <div className="text-xs">{verifyResults[conn.id].error}</div>
+                                {verifyResults[conn.id].details && (
+                                  <div className="text-xs mt-1 opacity-75">{verifyResults[conn.id].details}</div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function SettingsPage() {
+  return (
+    <AuthGuard>
+      <SettingsContent />
+    </AuthGuard>
+  );
+}

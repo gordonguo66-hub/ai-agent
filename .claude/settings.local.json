@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep:*)",
+      "Bash(psql:*)",
+      "Bash(vercel --prod:*)",
+      "Bash(npm install:*)",
+      "Bash(npx vercel --version)",
+      "Bash(npx vercel --prod --yes)",
+      "Bash(npm run build:*)"
+    ]
+  }
+}
