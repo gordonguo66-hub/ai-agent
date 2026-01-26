@@ -44,7 +44,7 @@ function SessionDetailContent({ sessionId }: { sessionId: string }) {
   // Use ref to store latest time range for auto-refresh (prevents stale closure)
   const equityTimeRangeRef = useRef<{ start: number; end: number } | null>(null);
   // Track selected time range (controlled state to prevent reset on remount)
-  const [selectedTimeRange, setSelectedTimeRange] = useState<"all" | "today" | "24h" | "72h" | "week" | "month">("all");
+  const [selectedTimeRange, setSelectedTimeRange] = useState<"all" | "today" | "24h" | "72h" | "week" | "month" | "custom">("all");
 
   // Track if loadAll is currently running to prevent race conditions
   const loadingRef = useRef(false);
