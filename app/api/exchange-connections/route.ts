@@ -21,22 +21,43 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Validate private key format
+    if (!key_material_encrypted.startsWith("0x") || key_material_encrypted.length !== 66) {
+      return NextResponse.json(
+        { 
+          error: "Invalid private key format. Private key must start with '0x' and be 66 characters long (0x + 64 hex characters)." 
+        },
+        { status: 400 }
+      );
+    }
+
+    // Validate wallet address format
+    if (!wallet_address.startsWith("0x") || wallet_address.length !== 42) {
+      return NextResponse.json(
+        { 
+          error: "Invalid wallet address format. Address must start with '0x' and be 42 characters long." 
+        },
+        { status: 400 }
+      );
+    }
+
     // VERIFY credentials BEFORE saving
-    console.log("[Exchange Connection] Verifying credentials before saving...");
+    console.log("[Exchange Connection] Verifying wallet address on Hyperliquid...");
     try {
       const accountState = await hyperliquidClient.getAccountState(wallet_address);
       if (!accountState) {
         return NextResponse.json(
-          { error: "Invalid credentials: Could not fetch account from Hyperliquid" },
+          { error: "Could not find this wallet address on Hyperliquid. Make sure you're using the correct address." },
           { status: 400 }
         );
       }
-      console.log("[Exchange Connection] ✅ Credentials verified successfully");
+      console.log("[Exchange Connection] ✅ Wallet address verified on Hyperliquid");
+      console.log("[Exchange Connection] Account Value:", accountState.marginSummary?.accountValue);
     } catch (verifyError: any) {
       console.error("[Exchange Connection] ❌ Verification failed:", verifyError);
       return NextResponse.json(
         { 
-          error: "Invalid credentials: Could not connect to Hyperliquid", 
+          error: "Could not connect to Hyperliquid. Please check your wallet address and try again.", 
           details: verifyError.message 
         },
         { status: 400 }
