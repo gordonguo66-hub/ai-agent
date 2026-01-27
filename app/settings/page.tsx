@@ -327,12 +327,12 @@ function SettingsContent() {
   });
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] bg-background">
+    <div className="min-h-[calc(100vh-4rem)] page-container white-cards">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
         <div className="max-w-3xl mx-auto space-y-6">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight mb-2">Settings</h1>
-            <p className="text-muted-foreground">
+            <h1 className="text-3xl font-bold tracking-tight mb-2 text-white">Settings</h1>
+            <p className="text-gray-300">
               Manage your account preferences and display settings.
             </p>
           </div>

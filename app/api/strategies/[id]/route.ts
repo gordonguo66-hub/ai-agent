@@ -177,6 +177,11 @@ export async function PATCH(
     }
 
     // Update strategy
+    console.log(`[Strategy PATCH] 🔄 Updating strategy ${strategyId} with:`, {
+      ...updateData,
+      api_key_ciphertext: updateData.api_key_ciphertext ? '***encrypted***' : undefined,
+    });
+
     const { data, error } = await serviceClient
       .from("strategies")
       .update(updateData)
@@ -186,14 +191,69 @@ export async function PATCH(
       .single();
 
     if (error || !data) {
+      console.error(`[Strategy PATCH] ❌ Failed to update strategy ${strategyId}:`, error);
       return NextResponse.json(
         { error: error?.message || "Failed to update strategy" },
         { status: 500 }
       );
     }
 
+    console.log(`[Strategy PATCH] ✅ Strategy ${strategyId} updated in database!`);
+    console.log(`[Strategy PATCH] 💡 Running sessions will pick up these changes on their next tick!`);
+
     return NextResponse.json({ strategy: data });
   } catch (error: any) {
+    return NextResponse.json(
+      { error: error.message || "Internal server error" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const user = await getUserFromRequest(request);
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const strategyId = params.id;
+    const serviceClient = createServiceRoleClient();
+
+    // Verify strategy exists and belongs to user
+    const { data: existingStrategy, error: fetchError } = await serviceClient
+      .from("strategies")
+      .select("id")
+      .eq("id", strategyId)
+      .eq("user_id", user.id)
+      .single();
+
+    if (fetchError || !existingStrategy) {
+      return NextResponse.json({ error: "Strategy not found" }, { status: 404 });
+    }
+
+    // Delete strategy (cascade will delete associated sessions)
+    const { error: deleteError } = await serviceClient
+      .from("strategies")
+      .delete()
+      .eq("id", strategyId)
+      .eq("user_id", user.id);
+
+    if (deleteError) {
+      console.error(`[Strategy DELETE] Failed to delete strategy ${strategyId}:`, deleteError);
+      return NextResponse.json(
+        { error: deleteError.message || "Failed to delete strategy" },
+        { status: 500 }
+      );
+    }
+
+    console.log(`[Strategy DELETE] ✅ Strategy ${strategyId} deleted`);
+    return NextResponse.json({ success: true, message: "Strategy deleted successfully" });
+  } catch (error: any) {
+    console.error("[Strategy DELETE] Error:", error);
     return NextResponse.json(
       { error: error.message || "Internal server error" },
       { status: 500 }

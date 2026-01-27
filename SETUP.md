@@ -10,6 +10,8 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
 SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
 ```
 
+**Note:** `CREDENTIALS_ENCRYPTION_KEY` will be **auto-generated** on first run! Check your `.env.local` after starting the dev server.
+
 ### How to Get Supabase Credentials
 
 1. Go to [supabase.com](https://supabase.com) and create a new project

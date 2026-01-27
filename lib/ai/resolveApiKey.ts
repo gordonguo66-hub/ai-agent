@@ -60,8 +60,8 @@ export async function resolveStrategyApiKey(strategy: {
       }
       
       throw new Error(
-        `Saved API key (${strategy.saved_api_key_id}) was deleted and strategy has no fallback key. ` +
-        `Please update the strategy to select a new saved key or provide a manual key.`
+        `⚠️ The saved API key for this strategy was deleted. ` +
+        `Please go to Dashboard → Edit Strategy → Select a new saved key or paste an API key directly.`
       );
     }
 
@@ -88,6 +88,16 @@ export async function resolveStrategyApiKey(strategy: {
     } catch (error: any) {
       console.error(`[resolveStrategyApiKey] ❌ Failed to decrypt saved key:`, error.message);
       console.error(`[resolveStrategyApiKey] ❌ Error stack:`, error.stack);
+      
+      // User-friendly error message for encryption key issues
+      if (error.message?.includes('CREDENTIALS_ENCRYPTION_KEY')) {
+        throw new Error(
+          `Server configuration error: Encryption key is not set up. ` +
+          `The administrator needs to configure CREDENTIALS_ENCRYPTION_KEY in environment variables. ` +
+          `Contact support or check the server logs for setup instructions.`
+        );
+      }
+      
       throw new Error(`Failed to decrypt saved API key: ${error.message}`);
     }
   }
@@ -119,6 +129,16 @@ export async function resolveStrategyApiKey(strategy: {
   } catch (error: any) {
     console.error(`[resolveStrategyApiKey] ❌ Failed to decrypt direct key:`, error.message);
     console.error(`[resolveStrategyApiKey] ❌ Error stack:`, error.stack);
+    
+    // User-friendly error message for encryption key issues
+    if (error.message?.includes('CREDENTIALS_ENCRYPTION_KEY')) {
+      throw new Error(
+        `Server configuration error: Encryption key is not set up. ` +
+        `The administrator needs to configure CREDENTIALS_ENCRYPTION_KEY in environment variables. ` +
+        `Contact support or check the server logs for setup instructions.`
+      );
+    }
+    
     throw new Error(`Failed to decrypt strategy API key: ${error.message}`);
   }
 }

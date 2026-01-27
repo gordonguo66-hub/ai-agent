@@ -9,6 +9,8 @@ npm install
 npm run dev
 ```
 
+**That's it!** The encryption key will be auto-generated on first run. Check your `.env.local` file - it's been created automatically.
+
 ## If You See "Cannot find module" Errors
 
 This is a webpack cache corruption issue. Run:
@@ -44,14 +46,15 @@ npm run dev
 
 ## Environment Variables
 
-Required in `.env.local`:
+Create `.env.local` with:
 
 ```
 NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
 SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
-CREDENTIALS_ENCRYPTION_KEY=your_32_byte_key_base64_or_hex
 ```
+
+**`CREDENTIALS_ENCRYPTION_KEY` auto-generates on first run!** No manual setup needed for development.
 
 ## Database Setup
 
@@ -86,6 +89,12 @@ All base URLs are verified and working:
 - `/strategy/[id]` - Strategy details and session management
 - `/arena` - Leaderboard (coming soon)
 - `/community` - Community posts
+
+## Deployment
+
+Ready to deploy to production? See [DEPLOYMENT.md](./DEPLOYMENT.md) for complete Vercel deployment instructions.
+
+**⚠️ CRITICAL:** You must set `CREDENTIALS_ENCRYPTION_KEY` in your Vercel environment variables or the app will not work!
 
 ## Known Issues
 

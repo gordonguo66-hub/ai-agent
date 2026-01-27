@@ -4,6 +4,8 @@ const nextConfig = {
   experimental: {
     // Reduce memory usage
     optimizePackageImports: ['@supabase/supabase-js'],
+    // Enable instrumentation for startup checks
+    instrumentationHook: true,
   },
   // Allow production builds to succeed even with ESLint warnings
   eslint: {

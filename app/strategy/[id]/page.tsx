@@ -111,40 +111,40 @@ function StrategyDetailContent() {
 
   if (loading) {
     return (
-      <div className="container mx-auto px-4 py-16 flex items-center justify-center">
-        <p className="text-muted-foreground">Loading...</p>
+      <div className="min-h-[calc(100vh-4rem)] bg-[#030712] container mx-auto px-4 py-16 flex items-center justify-center">
+        <p className="text-gray-400">Loading...</p>
       </div>
     );
   }
 
   if (!strategy) {
     return (
-      <div className="container mx-auto px-4 py-16 flex items-center justify-center">
-        <p className="text-muted-foreground">{error || "Strategy not found"}</p>
+      <div className="min-h-[calc(100vh-4rem)] bg-[#030712] container mx-auto px-4 py-16 flex items-center justify-center">
+        <p className="text-gray-400">{error || "Strategy not found"}</p>
       </div>
     );
   }
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] bg-background">
+    <div className="min-h-[calc(100vh-4rem)] bg-[#030712]">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
         <div className="max-w-3xl mx-auto">
           <div className="mb-8">
             <div className="flex items-center justify-between mb-2">
-              <h1 className="text-3xl font-bold tracking-tight">{strategy.name}</h1>
-              <Button variant="outline" onClick={() => router.push(`/strategy/${strategyId}/edit`)}>
+              <h1 className="text-3xl font-bold tracking-tight text-white">{strategy.name}</h1>
+              <Button variant="outline" onClick={() => router.push(`/strategy/${strategyId}/edit`)} className="border-blue-900 text-gray-300 hover:text-white hover:border-blue-800 hover:bg-blue-950/30">
                 Edit Strategy
               </Button>
             </div>
-            <p className="text-muted-foreground">
+            <p className="text-gray-300">
               {strategy.model_provider} / {strategy.model_name}
             </p>
           </div>
 
-          <Card className="mb-6">
+          <Card className="mb-6 bg-[#0A0E1A] border-blue-900/50">
             <CardHeader>
-              <CardTitle>Start a Session</CardTitle>
-              <CardDescription>
+              <CardTitle className="text-white">Start a Session</CardTitle>
+              <CardDescription className="text-gray-300">
                 VIRTUAL uses real Hyperliquid prices with simulated execution and a $100,000 starting balance. 
                 ARENA creates a competitive session visible on the leaderboard (starts with $100k, virtual execution). 
                 LIVE places real orders on Hyperliquid.
@@ -171,6 +171,7 @@ function StrategyDetailContent() {
                 <Button 
                   disabled={busy || ((!strategy.api_key_ciphertext || strategy.api_key_ciphertext === "stored_in_ai_connections") && !strategy.saved_api_key_id)} 
                   onClick={() => createAndStart("virtual")}
+                  className="bg-blue-900 hover:bg-blue-800 text-white border border-blue-700"
                 >
                   {busy ? "Starting..." : "Start Virtual ($100k)"}
                 </Button>
@@ -178,7 +179,7 @@ function StrategyDetailContent() {
                   disabled={busy || ((!strategy.api_key_ciphertext || strategy.api_key_ciphertext === "stored_in_ai_connections") && !strategy.saved_api_key_id)}
                   variant="default"
                   onClick={() => createAndStart("arena")}
-                  className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700"
+                  className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white"
                 >
                   {busy ? "Starting..." : "Start in Arena 🏆"}
                 </Button>
@@ -189,22 +190,23 @@ function StrategyDetailContent() {
                     setConfirmText("");
                     setLiveDialogOpen(true);
                   }}
+                  className="bg-red-900 hover:bg-red-800 text-white"
                 >
                   Start Live
                 </Button>
-                <Button variant="outline" onClick={() => router.push("/settings")}>
+                <Button variant="outline" onClick={() => router.push("/settings")} className="border-blue-900 text-gray-300 hover:text-white hover:border-blue-800 hover:bg-blue-950/30">
                   Manage Exchange Connection
                 </Button>
               </div>
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="bg-[#0A0E1A] border-blue-900/50">
             <CardHeader>
-              <CardTitle>Risk Filters</CardTitle>
-              <CardDescription>Used by both Virtual and Live modes</CardDescription>
+              <CardTitle className="text-white">Risk Filters</CardTitle>
+              <CardDescription className="text-gray-300">Used by both Virtual and Live modes</CardDescription>
             </CardHeader>
-            <CardContent className="text-sm text-muted-foreground space-y-1">
+            <CardContent className="text-sm text-gray-300 space-y-1">
               <div>max_position_usd: {strategy.filters?.risk?.maxPositionUsd ?? "(not set)"}</div>
               <div>max_leverage: {strategy.filters?.risk?.maxLeverage ?? "(not set)"}</div>
               <div>max_daily_loss_pct: {strategy.filters?.risk?.maxDailyLossPct ?? "(not set)"}</div>
@@ -212,15 +214,15 @@ function StrategyDetailContent() {
           </Card>
 
           <Dialog open={liveDialogOpen} onOpenChange={setLiveDialogOpen}>
-            <DialogContent>
+            <DialogContent className="bg-[#0A0E1A] border-blue-900">
               <DialogHeader>
-                <DialogTitle>⚠️ Live trading confirmation</DialogTitle>
-                <DialogDescription>
-                  LIVE mode will place real orders on Hyperliquid. Type <strong>CONFIRM</strong> to proceed.
+                <DialogTitle className="text-white">⚠️ Live trading confirmation</DialogTitle>
+                <DialogDescription className="text-gray-300">
+                  LIVE mode will place real orders on Hyperliquid. Type <strong className="text-white">CONFIRM</strong> to proceed.
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-3">
-                <Input value={confirmText} onChange={(e) => setConfirmText(e.target.value)} placeholder="CONFIRM" />
+                <Input value={confirmText} onChange={(e) => setConfirmText(e.target.value)} placeholder="CONFIRM" className="bg-blue-950/30 border-blue-900 text-white placeholder:text-gray-500" />
                 <div className="flex gap-2">
                   <Button
                     variant="destructive"
@@ -229,14 +231,15 @@ function StrategyDetailContent() {
                       setLiveDialogOpen(false);
                       await createAndStart("live");
                     }}
+                    className="bg-red-900 hover:bg-red-800 text-white"
                   >
                     Start Live
                   </Button>
-                  <Button variant="outline" onClick={() => setLiveDialogOpen(false)}>
+                  <Button variant="outline" onClick={() => setLiveDialogOpen(false)} className="border-blue-900 text-gray-300 hover:text-white hover:border-blue-800 hover:bg-blue-950/30">
                     Cancel
                   </Button>
                 </div>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-xs text-gray-400">
                   Tip: start with Virtual first to verify intent + risk gates look correct.
                 </p>
               </div>

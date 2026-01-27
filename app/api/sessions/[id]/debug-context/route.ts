@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import { getUserFromRequest } from "@/lib/api/serverAuth";
 import { getPositions } from "@/lib/brokers/virtualBroker";
+import { getLivePositions } from "@/lib/brokers/liveBroker";
 import { getMidPrices } from "@/lib/hyperliquid/prices";
 import { getCandles } from "@/lib/hyperliquid/candles";
 import { calculateIndicators } from "@/lib/indicators/calculations";
@@ -27,13 +28,14 @@ export async function GET(
 
     const serviceClient = createServiceRoleClient();
 
-    // Load session with strategy and account
+    // Load session with strategy and accounts (both virtual and live)
     const { data: session, error: sessionError } = await serviceClient
       .from("strategy_sessions")
       .select(`
         *,
         strategies(*),
-        virtual_accounts(*)
+        virtual_accounts(*),
+        live_accounts(*)
       `)
       .eq("id", sessionId)
       .single();
@@ -43,11 +45,21 @@ export async function GET(
     }
 
     const strategy = Array.isArray(session.strategies) ? session.strategies[0] : session.strategies;
-    const accountData = session.virtual_accounts;
+    
+    // Determine which account to use based on session mode
+    const sessionMode = session.mode || "virtual";
+    const accountData = sessionMode === "live" ? session.live_accounts : session.virtual_accounts;
     const account = Array.isArray(accountData) ? accountData[0] : accountData;
 
-    if (!strategy || !account) {
-      return NextResponse.json({ error: "Strategy or account not found" }, { status: 404 });
+    if (!strategy) {
+      return NextResponse.json({ error: "Strategy not found" }, { status: 404 });
+    }
+
+    if (!account) {
+      return NextResponse.json({ 
+        error: `No ${sessionMode} account found for this session`,
+        mode: sessionMode,
+      }, { status: 404 });
     }
 
     if (!account.id) {
@@ -82,8 +94,10 @@ export async function GET(
     const pricesByMarket = await getMidPrices([market]);
     const currentPrice = pricesByMarket[market] || 0;
 
-    // Get positions
-    const allPositions = await getPositions(account.id);
+    // Get positions based on session mode
+    const allPositions = sessionMode === "live" 
+      ? await getLivePositions(account.id)
+      : await getPositions(account.id);
 
     // Build the same context that would be sent to AI
     const aiInputs = filters.aiInputs || {};
@@ -260,6 +274,7 @@ export async function GET(
 
     return NextResponse.json({
       sessionId,
+      sessionMode,
       strategyName: strategy.name,
       sessionMarkets: markets, // All markets configured for this session
       selectedMarket: market, // The market being shown (from ?market= or default)
@@ -272,7 +287,7 @@ export async function GET(
       },
       note: requestedMarket && !markets.includes(requestedMarket)
         ? `⚠️ Requested market '${requestedMarket}' not found in session. Showing '${market}' instead. Available markets: ${markets.join(", ")}`
-        : "This shows what would be sent to the AI for a single market. The AI processes one market per tick in round-robin fashion.",
+        : `This shows what would be sent to the AI for a single market. The AI processes one market per tick in round-robin fashion. Session mode: ${sessionMode.toUpperCase()}`,
     });
   } catch (error: any) {
     console.error("Debug context error:", error);

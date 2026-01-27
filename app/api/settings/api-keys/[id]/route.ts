@@ -52,21 +52,39 @@ export async function DELETE(
     // Check if any strategies are using this key
     const { data: strategiesUsingKey, error: strategiesError } = await serviceClient
       .from("strategies")
-      .select("id, name")
+      .select("id, name, api_key_ciphertext")
       .eq("saved_api_key_id", keyId)
       .eq("user_id", user.id);
 
     if (strategiesError) {
       console.error("[DELETE /api/settings/api-keys/[id]] Error checking strategies:", strategiesError);
-      // Continue with deletion even if check fails
+      return NextResponse.json(
+        { error: "Failed to check strategy dependencies" },
+        { status: 500 }
+      );
     }
 
-    // If strategies are using this key, warn but still allow deletion
-    // The FK is set to ON DELETE SET NULL, so strategies will fallback to their own api_key_ciphertext
+    // Check if any strategies would be left without ANY API key
+    const strategiesWithoutFallback = (strategiesUsingKey || []).filter(
+      (s) => !s.api_key_ciphertext || s.api_key_ciphertext.trim() === ""
+    );
+
+    if (strategiesWithoutFallback.length > 0) {
+      const names = strategiesWithoutFallback.map((s) => s.name).join(", ");
+      return NextResponse.json(
+        {
+          error: `Cannot delete this key. ${strategiesWithoutFallback.length} strategy(ies) depend on it: ${names}. Please edit these strategies to add a manual API key or select a different saved key first.`,
+          affectedStrategies: strategiesWithoutFallback,
+        },
+        { status: 409 } // 409 Conflict
+      );
+    }
+
+    // Safe to delete - all strategies using this key have a fallback
     if (strategiesUsingKey && strategiesUsingKey.length > 0) {
-      const strategyNames = strategiesUsingKey.map(s => s.name).join(", ");
+      const strategyNames = strategiesUsingKey.map((s) => s.name).join(", ");
       console.warn(
-        `[DELETE /api/settings/api-keys/[id]] Deleting key used by ${strategiesUsingKey.length} strategies: ${strategyNames}`
+        `[DELETE /api/settings/api-keys/[id]] Deleting key used by ${strategiesUsingKey.length} strategies (they have fallback keys): ${strategyNames}`
       );
     }
 

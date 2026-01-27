@@ -150,12 +150,12 @@ function PostDetailContent({ postId }: { postId: string }) {
   }
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] bg-background">
+    <div className="min-h-[calc(100vh-4rem)] page-container white-cards">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
         <div className="max-w-4xl mx-auto">
           <div className="mb-6">
             <Link href="/community">
-              <Button variant="ghost">← Back to Community</Button>
+              <Button variant="ghost" className="text-white hover:text-white hover:bg-blue-900/30">← Back to Community</Button>
             </Link>
           </div>
 

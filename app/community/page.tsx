@@ -203,25 +203,26 @@ function CommunityContent() {
   }
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] bg-background">
+    <div className="min-h-[calc(100vh-4rem)] page-container white-cards">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
         <div className="max-w-4xl mx-auto">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
             <div>
-              <h1 className="text-3xl sm:text-4xl font-bold tracking-tight mb-2">Community</h1>
-              <p className="text-muted-foreground">Share insights and learn from others</p>
+              <h1 className="text-3xl sm:text-4xl font-bold tracking-tight mb-2 text-white">Community</h1>
+              <p className="text-gray-300">Share insights and learn from others</p>
             </div>
             <CreatePostDialog />
           </div>
 
           {/* Sort Options */}
           <div className="flex items-center gap-2 mb-6">
-            <span className="text-sm text-muted-foreground">Sort by:</span>
+            <span className="text-sm text-gray-300">Sort by:</span>
             <div className="flex gap-1">
               <Button
                 variant={sortBy === "latest" ? "default" : "outline"}
                 size="sm"
                 onClick={() => setSortBy("latest")}
+                className={sortBy === "latest" ? "" : "text-white border-gray-600 hover:bg-blue-900/30 hover:text-white"}
               >
                 Latest
               </Button>
@@ -229,6 +230,7 @@ function CommunityContent() {
                 variant={sortBy === "mostLiked" ? "default" : "outline"}
                 size="sm"
                 onClick={() => setSortBy("mostLiked")}
+                className={sortBy === "mostLiked" ? "" : "text-white border-gray-600 hover:bg-blue-900/30 hover:text-white"}
               >
                 Most Liked
               </Button>

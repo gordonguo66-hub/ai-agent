@@ -164,67 +164,79 @@ function DashboardContent() {
 
   if (loading) {
     return (
-      <div className="container mx-auto px-4 py-16 flex items-center justify-center">
-        <p className="text-muted-foreground">Loading...</p>
+      <div className="min-h-[calc(100vh-4rem)] page-container container mx-auto px-4 py-16 flex items-center justify-center">
+        <p className="text-gray-300">Loading...</p>
       </div>
     );
   }
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] bg-background">
+    <div className="min-h-[calc(100vh-4rem)] page-container">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
         <div className="max-w-7xl mx-auto">
           {/* Header */}
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-10">
             <div>
-              <h1 className="text-3xl sm:text-4xl font-bold tracking-tight mb-2">Dashboard</h1>
-              <p className="text-muted-foreground">Manage your strategies and view performance</p>
+              <h1 className="text-3xl sm:text-4xl font-bold tracking-tight mb-2 text-white">
+                Dashboard
+              </h1>
+              <p className="text-gray-300">Manage your strategies and view performance</p>
             </div>
             <Link href="/strategy/new">
-              <Button size="lg">Create Strategy</Button>
+              <Button size="lg" className="bg-blue-900 hover:bg-blue-800 text-white border border-blue-700">
+                + Create Strategy
+              </Button>
             </Link>
           </div>
 
           {/* Strategies Section */}
           <div className="mb-12">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-semibold">My Strategies</h2>
-              <span className="text-sm text-muted-foreground">{strategies.length} total</span>
+              <h2 className="text-2xl font-bold text-white flex items-center gap-2">
+                <span className="text-2xl">🎯</span>
+                My Strategies
+              </h2>
+              <span className="text-sm text-gray-300 bg-blue-950/30 px-3 py-1 rounded-full border border-blue-900">
+                {strategies.length} total
+              </span>
             </div>
             {strategies.length === 0 ? (
-              <Card className="border-dashed">
+              <Card className="border-dashed border-blue-900 trading-card">
                 <CardContent className="pt-12 pb-12">
                   <div className="text-center max-w-md mx-auto">
-                    <p className="text-muted-foreground mb-4 text-base">
+                    <div className="text-6xl mb-4">🎯</div>
+                    <p className="text-gray-300 mb-6 text-base">
                       No strategies yet. Create your first strategy to get started.
                     </p>
                     <Link href="/strategy/new">
-                      <Button>Create Your First Strategy</Button>
+                      <Button className="bg-blue-900 hover:bg-blue-800 text-white border border-blue-700">
+                        Create Your First Strategy
+                      </Button>
                     </Link>
                   </div>
                 </CardContent>
               </Card>
             ) : (
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
                 {strategies.map((strategy) => (
-                  <Card key={strategy.id} className="hover:shadow-md transition-shadow relative">
-                    <CardHeader className="pb-3">
+                  <Card key={strategy.id} className="bg-[#0A0E1A] border-blue-900/50 hover:border-blue-800 transition-all relative group">
+                    <CardHeader className="pb-3 border-b border-blue-900/50">
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex-1 min-w-0">
-                          <CardTitle className="text-lg mb-1">
-                            <Link href={`/strategy/${strategy.id}`} className="hover:underline">
+                          <CardTitle className="text-lg mb-2 font-bold text-white">
+                            <Link href={`/strategy/${strategy.id}`} className="hover:text-gray-300 transition-colors">
                               {strategy.name}
                             </Link>
                           </CardTitle>
-                          <CardDescription className="text-sm">
-                            {strategy.model_provider} / {strategy.model_name}
+                          <CardDescription className="text-sm text-gray-300">
+                            <span className="font-mono">{strategy.model_provider}</span> / <span className="font-mono">{strategy.model_name}</span>
                           </CardDescription>
                         </div>
                       </div>
                     </CardHeader>
                     <button
                       type="button"
-                      className="absolute top-3 right-3 h-8 w-8 p-0 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 flex items-center justify-center flex-shrink-0 transition-colors cursor-pointer z-20"
+                      className="absolute top-3 right-3 h-8 w-8 p-0 rounded-md text-gray-400 hover:text-rose-400 hover:bg-rose-900/30 flex items-center justify-center flex-shrink-0 transition-all cursor-pointer z-20 opacity-0 group-hover:opacity-100"
                       onClick={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
@@ -237,30 +249,47 @@ function DashboardContent() {
                     </button>
                     <CardContent className="pt-4 space-y-3">
                       <div className="flex items-center justify-between">
-                        <Badge variant="outline" className="text-xs">
+                        <Badge className="text-xs bg-blue-950/30 border-blue-900 text-gray-300">
                           <FormattedDate date={strategy.created_at} format="date" />
                         </Badge>
                       </div>
                       <div className="flex flex-col gap-2">
                         <div className="flex gap-2">
                           <Link href={`/strategy/${strategy.id}/edit`} className="flex-1">
-                            <Button variant="ghost" size="sm" className="w-full">
+                            <Button variant="ghost" size="sm" className="w-full text-white bg-blue-950/30 hover:bg-blue-900/50 transition-all">
                               Edit
                             </Button>
                           </Link>
                           <Link href={`/strategy/${strategy.id}`} className="flex-1">
-                            <Button variant="outline" size="sm" className="w-full">
+                            <Button size="sm" className="w-full bg-blue-900 hover:bg-blue-800 text-white border border-blue-700 transition-all">
                               Start Session
                             </Button>
                           </Link>
                         </div>
-                        {sessions.some((s: any) => s.strategy_id === strategy.id && s.mode === "virtual") && (
-                          <Link href={`/dashboard/sessions/${sessions.find((s: any) => s.strategy_id === strategy.id && s.mode === "virtual")?.id}`} className="w-full">
-                            <Button variant="secondary" size="sm" className="w-full">
-                              View Session
-                            </Button>
-                          </Link>
-                        )}
+                        {(() => {
+                          const strategySessions = sessions.filter((s: any) => s.strategy_id === strategy.id);
+                          const sessionCount = strategySessions.length;
+                          
+                          if (sessionCount === 0) return null;
+                          
+                          // Always show the detailed list format
+                          return (
+                            <div className="w-full space-y-1">
+                              <div className="text-xs text-gray-400 px-1 mb-1">
+                                {sessionCount} {sessionCount === 1 ? 'Session' : 'Sessions'}:
+                              </div>
+                              {strategySessions.map((session: any) => (
+                                <Link key={session.id} href={`/dashboard/sessions/${session.id}`} className="block">
+                                  <Button size="sm" className="w-full bg-blue-900/50 text-white hover:bg-blue-900 border border-blue-800 transition-all text-xs justify-start">
+                                    <span className="capitalize">{session.mode}</span>
+                                    {session.status === "running" && <span className="ml-auto text-green-400">●</span>}
+                                    {session.status === "stopped" && <span className="ml-auto text-gray-500">■</span>}
+                                  </Button>
+                                </Link>
+                              ))}
+                            </div>
+                          );
+                        })()}
                       </div>
                     </CardContent>
                   </Card>
@@ -272,29 +301,37 @@ function DashboardContent() {
           {/* Trading Sessions Section */}
           <div>
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-semibold">Trading Sessions</h2>
+              <h2 className="text-2xl font-bold text-white flex items-center gap-2">
+                <span className="text-2xl">📈</span>
+                Trading Sessions
+              </h2>
               {sessions.length > 0 && (
-                <span className="text-sm text-muted-foreground">{sessions.length} total</span>
+                <span className="text-sm text-gray-300 bg-blue-950/30 px-3 py-1 rounded-full border border-blue-900">
+                  {sessions.filter((s: any) => s.status === "running").length} active
+                </span>
               )}
             </div>
             {sessions.length === 0 ? (
-              <Card className="border-dashed">
+              <Card className="border-dashed border-blue-900 trading-card">
                 <CardContent className="pt-12 pb-12">
                   <div className="text-center max-w-md mx-auto">
-                    <p className="text-muted-foreground mb-1 text-base">
+                    <div className="text-6xl mb-4">📈</div>
+                    <p className="text-gray-300 mb-1 text-base">
                       No trading sessions yet.
                     </p>
-                    <p className="text-sm text-muted-foreground mb-4">
+                    <p className="text-sm text-gray-400 mb-6">
                       Create a session from a strategy to start dry-run or live trading.
                     </p>
                     <Link href="/settings/exchange">
-                      <Button variant="outline">Connect Exchange First</Button>
+                      <Button variant="outline" className="border-blue-900 text-gray-300 hover:text-white hover:border-blue-800 hover:bg-blue-950/30 transition-all">
+                        Connect Exchange First
+                      </Button>
                     </Link>
                   </div>
                 </CardContent>
               </Card>
             ) : (
-              <div className="space-y-3">
+              <div className="space-y-4">
                 {sessions.map((session: any) => {
                   const strategy = session.strategies || {};
                   // Get account based on mode
@@ -306,10 +343,10 @@ function DashboardContent() {
                   const pnl = equity != null && startingEquity != null ? equity - startingEquity : null;
                   
                   return (
-                    <Card key={session.id} className="hover:shadow-sm transition-shadow relative">
+                    <Card key={session.id} className="bg-[#0A0E1A] border-blue-900/50 hover:border-blue-800 transition-all relative group">
                       <button
                         type="button"
-                        className="absolute top-3 right-3 h-8 w-8 p-0 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 flex items-center justify-center flex-shrink-0 transition-colors cursor-pointer z-20"
+                        className="absolute top-3 right-3 h-8 w-8 p-0 rounded-md text-gray-400 hover:text-rose-400 hover:bg-rose-900/30 flex items-center justify-center flex-shrink-0 transition-all cursor-pointer z-20 opacity-0 group-hover:opacity-100"
                         onClick={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
@@ -323,8 +360,8 @@ function DashboardContent() {
                       <CardContent className="pt-6">
                         <div className="flex items-center justify-between gap-4">
                           <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-1">
-                              <h3 className="font-semibold text-base truncate">
+                            <div className="flex items-center gap-2 mb-2 flex-wrap">
+                              <h3 className="font-bold text-base text-white truncate">
                                 {strategy.name || "Unknown Strategy"}
                               </h3>
                               {(() => {
@@ -338,30 +375,34 @@ function DashboardContent() {
                                   </Badge>
                                 );
                               })()}
-                              <Badge variant="outline" className="text-xs">
+                              <Badge className={`text-xs ${
+                                session.status === "running" 
+                                  ? "bg-emerald-900/50 text-emerald-300 border-emerald-800" 
+                                  : "bg-gray-900/50 text-gray-400 border-gray-800"
+                              }`}>
                                 {session.status}
                               </Badge>
                             </div>
-                            <p className="text-sm text-muted-foreground">
+                            <p className="text-sm text-gray-300 font-mono">
                               {session.market} • {session.strategies?.filters?.cadenceSeconds || session.cadence_seconds}s cadence
                             </p>
                             {equity != null && pnl != null && (
-                              <p className="text-xs text-muted-foreground mt-1">
-                                Equity: ${equity.toFixed(2)} • PnL:{" "}
-                                <span className={pnl >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}>
+                              <p className="text-sm text-gray-200 mt-2 font-mono">
+                                Equity: <span className="text-white font-bold">${equity.toFixed(2)}</span> • PnL:{" "}
+                                <span className={`font-bold ${pnl >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
                                   {pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}
                                 </span>
                               </p>
                             )}
                             {session.last_tick_at && (
-                              <p className="text-xs text-muted-foreground mt-1">
+                              <p className="text-xs text-gray-400 mt-1">
                                 Last tick: <FormattedDate date={session.last_tick_at} />
                               </p>
                             )}
                           </div>
                           <Link href={`/dashboard/sessions/${session.id}`}>
-                            <Button variant="outline" size="sm" className="flex-shrink-0">
-                              View
+                            <Button size="sm" className="flex-shrink-0 bg-blue-900/50 text-white hover:bg-blue-900 border border-blue-800 transition-all">
+                              View →
                             </Button>
                           </Link>
                         </div>

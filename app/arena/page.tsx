@@ -164,7 +164,7 @@ function ChartAvatarDot(props: any) {
               <span className="font-mono text-xs">{value}</span>
             </div>
           </div>
-        </div>
+    </div>
       </foreignObject>
     </g>
   );
@@ -324,14 +324,18 @@ function ArenaContent() {
   };
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] bg-background">
+    <div className="min-h-[calc(100vh-4rem)] page-container white-cards">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
         <div className="max-w-7xl mx-auto">
           <div className="mb-8">
             <div className="flex items-center justify-between mb-3">
               <div>
-                <h1 className="text-3xl sm:text-4xl font-bold tracking-tight">Arena Leaderboard</h1>
-                <Badge variant="secondary" className="mt-2">Virtual $100k Competition</Badge>
+                <h1 className="text-3xl sm:text-4xl font-bold tracking-tight text-white">
+                  Arena Leaderboard
+                </h1>
+                <Badge className="mt-2 bg-blue-900/50 text-white border-blue-800">
+                  🏆 Virtual $100k Competition
+                </Badge>
               </div>
               <div className="flex items-center gap-2">
                 <Button 
@@ -357,6 +361,7 @@ function ArenaContent() {
                   }}
                   variant="outline"
                   size="sm"
+                  className="border-blue-900 text-gray-300 hover:text-white hover:border-blue-800 hover:bg-blue-950/30 transition-all"
                 >
                   Refresh Snapshots
                 </Button>
@@ -367,35 +372,44 @@ function ArenaContent() {
                   }}
                   variant="outline"
                   size="sm"
+                  className="border-blue-900 text-gray-300 hover:text-white hover:border-blue-800 hover:bg-blue-950/30 transition-all"
                 >
                   Refresh Now
                 </Button>
                 <Button 
                   onClick={() => router.push("/dashboard")}
-                  variant="default"
                   size="sm"
+                  className="bg-blue-900 hover:bg-blue-800 text-white border border-blue-700 transition-all"
                 >
                   Start in Arena →
                 </Button>
               </div>
             </div>
-            <p className="text-muted-foreground text-base mb-4">
+            <p className="text-gray-300 text-base mb-4">
               Compete with other traders using real market data. Everyone starts with $100,000 virtual capital.
             </p>
-            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md p-3 text-sm text-blue-800 dark:text-blue-200">
-              💡 <strong>To join:</strong> Go to your strategy page and click <strong>"Start in Arena"</strong> to begin competing with a fresh $100k account.
+            <div className="bg-blue-950/30 border border-blue-900 rounded-lg p-4">
+              <div className="flex items-start gap-3">
+                <span className="text-2xl">💡</span>
+                <div>
+                  <p className="text-sm text-gray-300 leading-relaxed">
+                    <strong className="text-white">To join:</strong> Go to your strategy page and click <strong className="text-white">"Start in Arena"</strong> to begin competing with a fresh $100k account.
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
 
           {/* Performance Chart */}
-          <Card className="mb-8">
-            <CardHeader>
+          <Card className="mb-8 trading-card border-blue-900/50">
+            <CardHeader className="border-b border-blue-900/50 bg-[#0A0E1A]">
               <div className="flex items-center justify-between flex-wrap gap-3">
                 <div>
-                  <CardTitle>
+                  <CardTitle className="text-xl font-bold text-white flex items-center gap-2">
+                    <span className="text-2xl">📊</span>
                     {chartView === "return" ? "Return %" : "Total Account Value"}
                   </CardTitle>
-                  <CardDescription>
+                  <CardDescription className="text-gray-300 mt-1">
                     Performance over time for arena participants
                   </CardDescription>
                 </div>
@@ -404,32 +418,32 @@ function ArenaContent() {
                   <select
                     value={topN}
                     onChange={(e) => setTopN(e.target.value === "me" ? "me" : parseInt(e.target.value))}
-                    className="flex h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
+                    className="flex h-9 rounded-lg border border-blue-900 bg-blue-950/30 px-3 py-1 text-sm text-white hover:border-blue-800 transition-all"
                   >
-                    <option value="10">Top 10</option>
-                    <option value="25">Top 25</option>
-                    <option value="50">Top 50</option>
-                    <option value="me">Me Only</option>
+                    <option value="10" className="bg-[#0A0E1A]">Top 10</option>
+                    <option value="25" className="bg-[#0A0E1A]">Top 25</option>
+                    <option value="50" className="bg-[#0A0E1A]">Top 50</option>
+                    <option value="me" className="bg-[#0A0E1A]">Me Only</option>
                   </select>
                   
                   {/* View toggle */}
-                  <div className="flex items-center rounded-md border border-input overflow-hidden">
+                  <div className="flex items-center rounded-lg border border-blue-900 overflow-hidden bg-blue-950/30">
                     <button
                       onClick={() => setChartView("return")}
-                      className={`px-3 py-1.5 text-sm ${
+                      className={`px-3 py-1.5 text-sm font-medium transition-all ${
                         chartView === "return"
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-background hover:bg-muted"
+                          ? "bg-blue-900 text-white border-blue-700"
+                          : "bg-transparent text-gray-300 hover:text-white"
                       }`}
                     >
                       Return %
                     </button>
                     <button
                       onClick={() => setChartView("equity")}
-                      className={`px-3 py-1.5 text-sm border-l ${
+                      className={`px-3 py-1.5 text-sm font-medium border-l border-blue-900 transition-all ${
                         chartView === "equity"
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-background hover:bg-muted"
+                          ? "bg-blue-900 text-white border-blue-700"
+                          : "bg-transparent text-gray-300 hover:text-white"
                       }`}
                     >
                       Equity $
@@ -440,18 +454,18 @@ function ArenaContent() {
                   <select
                     value={chartHours}
                     onChange={(e) => setChartHours(e.target.value === "all" ? "all" : parseInt(e.target.value))}
-                    className="flex h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
+                    className="flex h-9 rounded-lg border border-blue-900 bg-blue-950/30 px-3 py-1 text-sm text-white hover:border-blue-800 transition-all"
                   >
-                    <option value="24">24H</option>
-                    <option value="48">48H</option>
-                    <option value="72">72H</option>
-                    <option value="168">7D</option>
-                    <option value="all">All Time</option>
+                    <option value="24" className="bg-[#0A0E1A]">24H</option>
+                    <option value="48" className="bg-[#0A0E1A]">48H</option>
+                    <option value="72" className="bg-[#0A0E1A]">72H</option>
+                    <option value="168" className="bg-[#0A0E1A]">7D</option>
+                    <option value="all" className="bg-[#0A0E1A]">All Time</option>
                   </select>
                 </div>
               </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="bg-[#0A0E1A]">
               {loadingChart ? (
                 <div className="h-[400px] flex items-center justify-center">
                   <p className="text-muted-foreground">Loading chart...</p>
@@ -472,18 +486,18 @@ function ArenaContent() {
               ) : (
                 <div className="space-y-2">
                   {chartWarning && (
-                    <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-md p-2 text-xs text-yellow-800 dark:text-yellow-200">
+                    <div className="bg-yellow-900/20 border border-yellow-800 rounded-md p-2 text-xs text-yellow-200">
                       {chartWarning}
                     </div>
                   )}
-                  <div className="relative">
+                  <div className="relative bg-[#0A0E1A] rounded-lg p-4 border border-blue-900/30">
                     <ResponsiveContainer width="100%" height={400}>
                       <LineChart 
                         ref={chartRef}
                         data={chartData} 
                         margin={{ top: 5, right: 180, left: 20, bottom: 5 }}
                       >
-                        <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                        <CartesianGrid strokeDasharray="3 3" stroke="rgb(59, 130, 246, 0.1)" opacity={0.5} />
                         <XAxis
                           dataKey="time"
                           type="number"
@@ -514,7 +528,8 @@ function ArenaContent() {
                           }}
                           tickCount={6}
                           minTickGap={50}
-                          tick={{ fontSize: 11 }}
+                          tick={{ fontSize: 11, fill: '#9CA3AF' }}
+                          stroke="#374151"
                         />
                         <YAxis
                           domain={chartYAxisDomain ? [chartYAxisDomain.min, chartYAxisDomain.max] : ["auto", "auto"]}
@@ -528,7 +543,8 @@ function ArenaContent() {
                               return `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
                             }
                           }}
-                          tick={{ fontSize: 11 }}
+                          tick={{ fontSize: 11, fill: '#9CA3AF' }}
+                          stroke="#374151"
                           width={65}
                         />
                         <Tooltip
@@ -549,18 +565,21 @@ function ArenaContent() {
                             return [formattedValue, label];
                           }}
                           contentStyle={{
-                            backgroundColor: "hsl(var(--background))",
-                            border: "1px solid hsl(var(--border))",
-                            borderRadius: "6px",
+                            backgroundColor: "rgb(15, 20, 25, 0.98)",
+                            border: "1px solid rgb(59, 130, 246, 0.3)",
+                            borderRadius: "8px",
                             fontSize: "12px",
+                            boxShadow: "0 0 20px rgba(59, 130, 246, 0.2)",
+                            backdropFilter: "blur(10px)",
                           }}
                         />
                         {chartView === "return" && (
                           <ReferenceLine
                             y={0}
-                            stroke="hsl(var(--muted-foreground))"
+                            stroke="rgb(59, 130, 246)"
                             strokeDasharray="3 3"
-                            strokeOpacity={0.5}
+                            strokeOpacity={0.3}
+                            strokeWidth={2}
                           />
                         )}
                         {displayedParticipants.map((participant, index) => {
@@ -602,29 +621,32 @@ function ArenaContent() {
           </Card>
 
           {/* Leaderboard */}
-          <Card>
-            <CardHeader>
+          <Card className="trading-card border-blue-900/50">
+            <CardHeader className="border-b border-blue-900/50 bg-[#0A0E1A]">
               <div className="flex items-center justify-between">
                 <div>
-                  <CardTitle>Virtual Arena Leaderboard</CardTitle>
-                  <CardDescription>
+                  <CardTitle className="text-xl font-bold text-white flex items-center gap-2">
+                    <span className="text-2xl">🏆</span>
+                    Virtual Arena Leaderboard
+                  </CardTitle>
+                  <CardDescription className="text-gray-300 mt-1">
                     Rankings based on equity. Everyone starts with $100,000.
                   </CardDescription>
                 </div>
                 <div className="flex items-center gap-2">
-                  <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <label className="flex items-center gap-2 text-sm text-gray-300 hover:text-white transition-colors cursor-pointer">
                     <input
                       type="checkbox"
                       checked={showEndedSessions}
                       onChange={(e) => setShowEndedSessions(e.target.checked)}
-                      className="rounded border-gray-300"
+                      className="rounded border-blue-900 bg-blue-950/30 text-blue-800 focus:ring-blue-800 focus:ring-offset-0"
                     />
                     Show ended sessions
                   </label>
                 </div>
               </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="bg-[#0A0E1A]">
               {loading ? (
                 <div className="text-center py-8">
                   <p className="text-muted-foreground">Loading leaderboard...</p>
@@ -640,20 +662,20 @@ function ArenaContent() {
                   </Button>
                 </div>
               ) : (
-                <div className="overflow-x-auto">
+                <div className="overflow-x-auto rounded-lg">
                   <Table>
                     <TableHeader>
-                      <TableRow>
-                        <TableHead className="w-16">Rank</TableHead>
-                        <TableHead>Trader</TableHead>
-                        <TableHead className="text-right">Equity</TableHead>
-                        <TableHead className="text-right">PnL</TableHead>
-                        <TableHead className="text-right">Return</TableHead>
-                        <TableHead className="text-right">Trades</TableHead>
-                        <TableHead className="text-right">Win Rate</TableHead>
-                        <TableHead className="text-right">Max DD</TableHead>
-                        <TableHead className="text-right">Days</TableHead>
-                        <TableHead className="w-20">Status</TableHead>
+                      <TableRow className="border-b border-blue-900/50 hover:bg-transparent">
+                        <TableHead className="w-16 text-gray-300 font-semibold">Rank</TableHead>
+                        <TableHead className="text-gray-300 font-semibold">Trader</TableHead>
+                        <TableHead className="text-right text-gray-300 font-semibold">Equity</TableHead>
+                        <TableHead className="text-right text-gray-300 font-semibold">PnL</TableHead>
+                        <TableHead className="text-right text-gray-300 font-semibold">Return</TableHead>
+                        <TableHead className="text-right text-gray-300 font-semibold">Trades</TableHead>
+                        <TableHead className="text-right text-gray-300 font-semibold">Win Rate</TableHead>
+                        <TableHead className="text-right text-gray-300 font-semibold">Max DD</TableHead>
+                        <TableHead className="text-right text-gray-300 font-semibold">Days</TableHead>
+                        <TableHead className="w-20 text-gray-300 font-semibold">Status</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -665,59 +687,67 @@ function ArenaContent() {
                           <TableRow
                             key={entry.entryId || entry.displayName}
                             className={`
-                              ${entry.rank <= 3 ? "bg-yellow-50/50 dark:bg-yellow-900/10" : ""}
-                              ${isMe ? "bg-blue-50/50 dark:bg-blue-900/10 border-l-2 border-l-blue-500" : ""}
-                              ${isEnded ? "opacity-60" : ""}
+                              border-b border-blue-900/30 transition-all hover:bg-blue-950/20
+                              ${entry.rank <= 3 ? "bg-yellow-900/20 border-l-4 border-l-yellow-700" : ""}
+                              ${isMe ? "bg-blue-900/30 border-l-4 border-l-blue-800" : ""}
+                              ${isEnded ? "opacity-50" : ""}
                             `}
                           >
-                            <TableCell className="font-semibold">
-                              {emoji ? `${emoji} ${entry.rank}` : entry.rank}
+                            <TableCell className="font-bold text-white">
+                              <span className="text-lg">{emoji ? `${emoji} ` : ""}</span>
+                              <span>{entry.rank}</span>
                             </TableCell>
                             <TableCell>
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-3">
                                 <UserAvatar 
                                   displayName={entry.displayName} 
                                   avatarUrl={entry.avatarUrl}
-                                  size={28}
+                                  size={32}
                                 />
-                                <span className={`font-medium ${isMe ? "text-blue-600 dark:text-blue-400" : ""}`}>
+                                <span className={`font-semibold ${isMe ? "text-white" : "text-gray-200"}`}>
                                   {entry.displayName}
-                                  {isMe && <span className="ml-1 text-xs">(You)</span>}
+                                  {isMe && <span className="ml-1 text-xs text-gray-400">(You)</span>}
                                 </span>
                               </div>
                             </TableCell>
-                            <TableCell className="text-right font-mono">
+                            <TableCell className="text-right font-mono text-white font-semibold">
                               {formatCurrency(entry.equity)}
                             </TableCell>
                             <TableCell
-                              className={`text-right font-mono font-semibold ${
+                              className={`text-right font-mono font-bold ${
                                 entry.pnl >= 0
-                                  ? "text-green-600 dark:text-green-400"
-                                  : "text-red-600 dark:text-red-400"
+                                  ? "text-emerald-400"
+                                  : "text-rose-400"
                               }`}
                             >
                               {entry.pnl >= 0 ? "+" : ""}
                               {formatCurrency(entry.pnl)}
                             </TableCell>
                             <TableCell
-                              className={`text-right font-mono ${
+                              className={`text-right font-mono font-bold ${
                                 entry.pnlPct >= 0
-                                  ? "text-green-600 dark:text-green-400"
-                                  : "text-red-600 dark:text-red-400"
+                                  ? "text-emerald-400"
+                                  : "text-rose-400"
                               }`}
                             >
                               {formatPercent(entry.pnlPct)}
                             </TableCell>
-                            <TableCell className="text-right">{entry.tradesCount}</TableCell>
-                            <TableCell className="text-right">{formatPercent(entry.winRate)}</TableCell>
-                            <TableCell className="text-right text-red-600 dark:text-red-400">
+                            <TableCell className="text-right text-gray-200">{entry.tradesCount}</TableCell>
+                            <TableCell className="text-right text-gray-200">{formatPercent(entry.winRate)}</TableCell>
+                            <TableCell className="text-right text-rose-400 font-semibold">
                               {entry.maxDrawdownPct != null ? `-${entry.maxDrawdownPct.toFixed(2)}%` : "N/A"}
                             </TableCell>
-                            <TableCell className="text-right text-muted-foreground">
+                            <TableCell className="text-right text-gray-300">
                               {entry.daysSinceStarted ?? 0}
                             </TableCell>
                             <TableCell>
-                              <Badge variant={isEnded ? "outline" : "default"} className="text-xs">
+                              <Badge 
+                                className={
+                                  isEnded 
+                                    ? "bg-gray-700/30 text-gray-400 border-gray-700" 
+                                    : "bg-emerald-900/50 text-emerald-300 border-emerald-800"
+                                }
+                              >
                                 {isEnded ? (entry.arenaStatus === 'left' ? 'Left' : 'Ended') : 'Active'}
                               </Badge>
                             </TableCell>

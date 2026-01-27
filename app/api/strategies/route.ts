@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { name, model_provider, model_name, prompt, filters, api_key } = body;
+    const { name, model_provider, model_name, prompt, filters, api_key, saved_api_key_id } = body;
 
     if (!name || !model_provider || !model_name || !prompt) {
       return NextResponse.json(
@@ -38,9 +38,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!api_key || !api_key.trim()) {
+    // Check that either a saved key ID or a manual API key is provided
+    if (!saved_api_key_id && (!api_key || !api_key.trim())) {
       return NextResponse.json(
-        { error: "API Key is required to call the GenAI API" },
+        { error: "API Key is required - either provide a saved key or enter an API key" },
         { status: 400 }
       );
     }
@@ -54,44 +55,57 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate API key before storing (non-blocking - key will be validated on actual use)
-    const baseUrl = PROVIDER_BASE_URLS[model_provider];
-    if (baseUrl) {
-      try {
-        // Anthropic uses different validation endpoint
-        if (model_provider === "anthropic") {
-          // Anthropic doesn't have a /models endpoint, skip validation
-          // Will be validated on actual use
-        } else {
-          await validateOpenAICompatibleKey({
-            baseUrl: normalizeBaseUrl(baseUrl),
-            apiKey: api_key.trim(),
-          });
+    // Only validate if using manual API key (not saved key)
+    if (api_key && api_key.trim()) {
+      const baseUrl = PROVIDER_BASE_URLS[model_provider];
+      if (baseUrl) {
+        try {
+          // Anthropic uses different validation endpoint
+          if (model_provider === "anthropic") {
+            // Anthropic doesn't have a /models endpoint, skip validation
+            // Will be validated on actual use
+          } else {
+            await validateOpenAICompatibleKey({
+              baseUrl: normalizeBaseUrl(baseUrl),
+              apiKey: api_key.trim(),
+            });
+          }
+          // Validation passed - continue
+        } catch (validationError: any) {
+          // Validation failed - log but don't block strategy creation
+          // The key will be validated when actually used in paper runs
+          console.warn(`API key validation failed for provider ${model_provider}:`, validationError.message);
+          // Still allow strategy creation - validation will happen on actual use
         }
-        // Validation passed - continue
-      } catch (validationError: any) {
-        // Validation failed - log but don't block strategy creation
-        // The key will be validated when actually used in paper runs
-        console.warn(`API key validation failed for provider ${model_provider}:`, validationError.message);
-        // Still allow strategy creation - validation will happen on actual use
       }
     }
 
     const serviceClient = createServiceRoleClient();
 
-    // Encrypt API key (required)
-    const api_key_ciphertext = encryptCredential(api_key.trim());
+    // Prepare strategy data
+    const strategyData: any = {
+      user_id: user.id,
+      name: String(name),
+      model_provider: String(model_provider),
+      model_name: String(model_name),
+      prompt: String(prompt),
+      filters: filters || {},
+    };
+
+    // Handle API key: either saved key reference or encrypted manual key
+    if (saved_api_key_id) {
+      // Using saved key - store reference, set api_key_ciphertext to null
+      strategyData.saved_api_key_id = saved_api_key_id;
+      strategyData.api_key_ciphertext = null;
+    } else if (api_key && api_key.trim()) {
+      // Using manual key - encrypt and store
+      strategyData.api_key_ciphertext = encryptCredential(api_key.trim());
+      strategyData.saved_api_key_id = null;
+    }
 
     const { data, error } = await serviceClient
       .from("strategies")
-      .insert({
-        user_id: user.id,
-        name: String(name),
-        model_provider: String(model_provider),
-        model_name: String(model_name),
-        api_key_ciphertext,
-        prompt: String(prompt),
-        filters: filters || {},
-      })
+      .insert(strategyData)
       .select()
       .single();
 

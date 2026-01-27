@@ -459,13 +459,13 @@ function ProfileContent({ userId }: { userId: string }) {
   }
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] bg-background">
+    <div className="min-h-[calc(100vh-4rem)] page-container white-cards">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
         <div className="max-w-3xl mx-auto">
           {/* Back button */}
           <div className="mb-6">
             <Link href="/community">
-              <Button variant="ghost">← Back to Community</Button>
+              <Button variant="ghost" className="text-white hover:text-white hover:bg-blue-900/30">← Back to Community</Button>
             </Link>
           </div>
 
@@ -604,7 +604,7 @@ function ProfileContent({ userId }: { userId: string }) {
 
           {/* Posts Feed */}
           <div className="space-y-4">
-            <h2 className="text-lg font-semibold">Posts</h2>
+            <h2 className="text-lg font-semibold text-white">Posts</h2>
 
             {posts.length === 0 ? (
               <Card>

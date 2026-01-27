@@ -142,51 +142,56 @@ export function Nav() {
   const isActive = (path: string) => pathname === path;
 
   return (
-    <nav className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+    <nav className="border-b border-border/50 bg-[#030712] backdrop-blur-xl sticky top-0 z-50 shadow-lg shadow-black/50">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex h-16 items-center justify-between">
           <div className="flex items-center gap-8">
-            <Link href="/" className="text-xl font-semibold tracking-tight text-foreground hover:text-foreground/80 transition-colors">
-              AI Arena Trade
+            <Link href="/" className="flex items-center gap-2 group">
+              <div className="w-8 h-8 rounded-lg bg-blue-900 flex items-center justify-center border border-blue-700 transition-all group-hover:bg-blue-800">
+                <span className="text-white font-bold text-lg">AI</span>
+              </div>
+              <span className="text-xl font-bold tracking-tight text-white">
+                Arena Trade
+              </span>
             </Link>
             {user && (
-              <div className="hidden md:flex items-center gap-1">
+              <div className="hidden md:flex items-center gap-2">
                 <Link
                   href="/dashboard"
-                  className={`px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-all duration-300 ${
                     isActive("/dashboard")
-                      ? "bg-accent text-accent-foreground"
-                      : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                      ? "bg-blue-900/50 text-white border border-blue-700"
+                      : "text-gray-300 hover:text-white hover:bg-blue-950/30 border border-transparent"
                   }`}
                 >
                   Dashboard
                 </Link>
                 <Link
                   href="/arena"
-                  className={`px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-all duration-300 ${
                     isActive("/arena")
-                      ? "bg-accent text-accent-foreground"
-                      : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                      ? "bg-blue-900/50 text-white border border-blue-700"
+                      : "text-gray-300 hover:text-white hover:bg-blue-950/30 border border-transparent"
                   }`}
                 >
                   Arena
                 </Link>
                 <Link
                   href="/community"
-                  className={`px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-all duration-300 ${
                     isActive("/community")
-                      ? "bg-accent text-accent-foreground"
-                      : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                      ? "bg-blue-900/50 text-white border border-blue-700"
+                      : "text-gray-300 hover:text-white hover:bg-blue-950/30 border border-transparent"
                   }`}
                 >
                   Community
                 </Link>
                 <Link
                   href="/settings"
-                  className={`px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-all duration-300 ${
                     pathname?.startsWith("/settings")
-                      ? "bg-accent text-accent-foreground"
-                      : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                      ? "bg-blue-900/50 text-white border border-blue-700"
+                      : "text-gray-300 hover:text-white hover:bg-blue-950/30 border border-transparent"
                   }`}
                 >
                   Settings
@@ -196,37 +201,44 @@ export function Nav() {
           </div>
           <div className="flex items-center gap-3">
             {loading ? (
-              <span className="text-sm text-muted-foreground">Checking...</span>
+              <span className="text-sm text-gray-400">Loading...</span>
             ) : user ? (
               <>
                 <Link 
                   href={`/u/${user.id}`}
-                  className="flex items-center gap-2 px-3 py-1.5 rounded-md hover:bg-accent transition-colors"
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg border border-blue-900 bg-blue-950/30 hover:bg-blue-900/30 hover:border-blue-800 transition-all duration-300"
                 >
                   <div className="relative w-8 h-8">
                     {avatarUrl ? (
                       <img 
                         src={avatarUrl} 
                         alt={username || "Profile"} 
-                        className="w-8 h-8 rounded-full object-cover border border-border"
+                        className="w-8 h-8 rounded-full object-cover border-2 border-blue-800"
                       />
                     ) : (
-                      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center text-white font-semibold text-sm border border-border">
+                      <div className="w-8 h-8 rounded-full bg-blue-900 flex items-center justify-center text-white font-bold text-sm border-2 border-blue-700">
                         {(username || user.email || "U").charAt(0).toUpperCase()}
                       </div>
                     )}
                   </div>
-                  <span className="hidden sm:inline-block text-sm font-medium truncate max-w-[150px]">
+                  <span className="hidden sm:inline-block text-sm font-medium text-white truncate max-w-[150px]">
                     {username || user.email?.split("@")[0] || `user_${user.id.substring(0, 8)}`}
                   </span>
                 </Link>
-                <Button variant="outline" size="sm" onClick={handleSignOut}>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={handleSignOut}
+                  className="bg-transparent border-2 border-blue-700 text-white hover:text-white hover:border-blue-500 hover:bg-blue-900/50 transition-all duration-300"
+                >
                   Sign Out
                 </Button>
               </>
             ) : (
               <Link href="/auth">
-                <Button size="sm">Sign In</Button>
+                <Button size="sm" className="bg-blue-900 hover:bg-blue-800 text-white border border-blue-700 transition-all duration-300">
+                  Sign In
+                </Button>
               </Link>
             )}
           </div>

@@ -865,6 +865,11 @@ function SessionDetailContent({ sessionId }: { sessionId: string }) {
 
   const handleStatusChange = async (newStatus: "running" | "stopped") => {
     try {
+      // CRITICAL: Optimistically update UI immediately for responsive feedback
+      setSession((prev: any) => prev ? { ...prev, status: newStatus } : prev);
+      setSessionStatus(newStatus);
+      sessionStatusRef.current = newStatus;
+      
       // CRITICAL: Immediately stop auto-tick if stopping
       if (newStatus === "stopped") {
         console.log(`[handleStatusChange] 🛑 Immediately stopping auto-tick for status: ${newStatus}`);
@@ -889,10 +894,6 @@ function SessionDetailContent({ sessionId }: { sessionId: string }) {
         // Reset setup flags
         setupCompleteRef.current = false;
         
-        // Update status ref immediately to prevent any pending ticks
-        sessionStatusRef.current = newStatus;
-        setSessionStatus(newStatus);
-        
         console.log(`[handleStatusChange] ✅ Auto-tick stopped immediately. Status: ${newStatus}`);
       }
       
@@ -909,13 +910,31 @@ function SessionDetailContent({ sessionId }: { sessionId: string }) {
       }
 
       if (response.ok) {
+        const data = await response.json();
+        console.log(`[handleStatusChange] ✅ Session status updated to: ${newStatus}`, data);
+        
+        // Update session with the response data
+        if (data.session) {
+          setSession(data.session);
+          setSessionStatus(data.session.status);
+        }
+        
+        // Refresh all data to ensure consistency
         await loadAll('manual');
       } else {
         const e = await response.json();
+        console.error(`[handleStatusChange] ❌ Failed to update status:`, e);
         alert(e.error || "Failed to update status");
+        
+        // Revert optimistic update on failure
+        await loadAll('manual');
       }
     } catch (err) {
       console.error("Failed to update status", err);
+      alert("Failed to update session status");
+      
+      // Revert optimistic update on error
+      await loadAll('manual');
     }
   };
 
@@ -1309,7 +1328,13 @@ function SessionDetailContent({ sessionId }: { sessionId: string }) {
                   </Badge>
                 );
               })()}
-              <Badge variant="outline">{session?.status}</Badge>
+              <Badge className={`text-xs bg-transparent ${
+                session?.status === "running" 
+                  ? "text-emerald-300 border-emerald-800" 
+                  : "text-gray-400 border-gray-800"
+              }`}>
+                {session?.status}
+              </Badge>
               <span className="text-sm text-muted-foreground">
                 {strategy.name} • {Array.isArray(session?.markets) ? session.markets.join(", ") : "N/A"}
               </span>
@@ -1401,20 +1426,38 @@ function SessionDetailContent({ sessionId }: { sessionId: string }) {
             </CardHeader>
             <CardContent>
               <div className="flex flex-wrap gap-2">
-                <Button
-                  onClick={() => handleStatusChange("running")}
-                  disabled={!session || session.status === "running"}
-                  variant={session?.status === "running" ? "default" : "outline"}
-                >
-                  Start
-                </Button>
-                <Button
-                  onClick={() => handleStatusChange("stopped")}
-                  disabled={!session || session.status === "stopped"}
-                  variant={session?.status === "stopped" ? "default" : "outline"}
-                >
-                  Stop
-                </Button>
+                {session?.status === "running" ? (
+                  <Button
+                    variant="default"
+                    className="bg-blue-500 hover:bg-blue-600 text-white"
+                  >
+                    Running
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={() => handleStatusChange("running")}
+                    variant="outline"
+                    className="border-gray-300 text-black hover:text-black hover:bg-gray-200/50"
+                  >
+                    Start
+                  </Button>
+                )}
+                {session?.status === "stopped" ? (
+                  <Button
+                    variant="default"
+                    className="bg-blue-500 hover:bg-blue-600 text-white"
+                  >
+                    Stopped
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={() => handleStatusChange("stopped")}
+                    variant="outline"
+                    className="border-gray-300 text-black hover:text-black hover:bg-gray-200/50"
+                  >
+                    Stop
+                  </Button>
+                )}
                 <Button
                   variant="outline"
                   onClick={async () => {
@@ -1472,7 +1515,20 @@ function SessionDetailContent({ sessionId }: { sessionId: string }) {
               ) : debugContext ? (
                 <div className="space-y-4">
                   <div>
-                    <h3 className="font-semibold mb-2">Strategy: {debugContext.strategyName}</h3>
+                    <h3 className="font-semibold mb-2">
+                      Strategy: {debugContext.strategyName}
+                      {debugContext.sessionMode && (
+                        <span className={`ml-2 text-xs px-2 py-1 rounded ${
+                          debugContext.sessionMode === 'live' 
+                            ? 'bg-red-900/30 text-red-300 border border-red-800' 
+                            : debugContext.sessionMode === 'arena'
+                            ? 'bg-yellow-900/30 text-yellow-300 border border-yellow-800'
+                            : 'bg-blue-900/30 text-blue-300 border border-blue-800'
+                        }`}>
+                          {debugContext.sessionMode.toUpperCase()} MODE
+                        </span>
+                      )}
+                    </h3>
                     {debugContext.sessionMarkets && debugContext.sessionMarkets.length > 0 && (
                       <div className="space-y-2">
                         <p className="text-sm text-muted-foreground">

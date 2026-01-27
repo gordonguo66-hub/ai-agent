@@ -241,8 +241,8 @@ export async function POST(
     const filters = strategy.filters || {};
     const tables = getTables(sessionMode);
     
-    // Log loaded strategy details to verify fresh data
-    console.log(`[Tick API] 📋 Loaded strategy for session ${sessionId}:`, {
+    // Log loaded strategy details to verify fresh data is being fetched on each tick
+    console.log(`[Tick API] 📋 FRESH STRATEGY DATA loaded for session ${sessionId}:`, {
       strategy_id: strategy.id,
       strategy_name: strategy.name,
       model_provider: strategy.model_provider,
@@ -250,8 +250,12 @@ export async function POST(
       cadence_seconds: filters.cadenceSeconds,
       candle_timeframe: filters.aiInputs?.candles?.timeframe,
       has_saved_key: !!strategy.saved_api_key_id,
+      saved_key_id: strategy.saved_api_key_id,
       has_direct_key: !!strategy.api_key_ciphertext,
+      direct_key_length: strategy.api_key_ciphertext?.length || 0,
+      timestamp: new Date().toISOString(),
     });
+    console.log(`[Tick API] ✅ Strategy edits ARE applied to running sessions - this data is fresh from DB!`);
 
     // Validate session setup based on mode
     // Arena is virtual-only, so both "virtual" and "arena" use virtual accounts

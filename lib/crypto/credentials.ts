@@ -59,16 +59,30 @@ export function decryptCredential(stored: string): string {
   }
 
   const key = getKeyBytes();
-  if (!key) throw new Error("CREDENTIALS_ENCRYPTION_KEY not configured for decrypt");
+  if (!key) {
+    // Graceful fallback: if no encryption key is configured, warn but don't crash
+    console.warn("⚠️  CREDENTIALS_ENCRYPTION_KEY not set. Encrypted credentials cannot be decrypted.");
+    console.warn("⚠️  Generate a key with: node -e \"console.log(require('crypto').randomBytes(32).toString('base64'))\"");
+    console.warn("⚠️  Then add CREDENTIALS_ENCRYPTION_KEY=<key> to your .env.local file");
+    throw new Error("Cannot decrypt credentials: CREDENTIALS_ENCRYPTION_KEY not configured. See server logs for setup instructions.");
+  }
 
   const packed = Buffer.from(stored.slice(PREFIX_ENC.length), "base64");
   const iv = packed.subarray(0, 12);
   const tag = packed.subarray(12, 28);
   const ciphertext = packed.subarray(28);
 
-  const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
-  decipher.setAuthTag(tag);
-  const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString("utf8");
-  return plaintext;
+  try {
+    const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
+    decipher.setAuthTag(tag);
+    const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString("utf8");
+    return plaintext;
+  } catch (error: any) {
+    // Decryption failed - likely wrong key or corrupted data
+    throw new Error(
+      `⚠️ This API key was encrypted with a different encryption key and cannot be decrypted. ` +
+      `Please delete this saved key and add it again with your current API key.`
+    );
+  }
 }
 
