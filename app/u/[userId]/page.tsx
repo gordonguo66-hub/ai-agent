@@ -14,6 +14,7 @@ import { AuthGuard } from "@/components/auth-guard";
 import { createClient } from "@/lib/supabase/browser";
 import { getBearerToken } from "@/lib/api/clientAuth";
 import { FormattedDate } from "@/components/formatted-date";
+import { HeartIcon, HeartFilledIcon } from "@radix-ui/react-icons";
 
 interface Profile {
   id: string;
@@ -24,6 +25,8 @@ interface Profile {
   gender?: string;
   age?: number;
   created_at: string;
+  followers_count?: number;
+  following_count?: number;
 }
 
 interface ProfilePost {
@@ -76,11 +79,29 @@ function UserAvatar({ url, name, size = "md" }: { url?: string; name: string; si
   );
 }
 
+interface SavedPost {
+  id: string;
+  title: string;
+  body: string;
+  created_at: string;
+  author: {
+    id: string;
+    display_name: string;
+    avatar_url?: string;
+  };
+  likes_count: number;
+  comments_count: number;
+  post_media?: { id: string; media_url: string }[];
+}
+
 function ProfileContent({ userId }: { userId: string }) {
   const router = useRouter();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [posts, setPosts] = useState<ProfilePost[]>([]);
+  const [savedPosts, setSavedPosts] = useState<SavedPost[]>([]);
+  const [activeTab, setActiveTab] = useState<"posts" | "saved">("posts");
   const [loading, setLoading] = useState(true);
+  const [loadingSavedPosts, setLoadingSavedPosts] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editForm, setEditForm] = useState({
@@ -100,6 +121,8 @@ function ProfileContent({ userId }: { userId: string }) {
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
+  const [isFollowing, setIsFollowing] = useState(false);
+  const [followLoading, setFollowLoading] = useState(false);
 
   const isOwner = currentUserId === userId;
 
@@ -115,6 +138,14 @@ function ProfileContent({ userId }: { userId: string }) {
   useEffect(() => {
     loadProfile();
   }, [userId]);
+
+  useEffect(() => {
+    console.log(`[Profile] useEffect triggered:`, { activeTab, isOwner, savedPostsLength: savedPosts.length, userId, currentUserId });
+    if (activeTab === "saved" && isOwner && currentUserId) {
+      console.log(`[Profile] 🎯 Triggering loadSavedPosts`);
+      loadSavedPosts();
+    }
+  }, [activeTab, currentUserId]);
 
   const loadProfile = async (showLoading = true) => {
     if (showLoading) setLoading(true);
@@ -136,6 +167,7 @@ function ProfileContent({ userId }: { userId: string }) {
 
       const data = await response.json();
       setProfile(data.profile);
+      setIsFollowing(data.isFollowing || false);
       // Map API response to ProfilePost interface
       const mappedPosts = (data.posts || []).map((post: any) => ({
         ...post,
@@ -147,6 +179,76 @@ function ProfileContent({ userId }: { userId: string }) {
       console.error("Error loading profile:", error);
     } finally {
       if (showLoading) setLoading(false);
+    }
+  };
+
+  const loadSavedPosts = async () => {
+    if (!isOwner) {
+      console.log("[Profile] Not owner, skipping saved posts load");
+      return; // Only owner can see saved posts
+    }
+    
+    console.log(`[Profile] 🔄 Loading saved posts for user ${userId}`);
+    setLoadingSavedPosts(true);
+    try {
+      const bearer = await getBearerToken();
+      const response = await fetch(`/api/profiles/${userId}/saved-posts?t=${Date.now()}`, {
+        headers: bearer ? { Authorization: bearer } : undefined,
+        cache: "no-store",
+      });
+
+      console.log(`[Profile] 📡 Response status:`, response.status);
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log(`[Profile] ✅ Loaded ${data.savedPosts?.length || 0} saved posts`);
+        setSavedPosts(data.savedPosts || []);
+      } else {
+        const error = await response.json();
+        console.error(`[Profile] ❌ Error response:`, error);
+      }
+    } catch (error) {
+      console.error("[Profile] ❌ Exception loading saved posts:", error);
+    } finally {
+      setLoadingSavedPosts(false);
+    }
+  };
+
+  const handleFollowToggle = async () => {
+    if (!currentUserId || isOwner) return;
+    
+    setFollowLoading(true);
+    try {
+      const bearer = await getBearerToken();
+      const response = await fetch("/api/follow", {
+        method: isFollowing ? "DELETE" : "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(bearer ? { Authorization: bearer } : {}),
+        },
+        body: JSON.stringify({ following_id: userId }),
+      });
+
+      if (response.ok) {
+        setIsFollowing(!isFollowing);
+        // Update follower count in profile
+        if (profile) {
+          setProfile({
+            ...profile,
+            followers_count: isFollowing
+              ? Math.max(0, (profile.followers_count || 0) - 1)
+              : (profile.followers_count || 0) + 1,
+          });
+        }
+      } else {
+        const error = await response.json();
+        alert(error.error || "Failed to update follow status");
+      }
+    } catch (error) {
+      console.error("Error toggling follow:", error);
+      alert("Failed to update follow status");
+    } finally {
+      setFollowLoading(false);
     }
   };
 
@@ -504,13 +606,22 @@ function ProfileContent({ userId }: { userId: string }) {
                     <h1 className="text-2xl font-bold truncate">
                       {profile.display_name}
                     </h1>
-                    {isOwner && (
+                    {isOwner ? (
                       <Button
                         variant="outline"
                         size="sm"
                         onClick={handleEditProfile}
                       >
                         Edit Profile
+                      </Button>
+                    ) : currentUserId && (
+                      <Button
+                        variant={isFollowing ? "outline" : "default"}
+                        size="sm"
+                        onClick={handleFollowToggle}
+                        disabled={followLoading}
+                      >
+                        {followLoading ? "..." : isFollowing ? "Unfollow" : "Follow"}
                       </Button>
                     )}
                   </div>
@@ -520,6 +631,18 @@ function ProfileContent({ userId }: { userId: string }) {
                       @{profile.username}
                     </p>
                   )}
+
+                  {/* Follower/Following counts */}
+                  <div className="flex gap-4 mb-3 text-sm">
+                    <span>
+                      <span className="font-semibold">{profile.followers_count || 0}</span>{" "}
+                      <span className="text-muted-foreground">Followers</span>
+                    </span>
+                    <span>
+                      <span className="font-semibold">{profile.following_count || 0}</span>{" "}
+                      <span className="text-muted-foreground">Following</span>
+                    </span>
+                  </div>
 
                   {profile.bio && (
                     <p className="text-sm mb-3">{profile.bio}</p>
@@ -602,11 +725,32 @@ function ProfileContent({ userId }: { userId: string }) {
             </Card>
           )}
 
-          {/* Posts Feed */}
-          <div className="space-y-4">
-            <h2 className="text-lg font-semibold text-white">Posts</h2>
+          {/* Tabs (only show for owner) */}
+          {isOwner && (
+            <div className="flex gap-2 mb-6">
+              <Button
+                variant={activeTab === "posts" ? "default" : "outline"}
+                onClick={() => setActiveTab("posts")}
+                className={activeTab === "posts" ? "bg-blue-600 text-white hover:bg-blue-700" : "text-white border-gray-700 hover:bg-blue-900/30"}
+              >
+                My Posts
+              </Button>
+              <Button
+                variant={activeTab === "saved" ? "default" : "outline"}
+                onClick={() => setActiveTab("saved")}
+                className={activeTab === "saved" ? "bg-blue-600 text-white hover:bg-blue-700" : "text-white border-gray-700 hover:bg-blue-900/30"}
+              >
+                Saved Posts
+              </Button>
+            </div>
+          )}
 
-            {posts.length === 0 ? (
+          {/* Posts Feed */}
+          {activeTab === "posts" && (
+            <div className="space-y-4">
+              <h2 className="text-lg font-semibold text-white">Posts</h2>
+
+              {posts.length === 0 ? (
               <Card>
                 <CardContent className="py-8 text-center">
                   <p className="text-muted-foreground">
@@ -663,15 +807,15 @@ function ProfileContent({ userId }: { userId: string }) {
                         onClick={() => handleLikePost(post.id, post.isLiked)}
                         className={`flex items-center gap-1 text-sm transition-colors ${
                           post.isLiked 
-                            ? "text-red-500 hover:text-red-600" 
-                            : "text-muted-foreground hover:text-red-500"
+                            ? "text-pink-500 hover:text-pink-600" 
+                            : "text-muted-foreground hover:text-pink-500"
                         }`}
                       >
-                        <span>{post.isLiked ? "❤️" : "🤍"}</span>
+                        {post.isLiked ? <HeartFilledIcon className="w-4 h-4" /> : <HeartIcon className="w-4 h-4" />}
                         <span>{post.likesCount || 0}</span>
                       </button>
                       <p className="text-xs text-muted-foreground">
-                        <FormattedDate date={post.created_at} format="relative" /> · {post.replyCount} {post.replyCount === 1 ? "reply" : "replies"}
+                        <FormattedDate date={post.created_at} format="datetime" /> · {post.replyCount} {post.replyCount === 1 ? "reply" : "replies"}
                       </p>
                     </div>
 
@@ -693,7 +837,7 @@ function ProfileContent({ userId }: { userId: string }) {
                                 >
                                   {reply.author?.display_name || "User"}
                                 </Link>
-                                <FormattedDate date={reply.created_at} format="relative" className="text-xs text-muted-foreground" />
+                                <FormattedDate date={reply.created_at} format="datetime" className="text-xs text-muted-foreground" />
                               </div>
                               <p className="text-sm">{reply.content}</p>
                             </div>
@@ -730,7 +874,110 @@ function ProfileContent({ userId }: { userId: string }) {
                 </Card>
               ))
             )}
-          </div>
+            </div>
+          )}
+
+          {/* Saved Posts Feed */}
+          {activeTab === "saved" && isOwner && (
+            <div className="space-y-4">
+              <h2 className="text-lg font-semibold text-white">Saved Posts</h2>
+
+              {loadingSavedPosts ? (
+                <Card>
+                  <CardContent className="py-8 text-center">
+                    <p className="text-muted-foreground">Loading saved posts...</p>
+                  </CardContent>
+                </Card>
+              ) : savedPosts.length === 0 ? (
+                <Card>
+                  <CardContent className="py-8 text-center">
+                    <p className="text-muted-foreground">
+                      You haven't saved any posts yet. Save posts from the community to see them here!
+                    </p>
+                  </CardContent>
+                </Card>
+              ) : (
+                savedPosts.map((post) => (
+                  <Card key={post.id} className="cursor-pointer hover:border-blue-800 transition-colors">
+                    <CardContent className="pt-4">
+                      {/* Author Info */}
+                      <div className="flex items-center gap-2 mb-3">
+                        <Link href={`/u/${post.author.id}`} onClick={(e) => e.stopPropagation()}>
+                          <UserAvatar
+                            url={post.author.avatar_url}
+                            name={post.author.display_name}
+                            size="sm"
+                          />
+                        </Link>
+                        <div>
+                          <Link
+                            href={`/u/${post.author.id}`}
+                            className="text-sm font-medium hover:underline"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {post.author.display_name}
+                          </Link>
+                          <p className="text-xs text-muted-foreground">
+                            <FormattedDate date={post.created_at} format="datetime" />
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Post Title */}
+                      <Link href={`/community/${post.id}`}>
+                        <h3 className="text-lg font-semibold mb-2 hover:text-blue-400 transition-colors">
+                          {post.title}
+                        </h3>
+                      </Link>
+
+                      {/* Post Body Preview */}
+                      <Link href={`/community/${post.id}`}>
+                        <p className="text-muted-foreground mb-3 line-clamp-3">
+                          {post.body}
+                        </p>
+                      </Link>
+
+                      {/* Post Images */}
+                      {post.post_media && post.post_media.length > 0 && (
+                        <Link href={`/community/${post.id}`}>
+                          <div className={`grid gap-2 mb-3 ${
+                            post.post_media.length === 1
+                              ? "grid-cols-1"
+                              : post.post_media.length === 2
+                              ? "grid-cols-2"
+                              : "grid-cols-3"
+                          }`}>
+                            {post.post_media.slice(0, 3).map((media) => (
+                              <img
+                                key={media.id}
+                                src={media.media_url}
+                                alt=""
+                                className="w-full h-32 object-contain bg-white rounded hover:opacity-90 transition-opacity"
+                              />
+                            ))}
+                          </div>
+                        </Link>
+                      )}
+
+                      {/* Post Meta */}
+                      <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                        <span className="flex items-center gap-1">
+                          <HeartFilledIcon className="w-4 h-4 text-pink-500" /> {post.likes_count}
+                        </span>
+                        <span>💬 {post.comments_count}</span>
+                        <Link
+                          href={`/community/${post.id}`}
+                          className="text-blue-400 hover:text-blue-300 ml-auto"
+                        >
+                          Read more →
+                        </Link>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))
+              )}
+            </div>
+          )}
         </div>
       </div>
 

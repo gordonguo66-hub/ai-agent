@@ -20,6 +20,7 @@ interface Post {
   created_at: string;
   likes_count: number;
   isLiked?: boolean;
+  isSaved?: boolean;
   post_media?: { id: string; media_url: string }[];
 }
 
@@ -29,10 +30,41 @@ function CommunityContent() {
   const [loading, setLoading] = useState(true);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<"latest" | "mostLiked">("latest");
+  const [feedFilter, setFeedFilter] = useState<"all" | "following">("all");
+  const [followingIds, setFollowingIds] = useState<string[]>([]);
+  const [followingLoading, setFollowingLoading] = useState(false);
 
   useEffect(() => {
     loadData();
   }, []);
+
+  // Load following list when filter changes to "following"
+  useEffect(() => {
+    if (feedFilter === "following" && currentUserId && followingIds.length === 0) {
+      loadFollowingIds();
+    }
+  }, [feedFilter, currentUserId]);
+
+  const loadFollowingIds = async () => {
+    if (!currentUserId) return;
+    
+    setFollowingLoading(true);
+    try {
+      const bearer = await getBearerToken();
+      const response = await fetch("/api/follow", {
+        headers: bearer ? { Authorization: bearer } : undefined,
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setFollowingIds(data.following_ids || []);
+      }
+    } catch (error) {
+      console.error("Error loading following ids:", error);
+    } finally {
+      setFollowingLoading(false);
+    }
+  };
 
   const loadData = async () => {
     setLoading(true);
@@ -121,42 +153,55 @@ function CommunityContent() {
       if (userId && postsWithLikes.length > 0) {
         const postIds = postsWithLikes.map(p => p.id);
         try {
+          // Fetch likes
           const { data: userLikes, error: likesError } = await supabase
             .from("post_likes")
             .select("post_id")
             .eq("user_id", userId)
             .in("post_id", postIds);
           
-          if (!likesError) {
+          // Fetch saved posts
+          const { data: userSaves, error: savesError } = await supabase
+            .from("saved_posts")
+            .select("post_id")
+            .eq("user_id", userId)
+            .in("post_id", postIds);
+          
+          if (!likesError && !savesError) {
             const likedPostIds = new Set((userLikes || []).map(l => l.post_id));
+            const savedPostIds = new Set((userSaves || []).map(s => s.post_id));
             postsWithLikes = postsWithLikes.map(post => ({
               ...post,
               isLiked: likedPostIds.has(post.id),
+              isSaved: savedPostIds.has(post.id),
             }));
           } else {
-            // post_likes table might not exist yet
+            // Tables might not exist yet
             postsWithLikes = postsWithLikes.map(post => ({
               ...post,
               isLiked: false,
+              isSaved: false,
             }));
           }
         } catch {
-          // Likes table doesn't exist yet
+          // Likes/saves table doesn't exist yet
           postsWithLikes = postsWithLikes.map(post => ({
             ...post,
             isLiked: false,
+            isSaved: false,
           }));
         }
       } else {
         postsWithLikes = postsWithLikes.map(post => ({
           ...post,
           isLiked: false,
+          isSaved: false,
         }));
       }
 
       setPosts(postsWithLikes);
 
-      // Fetch comment counts
+      // Fetch comment counts (including all replies)
       const { data: commentData } = await supabase
         .from("comments")
         .select("post_id");
@@ -173,8 +218,22 @@ function CommunityContent() {
     }
   };
 
+  // Update likes count when a post is liked/unliked
+  const handleLikeUpdate = (postId: string, newLikesCount: number) => {
+    setPosts(prevPosts => 
+      prevPosts.map(post => 
+        post.id === postId ? { ...post, likes_count: newLikesCount } : post
+      )
+    );
+  };
+
+  // Filter posts by following if needed, then sort
+  const filteredPosts = feedFilter === "following" && currentUserId
+    ? posts.filter(post => followingIds.includes(post.user_id))
+    : posts;
+
   // Sort posts based on current sort option
-  const sortedPosts = [...posts].sort((a, b) => {
+  const sortedPosts = [...filteredPosts].sort((a, b) => {
     if (sortBy === "mostLiked") {
       const likeDiff = (b.likes_count || 0) - (a.likes_count || 0);
       // If likes are equal, sort by most recent
@@ -214,37 +273,93 @@ function CommunityContent() {
             <CreatePostDialog />
           </div>
 
-          {/* Sort Options */}
-          <div className="flex items-center gap-2 mb-6">
-            <span className="text-sm text-gray-300">Sort by:</span>
-            <div className="flex gap-1">
-              <Button
-                variant={sortBy === "latest" ? "default" : "outline"}
-                size="sm"
-                onClick={() => setSortBy("latest")}
-                className={sortBy === "latest" ? "" : "text-white border-gray-600 hover:bg-blue-900/30 hover:text-white"}
-              >
-                Latest
-              </Button>
-              <Button
-                variant={sortBy === "mostLiked" ? "default" : "outline"}
-                size="sm"
-                onClick={() => setSortBy("mostLiked")}
-                className={sortBy === "mostLiked" ? "" : "text-white border-gray-600 hover:bg-blue-900/30 hover:text-white"}
-              >
-                Most Liked
-              </Button>
+          {/* Feed Filter and Sort Options */}
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+            {/* Feed Filter (only show if logged in) */}
+            {currentUserId && (
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-gray-300">Show:</span>
+                <div className="flex gap-1">
+                  <Button
+                    variant={feedFilter === "all" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setFeedFilter("all")}
+                    className={feedFilter === "all" ? "" : "text-white border-gray-600 hover:bg-blue-900/30 hover:text-white"}
+                  >
+                    All
+                  </Button>
+                  <Button
+                    variant={feedFilter === "following" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setFeedFilter("following")}
+                    className={feedFilter === "following" ? "" : "text-white border-gray-600 hover:bg-blue-900/30 hover:text-white"}
+                  >
+                    Following
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Sort Options */}
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-300">Sort by:</span>
+              <div className="flex gap-1">
+                <Button
+                  variant={sortBy === "latest" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setSortBy("latest")}
+                  className={sortBy === "latest" ? "" : "text-white border-gray-600 hover:bg-blue-900/30 hover:text-white"}
+                >
+                  Latest
+                </Button>
+                <Button
+                  variant={sortBy === "mostLiked" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setSortBy("mostLiked")}
+                  className={sortBy === "mostLiked" ? "" : "text-white border-gray-600 hover:bg-blue-900/30 hover:text-white"}
+                >
+                  Most Liked
+                </Button>
+              </div>
             </div>
           </div>
 
-          {sortedPosts.length === 0 ? (
+          {followingLoading ? (
             <Card className="border-dashed">
               <CardContent className="pt-12 pb-12">
                 <div className="text-center">
-                  <p className="text-muted-foreground mb-4 text-base">
-                    No posts yet. Be the first to share!
+                  <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary mx-auto"></div>
+                  <p className="text-muted-foreground mt-4 text-base">
+                    Loading...
                   </p>
-                  <CreatePostDialog />
+                </div>
+              </CardContent>
+            </Card>
+          ) : sortedPosts.length === 0 ? (
+            <Card className="border-dashed">
+              <CardContent className="pt-12 pb-12">
+                <div className="text-center">
+                  {feedFilter === "following" && currentUserId ? (
+                    <>
+                      <p className="text-muted-foreground mb-4 text-base">
+                        You aren't following anyone yet.
+                      </p>
+                      <Button
+                        variant="outline"
+                        onClick={() => setFeedFilter("all")}
+                        className="text-white border-gray-600 hover:bg-blue-900/30 hover:text-white"
+                      >
+                        View All Posts
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-muted-foreground mb-4 text-base">
+                        No posts yet. Be the first to share!
+                      </p>
+                      <CreatePostDialog />
+                    </>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -257,6 +372,9 @@ function CommunityContent() {
                   commentCount={commentCounts[post.id] || 0}
                   currentUserId={currentUserId}
                   initialIsLiked={post.isLiked}
+                  initialIsSaved={post.isSaved}
+                  onSaveToggle={loadData}
+                  onLikeUpdate={handleLikeUpdate}
                 />
               ))}
             </div>

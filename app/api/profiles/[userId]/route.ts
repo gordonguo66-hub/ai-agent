@@ -4,7 +4,7 @@ import { getUserFromRequest } from "@/lib/api/serverAuth";
 
 /**
  * GET /api/profiles/:userId
- * Returns profile + latest 20 posts + media for each post + replies + likes
+ * Returns profile + latest 20 posts + media for each post + replies + likes + follower counts + follow status
  */
 export async function GET(
   request: NextRequest,
@@ -37,6 +37,31 @@ export async function GET(
 
     if (profileError || !profile) {
       return NextResponse.json({ error: "Profile not found" }, { status: 404 });
+    }
+
+    // Fetch follower count (users who follow this profile)
+    const { count: followersCount } = await serviceClient
+      .from("user_follows")
+      .select("*", { count: "exact", head: true })
+      .eq("following_id", userId);
+
+    // Fetch following count (users this profile follows)
+    const { count: followingCount } = await serviceClient
+      .from("user_follows")
+      .select("*", { count: "exact", head: true })
+      .eq("follower_id", userId);
+
+    // Check if current user is following this profile
+    let isFollowing = false;
+    if (currentUserId && currentUserId !== userId) {
+      const { data: followData } = await serviceClient
+        .from("user_follows")
+        .select("follower_id")
+        .eq("follower_id", currentUserId)
+        .eq("following_id", userId)
+        .single();
+      
+      isFollowing = !!followData;
     }
 
     // Fetch latest 20 profile posts with likes_count
@@ -157,8 +182,13 @@ export async function GET(
     );
 
     return NextResponse.json({
-      profile,
+      profile: {
+        ...profile,
+        followers_count: followersCount || 0,
+        following_count: followingCount || 0,
+      },
       posts: postsWithReplies,
+      isFollowing,
     });
   } catch (error: any) {
     console.error("Profile fetch error:", error);
