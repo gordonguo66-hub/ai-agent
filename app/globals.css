@@ -182,7 +182,7 @@
   
   /* Trading platform specific styles */
   .trading-card {
-    @apply bg-white border border-gray-200 rounded-lg shadow-xl;
+    @apply bg-[#0A0E1A] border border-gray-200 rounded-lg shadow-xl;
   }
   
   .trading-grid {
@@ -253,5 +253,22 @@
   
   .delay-1000 {
     animation-delay: 1s;
+  }
+  
+  /* Avatar shine animation for chart refresh */
+  @keyframes avatarShine {
+    0% {
+      box-shadow: 0 0 4px rgba(59, 130, 246, 0.3), 0 2px 4px rgba(0,0,0,0.2);
+    }
+    50% {
+      box-shadow: 0 0 20px rgba(59, 130, 246, 0.8), 0 0 30px rgba(59, 130, 246, 0.4), 0 2px 4px rgba(0,0,0,0.2);
+    }
+    100% {
+      box-shadow: 0 0 4px rgba(59, 130, 246, 0.3), 0 2px 4px rgba(0,0,0,0.2);
+    }
+  }
+  
+  .avatar-shine {
+    animation: avatarShine 0.8s ease-in-out;
   }
 }

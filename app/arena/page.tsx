@@ -75,7 +75,7 @@ function UserAvatar({ displayName, avatarUrl, size = 24 }: { displayName: string
 }
 
 // Custom Dot component for showing user avatars on chart lines (wrapped in a component with state)
-function ChartAvatarDotInner({ cx, cy, participant }: { cx: number; cy: number; participant: any }) {
+function ChartAvatarDotInner({ cx, cy, participant, isRefreshing }: { cx: number; cy: number; participant: any; isRefreshing?: boolean }) {
   const [isHovered, setIsHovered] = useState(false);
   const [hoverTimeout, setHoverTimeout] = useState<NodeJS.Timeout | null>(null);
   
@@ -100,14 +100,18 @@ function ChartAvatarDotInner({ cx, cy, participant }: { cx: number; cy: number; 
     <div className="flex items-center justify-center w-full h-full">
       <Link href={`/u/${participant.userId}`}>
         <div
-          className="rounded-full overflow-hidden border-2 transition-all duration-200"
+          className={`rounded-full overflow-hidden border-2 transition-all duration-200 ${isRefreshing ? 'avatar-shine' : ''}`}
           onMouseEnter={handleMouseEnter}
           onMouseLeave={handleMouseLeave}
           style={{
             borderColor: isHovered ? 'hsl(var(--primary))' : 'white',
             width: size,
             height: size,
-            boxShadow: isHovered ? '0 4px 12px rgba(0,0,0,0.3)' : '0 2px 4px rgba(0,0,0,0.2)',
+            boxShadow: isHovered 
+              ? '0 4px 12px rgba(0,0,0,0.3)' 
+              : isRefreshing 
+                ? '0 0 12px rgba(59, 130, 246, 0.6), 0 2px 4px rgba(0,0,0,0.2)' 
+                : '0 2px 4px rgba(0,0,0,0.2)',
             cursor: 'pointer',
           }}
         >
@@ -123,7 +127,7 @@ function ChartAvatarDotInner({ cx, cy, participant }: { cx: number; cy: number; 
 }
 
 function ChartAvatarDot(props: any) {
-  const { cx, cy, participant, rank, chartView } = props;
+  const { cx, cy, participant, rank, chartView, isRefreshing } = props;
   
   if (!participant) return null;
   
@@ -145,7 +149,7 @@ function ChartAvatarDot(props: any) {
         height={size}
         style={{ overflow: 'visible', pointerEvents: 'all' }}
       >
-        <ChartAvatarDotInner cx={cx} cy={cy} participant={participant} />
+        <ChartAvatarDotInner cx={cx} cy={cy} participant={participant} isRefreshing={isRefreshing} />
       </foreignObject>
       
       {/* Label next to avatar */}
@@ -185,9 +189,11 @@ function ArenaContent() {
   const [topN, setTopN] = useState<number | "me">(10);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [showEndedSessions, setShowEndedSessions] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   
   // Refs to prevent unnecessary re-renders
   const chartRef = useRef<any>(null);
+  const isInitialLoad = useRef(true);
 
   // Load current user ID
   useEffect(() => {
@@ -209,8 +215,14 @@ function ArenaContent() {
     loadUserId();
   }, []);
 
-  const loadChartData = useCallback(async () => {
-    setLoadingChart(true);
+  const loadChartData = useCallback(async (isManualRefresh = false) => {
+    // Only show loading spinner on initial load, not on auto-refresh
+    if (isInitialLoad.current) {
+      setLoadingChart(true);
+    } else {
+      // Show shine animation on refresh
+      setIsRefreshing(true);
+    }
     setChartWarning(null);
     try {
       const bearer = await getBearerToken();
@@ -232,6 +244,9 @@ function ArenaContent() {
       console.error("Failed to load chart data:", error);
     } finally {
       setLoadingChart(false);
+      isInitialLoad.current = false;
+      // Keep shine animation for a moment after data loads
+      setTimeout(() => setIsRefreshing(false), 800);
     }
   }, [chartHours, chartView, showEndedSessions]);
 
@@ -628,7 +643,7 @@ function ArenaContent() {
                                   // Return invisible circle for non-final points
                                   return <circle key={`${participant.entryId}-${dotIndex}-hidden`} cx={cx} cy={cy} r={0} fill="transparent" />;
                                 }
-                                return <ChartAvatarDot key={`${participant.entryId}-${dotIndex}`} cx={cx} cy={cy} participant={participant} rank={rank} chartView={chartView} />;
+                                return <ChartAvatarDot key={`${participant.entryId}-${dotIndex}`} cx={cx} cy={cy} participant={participant} rank={rank} chartView={chartView} isRefreshing={isRefreshing} />;
                               }) : false}
                               activeDot={{ r: isMe ? 6 : 4 }}
                               connectNulls={false}
