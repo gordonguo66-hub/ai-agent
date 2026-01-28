@@ -278,11 +278,34 @@ export async function GET(request: NextRequest) {
     }
 
     const range = maxValue - minValue;
-    const padding = Math.max(range * 0.02, 0.5);
-
+    
+    // Calculate appropriate padding based on view type
+    let padding: number;
+    let yMin: number;
+    let yMax: number;
+    
     if (view === "return") {
-      if (minValue > 0) minValue = Math.max(0, minValue - padding);
-      if (maxValue < 0) maxValue = Math.min(0, maxValue + padding);
+      // For return %, use small padding (percentages are small numbers)
+      padding = Math.max(range * 0.1, 0.5);
+      yMin = minValue === Infinity ? -1 : minValue - padding;
+      yMax = maxValue === -Infinity ? 1 : maxValue + padding;
+      
+      // Ensure 0 line is visible if data crosses zero or is close to it
+      if (yMin > 0 && yMin < 2) yMin = -0.5;
+      if (yMax < 0 && yMax > -2) yMax = 0.5;
+    } else {
+      // For equity, use percentage of the average value for padding
+      const avgValue = (minValue + maxValue) / 2;
+      // Ensure at least 2% range for visibility, up to 10% for large ranges
+      const minPadding = avgValue * 0.01; // 1% of avg value
+      padding = Math.max(range * 0.15, minPadding, 500); // At least $500 padding
+      
+      yMin = minValue === Infinity ? 99000 : minValue - padding;
+      yMax = maxValue === -Infinity ? 101000 : maxValue + padding;
+      
+      // Round to nice numbers for equity
+      yMin = Math.floor(yMin / 100) * 100;
+      yMax = Math.ceil(yMax / 100) * 100;
     }
 
     return NextResponse.json({
@@ -299,8 +322,8 @@ export async function GET(request: NextRequest) {
       hours,
       view,
       yAxisDomain: {
-        min: minValue === Infinity ? 0 : minValue - padding,
-        max: maxValue === -Infinity ? 100 : maxValue + padding,
+        min: yMin,
+        max: yMax,
       },
       bucketSizeMinutes: bucketSize / 60000,
       dataQualityWarning,

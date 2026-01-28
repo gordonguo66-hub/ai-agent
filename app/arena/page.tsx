@@ -535,7 +535,16 @@ function ArenaContent() {
                           domain={chartYAxisDomain ? [chartYAxisDomain.min, chartYAxisDomain.max] : ["auto", "auto"]}
                           tickFormatter={(value) => {
                             if (chartView === "equity") {
+                              // Determine precision based on the Y-axis range
+                              const range = chartYAxisDomain 
+                                ? chartYAxisDomain.max - chartYAxisDomain.min 
+                                : 10000;
+                              
                               if (Math.abs(value) >= 1000) {
+                                // For small ranges (< $5k), show one decimal place
+                                if (range < 5000) {
+                                  return `$${(value / 1000).toFixed(1)}k`;
+                                }
                                 return `$${(value / 1000).toFixed(0)}k`;
                               }
                               return `$${value.toFixed(0)}`;
@@ -545,7 +554,8 @@ function ArenaContent() {
                           }}
                           tick={{ fontSize: 11, fill: '#9CA3AF' }}
                           stroke="#374151"
-                          width={65}
+                          width={70}
+                          tickCount={6}
                         />
                         <Tooltip
                           labelFormatter={(value) => formatDateCompact(new Date(value), timezone)}
@@ -573,13 +583,22 @@ function ArenaContent() {
                             backdropFilter: "blur(10px)",
                           }}
                         />
-                        {chartView === "return" && (
+                        {chartView === "return" ? (
                           <ReferenceLine
                             y={0}
                             stroke="rgb(59, 130, 246)"
                             strokeDasharray="3 3"
                             strokeOpacity={0.3}
                             strokeWidth={2}
+                          />
+                        ) : (
+                          <ReferenceLine
+                            y={100000}
+                            stroke="rgb(59, 130, 246)"
+                            strokeDasharray="3 3"
+                            strokeOpacity={0.3}
+                            strokeWidth={2}
+                            label={{ value: "Starting $100k", position: "left", fill: "#6B7280", fontSize: 10 }}
                           />
                         )}
                         {displayedParticipants.map((participant, index) => {
@@ -604,8 +623,12 @@ function ArenaContent() {
                               name={participant.entryId}
                               dot={isTop3 ? ((props: any) => {
                                 // Only show avatar on the last point for top 3
-                                if (props.payload !== latestDataPoint) return <></>;
-                                return <ChartAvatarDot {...props} participant={participant} rank={rank} chartView={chartView} />;
+                                const { cx, cy, index: dotIndex, payload, ...rest } = props;
+                                if (payload !== latestDataPoint) {
+                                  // Return invisible circle for non-final points
+                                  return <circle key={`${participant.entryId}-${dotIndex}-hidden`} cx={cx} cy={cy} r={0} fill="transparent" />;
+                                }
+                                return <ChartAvatarDot key={`${participant.entryId}-${dotIndex}`} cx={cx} cy={cy} participant={participant} rank={rank} chartView={chartView} />;
                               }) : false}
                               activeDot={{ r: isMe ? 6 : 4 }}
                               connectNulls={false}
