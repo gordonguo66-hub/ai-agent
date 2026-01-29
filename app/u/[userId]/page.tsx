@@ -621,7 +621,7 @@ function ProfileContent({ userId }: { userId: string }) {
                     <h1 className="text-2xl font-bold truncate">
                       {profile.display_name}
                     </h1>
-                    {isOwner ? (
+                    {isOwner && (
                       <Button
                         variant="outline"
                         size="sm"
@@ -629,24 +629,6 @@ function ProfileContent({ userId }: { userId: string }) {
                       >
                         Edit Profile
                       </Button>
-                    ) : currentUserId && (
-                      <div className="flex gap-2">
-                        <Button
-                          variant={isFollowing ? "outline" : "default"}
-                          size="sm"
-                          onClick={handleFollowToggle}
-                          disabled={followLoading}
-                        >
-                          {followLoading ? "..." : isFollowing ? "Unfollow" : "Follow"}
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => router.push(`/messages?user=${userId}`)}
-                        >
-                          Message
-                        </Button>
-                      </div>
                     )}
                   </div>
 
@@ -685,6 +667,29 @@ function ProfileContent({ userId }: { userId: string }) {
                   </div>
                 </div>
               </div>
+              
+              {/* Action Buttons (for viewing other users' profiles) */}
+              {!isOwner && currentUserId && (
+                <div className="pt-4 border-t mt-4 flex gap-3">
+                  <Button
+                    variant={isFollowing ? "outline" : "default"}
+                    size="lg"
+                    onClick={handleFollowToggle}
+                    disabled={followLoading}
+                    className="flex-1 text-base font-semibold"
+                  >
+                    {followLoading ? "..." : isFollowing ? "Unfollow" : "Follow"}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="lg"
+                    onClick={() => router.push(`/messages?user=${userId}`)}
+                    className="flex-1 text-base font-semibold"
+                  >
+                    Message
+                  </Button>
+                </div>
+              )}
             </CardContent>
           </Card>
 
