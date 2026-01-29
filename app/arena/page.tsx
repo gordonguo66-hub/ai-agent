@@ -596,6 +596,11 @@ function ArenaContent() {
                             fontSize: "12px",
                             boxShadow: "0 0 20px rgba(59, 130, 246, 0.2)",
                             backdropFilter: "blur(10px)",
+                            color: "#E5E7EB",
+                          }}
+                          labelStyle={{
+                            color: "#F3F4F6",
+                            fontWeight: "500",
                           }}
                         />
                         {chartView === "return" ? (
