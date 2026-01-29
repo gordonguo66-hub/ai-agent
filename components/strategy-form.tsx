@@ -1708,7 +1708,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                             className="h-11"
                           />
                           <p className="text-xs text-muted-foreground">
-                            Maximum acceptable slippage percentage (e.g., 10 = 10%, 20 = 20%, max 100%)
+                            Maximum acceptable slippage percentage (max 100%)
                           </p>
                         </div>
                       </div>
