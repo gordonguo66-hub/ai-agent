@@ -201,10 +201,10 @@ function DashboardContent() {
               </span>
             </div>
             {strategies.length === 0 ? (
-              <Card className="border-dashed border-blue-900 trading-card">
+              <Card className="border-dashed border-blue-900/50 bg-blue-950/20">
                 <CardContent className="pt-12 pb-12">
                   <div className="text-center max-w-md mx-auto">
-                    <p className="text-gray-300 mb-6 text-base">
+                    <p className="text-gray-200 mb-6 text-base">
                       No strategies yet. Create your first strategy to get started.
                     </p>
                     <Link href="/strategy/new">
@@ -311,13 +311,13 @@ function DashboardContent() {
               )}
             </div>
             {sessions.length === 0 ? (
-              <Card className="border-dashed border-blue-900 trading-card">
+              <Card className="border-dashed border-blue-900/50 bg-blue-950/20">
                 <CardContent className="pt-12 pb-12">
                   <div className="text-center max-w-md mx-auto">
-                    <p className="text-gray-300 mb-1 text-base">
+                    <p className="text-gray-200 mb-1 text-base">
                       No trading sessions yet.
                     </p>
-                    <p className="text-sm text-gray-400 mb-6">
+                    <p className="text-sm text-gray-300 mb-6">
                       Create a session from a strategy to start dry-run or live trading.
                     </p>
                     <Link href="/settings/exchange">
