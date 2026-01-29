@@ -16,6 +16,7 @@ import { createClient } from "@/lib/supabase/browser";
 import { getBearerToken } from "@/lib/api/clientAuth";
 import { FormattedDate } from "@/components/formatted-date";
 import { HeartIcon, HeartFilledIcon } from "@radix-ui/react-icons";
+import { MessageDialog } from "@/components/message-dialog";
 
 interface Profile {
   id: string;
@@ -127,6 +128,7 @@ function ProfileContent({ userId }: { userId: string }) {
   const [followLoading, setFollowLoading] = useState(false);
   const [postVisibility, setPostVisibility] = useState<"public" | "profile_only">("public");
   const [postSuccess, setPostSuccess] = useState<string | null>(null);
+  const [messageDialogOpen, setMessageDialogOpen] = useState(false);
 
   const isOwner = currentUserId === userId;
 
@@ -683,7 +685,7 @@ function ProfileContent({ userId }: { userId: string }) {
                   <Button
                     variant="outline"
                     size="lg"
-                    onClick={() => router.push(`/messages?user=${userId}`)}
+                    onClick={() => setMessageDialogOpen(true)}
                     className="flex-1 text-base font-semibold"
                   >
                     Message
@@ -692,6 +694,18 @@ function ProfileContent({ userId }: { userId: string }) {
               )}
             </CardContent>
           </Card>
+
+          {/* Message Dialog */}
+          {!isOwner && currentUserId && profile && (
+            <MessageDialog
+              open={messageDialogOpen}
+              onOpenChange={setMessageDialogOpen}
+              recipientId={userId}
+              recipientName={profile.display_name}
+              recipientAvatar={profile.avatar_url}
+              currentUserId={currentUserId}
+            />
+          )}
 
           {/* Success Notification */}
           {postSuccess && (
