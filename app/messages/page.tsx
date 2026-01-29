@@ -248,10 +248,10 @@ function MessagesContent() {
   }
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] bg-background">
-      <div className="container mx-auto px-4 py-8 h-[calc(100vh-4rem)]">
+    <div className="min-h-[calc(100vh-4rem)] page-container">
+      <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 h-[calc(100vh-4rem)]">
         <div className="max-w-6xl mx-auto h-full">
-          <h1 className="text-3xl font-bold mb-6 text-white">Messages</h1>
+          <h1 className="text-3xl sm:text-4xl font-bold tracking-tight mb-6 text-white">Messages</h1>
           
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 h-[calc(100%-5rem)]">
             {/* Conversations List */}
