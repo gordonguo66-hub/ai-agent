@@ -1723,7 +1723,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                                   ...prev.entry,
                                   timing: {
                                     ...prev.entry.timing,
-                                    maxSlippagePct: value === "" ? "" : (parseFloat(value) / 100) || prev.entry.timing.maxSlippagePct,
+                                    maxSlippagePct: value === "" ? "" : parseFloat(value) / 100,
                                   },
                                 },
                               }));
