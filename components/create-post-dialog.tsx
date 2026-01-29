@@ -260,7 +260,7 @@ export function CreatePostDialog() {
             )}
             {success && (
               <div className="p-4 text-sm text-emerald-300 bg-emerald-900/30 border border-emerald-700 rounded-md animate-in fade-in slide-in-from-top-2 duration-300">
-                <strong>🎉 Success!</strong> Your post has been published to the Community.
+                <strong>Success!</strong> Your post has been published to the Community.
               </div>
             )}
             {loading && !success && (

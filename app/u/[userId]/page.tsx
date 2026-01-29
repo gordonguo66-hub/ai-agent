@@ -430,8 +430,8 @@ function ProfileContent({ userId }: { userId: string }) {
         
         // Show success notification
         const successMessage = visibilityToPost === "public"
-          ? "🎉 Post published! It's now visible in the Community feed."
-          : "✅ Post created! It's visible on your profile.";
+          ? "Post published! It's now visible in the Community feed."
+          : "Post created! It's visible on your profile.";
         setPostSuccess(successMessage);
         
         // Clear notification after 4 seconds
