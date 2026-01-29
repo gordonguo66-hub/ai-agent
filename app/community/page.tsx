@@ -345,9 +345,8 @@ function CommunityContent() {
                         You aren't following anyone yet.
                       </p>
                       <Button
-                        variant="outline"
+                        variant="default"
                         onClick={() => setFeedFilter("all")}
-                        className="text-white border-gray-600 hover:bg-blue-900/30 hover:text-white"
                       >
                         View All Posts
                       </Button>
