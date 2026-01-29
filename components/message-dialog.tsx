@@ -8,6 +8,7 @@ import { getBearerToken } from "@/lib/api/clientAuth";
 import { createClient } from "@/lib/supabase/browser";
 import { FormattedDate } from "./formatted-date";
 import { ImageIcon, Cross2Icon } from "@radix-ui/react-icons";
+import Link from "next/link";
 
 interface Message {
   id: string;
@@ -256,6 +257,15 @@ export function MessageDialog({
                       <FormattedDate date={msg.created_at} format="time" />
                     </p>
                   </div>
+                  {isMe && (
+                    <Link href={`/u/${currentUserId}`} className="cursor-pointer flex-shrink-0">
+                      <UserAvatar
+                        url={undefined}
+                        name="You"
+                        size="sm"
+                      />
+                    </Link>
+                  )}
                 </div>
               );
             })
