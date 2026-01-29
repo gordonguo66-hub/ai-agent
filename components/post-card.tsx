@@ -9,7 +9,7 @@ import { Badge } from "./ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./ui/dialog";
 import { createClient } from "@/lib/supabase/browser";
 import { FormattedDate } from "./formatted-date";
-import { UploadIcon, BookmarkIcon, BookmarkFilledIcon, HeartIcon, HeartFilledIcon } from "@radix-ui/react-icons";
+import { UploadIcon, BookmarkIcon, BookmarkFilledIcon, HeartIcon, HeartFilledIcon, ChatBubbleIcon } from "@radix-ui/react-icons";
 
 interface PostCardProps {
   post: {
@@ -339,6 +339,19 @@ export function PostCard({ post, commentCount, currentUserId, initialIsLiked = f
             >
               {isLiked ? <HeartFilledIcon className="w-4 h-4" /> : <HeartIcon className="w-4 h-4" />}
               <span>{likesCount}</span>
+            </button>
+            
+            <button
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                router.push(`/community/${post.id}`);
+              }}
+              className="flex items-center gap-1 text-sm text-muted-foreground hover:text-blue-500 transition-colors"
+              title="View comments"
+            >
+              <ChatBubbleIcon className="w-4 h-4" />
+              <span>{commentCount}</span>
             </button>
             
             <button
