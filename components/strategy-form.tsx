@@ -1707,7 +1707,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                                   }))
                                 }
                                 className="h-11"
-                                placeholder="e.g., 5.0"
+                                placeholder=""
                               />
                               <p className="text-xs text-muted-foreground">
                                 Maximum volatility required to enter
