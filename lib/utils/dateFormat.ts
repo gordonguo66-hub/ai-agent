@@ -168,11 +168,31 @@ export function formatTime(dateString: string | Date, timezone?: string | null, 
  * Format just the date portion (e.g., "1/25/2026")
  */
 export function formatDateOnly(dateString: string | Date, timezone?: string | null): string {
-  return formatDate(dateString, timezone, {
+  const date = typeof dateString === "string" ? new Date(dateString) : dateString;
+
+  if (isNaN(date.getTime())) {
+    return "Invalid Date";
+  }
+
+  const options: Intl.DateTimeFormatOptions = {
     year: "numeric",
     month: "numeric",
     day: "numeric",
-  });
+  };
+
+  // If timezone is provided, use it. Otherwise use browser's local timezone.
+  if (timezone) {
+    options.timeZone = timezone;
+  }
+
+  try {
+    return date.toLocaleDateString("en-US", options);
+  } catch (e) {
+    // Fallback if timezone is invalid
+    console.warn(`Invalid timezone "${timezone}", falling back to local`);
+    const { timeZone: _, ...safeOptions } = options;
+    return date.toLocaleDateString("en-US", safeOptions);
+  }
 }
 
 /**

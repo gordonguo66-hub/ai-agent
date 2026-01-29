@@ -45,21 +45,30 @@ interface Comment {
 
 interface CommentSectionProps {
   postId: string;
+  postAuthorId: string;
   comments: Comment[];
 }
 
 interface CommentItemProps {
   comment: Comment;
-  replies: Comment[];
+  allComments: Comment[];
+  postAuthorId: string;
   onReply: (parentId: string, body: string) => Promise<void>;
+  onDelete: (commentId: string) => Promise<void>;
   currentUserId: string | null;
 }
 
-function CommentItem({ comment, replies, onReply, currentUserId }: CommentItemProps) {
+function CommentItem({ comment, allComments, postAuthorId, onReply, onDelete, currentUserId }: CommentItemProps) {
+  // Filter replies to this specific comment
+  const replies = allComments.filter(c => c.parent_comment_id === comment.id);
   const [showReplyForm, setShowReplyForm] = useState(false);
   const [replyBody, setReplyBody] = useState("");
   const [replying, setReplying] = useState(false);
   const [replyError, setReplyError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  // Check if current user can delete this comment
+  const canDelete = currentUserId && (currentUserId === comment.user_id || currentUserId === postAuthorId);
 
   const handleReplySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -79,26 +88,53 @@ function CommentItem({ comment, replies, onReply, currentUserId }: CommentItemPr
     }
   };
 
+  const handleDelete = async () => {
+    if (!confirm("Are you sure you want to delete this comment? This will also delete all replies.")) {
+      return;
+    }
+
+    setDeleting(true);
+    try {
+      await onDelete(comment.id);
+    } catch (err: any) {
+      alert(err.message || "Failed to delete comment");
+      setDeleting(false);
+    }
+  };
+
   return (
     <div className="space-y-3">
       <Card className="border-l-4 border-l-primary/20">
         <CardHeader className="pb-3">
-          <CardDescription className="text-sm flex items-center gap-2">
-            <Link
-              href={`/u/${comment.user_id}`}
-              className="flex items-center gap-1.5 hover:opacity-80 transition-opacity"
-            >
-              <UserAvatar
-                url={comment.profiles?.avatar_url}
-                name={comment.profiles?.display_name || comment.profiles?.username || "User"}
-              />
-              <span className="font-semibold text-foreground hover:underline">
-                {comment.profiles?.display_name || comment.profiles?.username || `user_${comment.user_id.substring(0, 8)}`}
-              </span>
-            </Link>
-            <span>•</span>
-            <FormattedDate date={comment.created_at} />
-          </CardDescription>
+          <div className="flex items-start justify-between">
+            <CardDescription className="text-sm flex items-center gap-2">
+              <Link
+                href={`/u/${comment.user_id}`}
+                className="flex items-center gap-1.5 hover:opacity-80 transition-opacity"
+              >
+                <UserAvatar
+                  url={comment.profiles?.avatar_url}
+                  name={comment.profiles?.display_name || comment.profiles?.username || "User"}
+                />
+                <span className="font-semibold text-foreground hover:underline">
+                  {comment.profiles?.display_name || comment.profiles?.username || `user_${comment.user_id.substring(0, 8)}`}
+                </span>
+              </Link>
+              <span>•</span>
+              <FormattedDate date={comment.created_at} />
+            </CardDescription>
+            {canDelete && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-destructive hover:text-destructive hover:bg-destructive/10 h-7 px-2"
+                onClick={handleDelete}
+                disabled={deleting}
+              >
+                {deleting ? "..." : "×"}
+              </Button>
+            )}
+          </div>
         </CardHeader>
         <CardContent className="pt-0">
           <div className="whitespace-pre-wrap text-sm leading-relaxed text-foreground mb-3">
@@ -148,8 +184,10 @@ function CommentItem({ comment, replies, onReply, currentUserId }: CommentItemPr
             <CommentItem
               key={reply.id}
               comment={reply}
-              replies={[]}
+              allComments={allComments}
+              postAuthorId={postAuthorId}
               onReply={onReply}
+              onDelete={onDelete}
               currentUserId={currentUserId}
             />
           ))}
@@ -159,7 +197,7 @@ function CommentItem({ comment, replies, onReply, currentUserId }: CommentItemPr
   );
 }
 
-export function CommentSection({ postId, comments: initialComments }: CommentSectionProps) {
+export function CommentSection({ postId, postAuthorId, comments: initialComments }: CommentSectionProps) {
   const [comments, setComments] = useState(initialComments);
   const [body, setBody] = useState("");
   const [loading, setLoading] = useState(false);
@@ -297,13 +335,49 @@ export function CommentSection({ postId, comments: initialComments }: CommentSec
     }
   };
 
-  // Count total comments including replies
+  const handleDelete = async (commentId: string) => {
+    const supabase = createClient();
+    const { data: { session } } = await supabase.auth.getSession();
+
+    if (!session?.access_token) {
+      throw new Error("You must be signed in");
+    }
+
+    const response = await fetch(`/api/comments/${commentId}`, {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+      },
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || "Failed to delete comment");
+    }
+
+    // Remove the comment and all its replies from state
+    setComments(prevComments => {
+      const removeCommentAndReplies = (id: string): string[] => {
+        const replies = prevComments.filter(c => c.parent_comment_id === id);
+        const idsToRemove = [id];
+        replies.forEach(reply => {
+          idsToRemove.push(...removeCommentAndReplies(reply.id));
+        });
+        return idsToRemove;
+      };
+
+      const idsToRemove = removeCommentAndReplies(commentId);
+      return prevComments.filter(c => !idsToRemove.includes(c.id));
+    });
+  };
+
+  // Count all comments including nested replies
   const totalCommentCount = comments.length;
 
   return (
     <div>
       <h2 className="text-xl font-semibold mb-6">
-        Comments ({totalCommentCount})
+        {totalCommentCount} {totalCommentCount === 1 ? 'comment' : 'comments'}
       </h2>
 
       <Card className="mb-8">
@@ -343,8 +417,10 @@ export function CommentSection({ postId, comments: initialComments }: CommentSec
             <CommentItem
               key={comment.id}
               comment={comment}
-              replies={repliesByParent[comment.id] || []}
+              allComments={comments}
+              postAuthorId={postAuthorId}
               onReply={handleReply}
+              onDelete={handleDelete}
               currentUserId={currentUserId}
             />
           ))

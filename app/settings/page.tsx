@@ -67,6 +67,10 @@ function SettingsContent() {
     key_material_encrypted: "",
   });
 
+  // Help sections state
+  const [showApiKeyHelp, setShowApiKeyHelp] = useState(false);
+  const [showExchangeHelp, setShowExchangeHelp] = useState(false);
+
   useEffect(() => {
     setBrowserTz(getBrowserTimezone());
     loadSavedKeys();
@@ -398,17 +402,153 @@ function SettingsContent() {
           {/* Saved API Keys Section */}
           <Card>
             <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle>Saved API Keys</CardTitle>
-                  <CardDescription>
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
+                  <CardTitle className="text-xl">Saved API Keys</CardTitle>
+                  <CardDescription className="mt-1.5">
                     Save API keys once and reuse them across strategies. Keys are encrypted server-side.
                   </CardDescription>
                 </div>
-                <Button onClick={() => setIsAddDialogOpen(true)}>Add New Key</Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowApiKeyHelp(!showApiKeyHelp)}
+                  className="ml-4 whitespace-nowrap"
+                >
+                  {showApiKeyHelp ? "Hide" : "How to Get API Keys"}
+                </Button>
               </div>
             </CardHeader>
             <CardContent>
+              {/* Help Section */}
+              {showApiKeyHelp && (
+                <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg max-h-[600px] overflow-y-auto">
+                  <h4 className="font-semibold text-blue-900 dark:text-blue-100 mb-3">📚 How to Get API Keys</h4>
+                  
+                  {/* Important Notice */}
+                  <div className="mb-4 p-3 bg-orange-100 dark:bg-orange-900/20 border border-orange-300 dark:border-orange-700 rounded">
+                    <p className="text-sm font-semibold text-orange-900 dark:text-orange-100">💳 Important: Add Credits First!</p>
+                    <p className="text-xs text-orange-800 dark:text-orange-200 mt-1">
+                      Most AI providers require you to add credits/billing before API keys work. Add at least $5-10 to your account after signing up.
+                    </p>
+                  </div>
+
+                  <div className="space-y-4 text-sm text-blue-800 dark:text-blue-200">
+                    <div>
+                      <strong className="block mb-1">🔹 OpenAI (GPT-4, GPT-3.5):</strong>
+                      <ol className="list-decimal ml-5 space-y-1">
+                        <li>Sign up at: <a href="https://platform.openai.com/signup" target="_blank" rel="noopener noreferrer" className="underline">platform.openai.com/signup</a></li>
+                        <li><strong>Add credits:</strong> Go to Billing → Add payment method → Add at least $5</li>
+                        <li>Go to: <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" className="underline">platform.openai.com/api-keys</a></li>
+                        <li>Click "Create new secret key"</li>
+                        <li>Copy the key (starts with <code className="bg-blue-100 dark:bg-blue-900 px-1 rounded">sk-...</code>)</li>
+                      </ol>
+                    </div>
+                    
+                    <div>
+                      <strong className="block mb-1">🔹 Anthropic (Claude):</strong>
+                      <ol className="list-decimal ml-5 space-y-1">
+                        <li>Sign up at: <a href="https://console.anthropic.com" target="_blank" rel="noopener noreferrer" className="underline">console.anthropic.com</a></li>
+                        <li><strong>Add credits:</strong> Go to Settings → Billing → Add at least $5</li>
+                        <li>Go to: <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer" className="underline">console.anthropic.com/settings/keys</a></li>
+                        <li>Click "Create Key"</li>
+                        <li>Copy the key (starts with <code className="bg-blue-100 dark:bg-blue-900 px-1 rounded">sk-ant-...</code>)</li>
+                      </ol>
+                    </div>
+                    
+                    <div>
+                      <strong className="block mb-1">🔹 Google / DeepMind Gemini - FREE Tier Available:</strong>
+                      <ol className="list-decimal ml-5 space-y-1">
+                        <li>Go to: <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="underline">aistudio.google.com/app/apikey</a></li>
+                        <li>Sign in with Google account</li>
+                        <li>Click "Create API key"</li>
+                        <li>Copy the key</li>
+                        <li><strong>No billing required</strong> - has generous free tier!</li>
+                      </ol>
+                    </div>
+                    
+                    <div>
+                      <strong className="block mb-1">🔹 xAI (Grok):</strong>
+                      <ol className="list-decimal ml-5 space-y-1">
+                        <li>Sign up at: <a href="https://console.x.ai" target="_blank" rel="noopener noreferrer" className="underline">console.x.ai</a></li>
+                        <li><strong>Add credits:</strong> Go to Billing → Add payment method</li>
+                        <li>Go to API Keys section</li>
+                        <li>Click "Create API Key"</li>
+                        <li>Copy the key</li>
+                      </ol>
+                    </div>
+                    
+                    <div>
+                      <strong className="block mb-1">🔹 DeepSeek (Cheapest!):</strong>
+                      <ol className="list-decimal ml-5 space-y-1">
+                        <li>Sign up at: <a href="https://platform.deepseek.com" target="_blank" rel="noopener noreferrer" className="underline">platform.deepseek.com</a></li>
+                        <li><strong>Add credits:</strong> Click "Recharge" → Add at least $5 (very cheap usage)</li>
+                        <li>Go to: <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener noreferrer" className="underline">platform.deepseek.com/api_keys</a></li>
+                        <li>Click "Create API Key"</li>
+                        <li>Copy the key (starts with <code className="bg-blue-100 dark:bg-blue-900 px-1 rounded">sk-...</code>)</li>
+                      </ol>
+                    </div>
+                    
+                    <div>
+                      <strong className="block mb-1">🔹 Meta (LLaMA):</strong>
+                      <ol className="list-decimal ml-5 space-y-1">
+                        <li>Access via third-party providers like <a href="https://together.ai" target="_blank" rel="noopener noreferrer" className="underline">Together.ai</a> or <a href="https://replicate.com" target="_blank" rel="noopener noreferrer" className="underline">Replicate</a></li>
+                        <li>Sign up and add billing ($5+ recommended)</li>
+                        <li>Create API key in their dashboard</li>
+                        <li>Copy the key</li>
+                      </ol>
+                    </div>
+                    
+                    <div>
+                      <strong className="block mb-1">🔹 Qwen:</strong>
+                      <ol className="list-decimal ml-5 space-y-1">
+                        <li>Access via <a href="https://dashscope.aliyun.com" target="_blank" rel="noopener noreferrer" className="underline">Alibaba Cloud DashScope</a></li>
+                        <li>Sign up and verify account</li>
+                        <li><strong>Add credits:</strong> Add payment method and credits</li>
+                        <li>Go to API Keys section</li>
+                        <li>Create and copy your API key</li>
+                      </ol>
+                    </div>
+                    
+                    <div>
+                      <strong className="block mb-1">🔹 GLM (ChatGLM):</strong>
+                      <ol className="list-decimal ml-5 space-y-1">
+                        <li>Access via <a href="https://open.bigmodel.cn" target="_blank" rel="noopener noreferrer" className="underline">Zhipu AI (open.bigmodel.cn)</a></li>
+                        <li>Sign up (may require Chinese phone number)</li>
+                        <li><strong>Add credits:</strong> Recharge account</li>
+                        <li>Go to API management</li>
+                        <li>Create and copy API key</li>
+                      </ol>
+                    </div>
+                    
+                    <div>
+                      <strong className="block mb-1">🔹 Perplexity:</strong>
+                      <ol className="list-decimal ml-5 space-y-1">
+                        <li>Sign up at: <a href="https://www.perplexity.ai/settings/api" target="_blank" rel="noopener noreferrer" className="underline">perplexity.ai/settings/api</a></li>
+                        <li><strong>Add credits:</strong> Go to Billing → Add payment method</li>
+                        <li>Click "Generate API Key"</li>
+                        <li>Copy the key</li>
+                      </ol>
+                    </div>
+                    
+                    <div className="pt-3 border-t border-blue-300 dark:border-blue-700">
+                      <p className="font-medium text-green-700 dark:text-green-300 mb-2">💰 Cost Comparison (per 1M tokens):</p>
+                      <ul className="text-xs space-y-1 ml-5">
+                        <li>DeepSeek: ~$0.14 (Cheapest! ⭐)</li>
+                        <li>Google Gemini: Free tier ⭐</li>
+                        <li>OpenAI GPT-4: ~$10-30</li>
+                        <li>Anthropic Claude: ~$3-15</li>
+                        <li>xAI Grok: ~$5-10</li>
+                      </ul>
+                    </div>
+                    
+                    <div className="pt-3 border-t border-blue-300 dark:border-blue-700">
+                      <p className="font-medium">💡 Pro Tip:</p>
+                      <p>Save keys here once and reuse them across multiple strategies without pasting every time!</p>
+                    </div>
+                  </div>
+                </div>
+              )}
               <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
                 <DialogContent>
                     <DialogHeader>
@@ -543,18 +683,85 @@ function SettingsContent() {
                 <strong>Note:</strong> Keys are encrypted server-side. You can delete them anytime. If a strategy
                 references a deleted key, it will need to select a new key or use a manual key.
               </div>
+              
+              {/* Add New Key Button at Bottom */}
+              <div className="mt-6">
+                <Button onClick={() => setIsAddDialogOpen(true)} className="w-full sm:w-auto">
+                  <span className="text-lg mr-2">+</span> Add New Key
+                </Button>
+              </div>
             </CardContent>
           </Card>
 
           {/* Exchange Connection Section */}
           <Card>
             <CardHeader>
-              <CardTitle>Exchange Connection</CardTitle>
-              <CardDescription>
-                Connect your Hyperliquid account to enable live and dry-run trading
-              </CardDescription>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>Exchange Connection</CardTitle>
+                  <CardDescription>
+                    Connect your Hyperliquid account to enable live and dry-run trading
+                  </CardDescription>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowExchangeHelp(!showExchangeHelp)}
+                >
+                  {showExchangeHelp ? "Hide" : "How to Get Credentials"}
+                </Button>
+              </div>
             </CardHeader>
             <CardContent className="space-y-6">
+              {/* Help Section */}
+              {showExchangeHelp && (
+                <div className="p-4 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                  <h4 className="font-semibold text-blue-900 dark:text-blue-100 mb-3">📚 How to Get Hyperliquid Credentials</h4>
+                  <div className="space-y-4 text-sm text-blue-800 dark:text-blue-200">
+                    <div>
+                      <strong className="block mb-2">Option 1: Using Hyperliquid API Wallet (Recommended) ⭐</strong>
+                      <ol className="list-decimal ml-5 space-y-1">
+                        <li>Go to <a href="https://app.hyperliquid.xyz" target="_blank" rel="noopener noreferrer" className="underline">app.hyperliquid.xyz</a></li>
+                        <li>Connect your wallet (MetaMask or other)</li>
+                        <li>Click <strong>"More"</strong> → <strong>"API"</strong></li>
+                        <li>Click <strong>"Authorize API Wallet"</strong></li>
+                        <li>Copy the <strong>API Wallet Address</strong> (starts with <code className="bg-blue-100 dark:bg-blue-900 px-1 rounded">0x...</code>, 42 characters)</li>
+                        <li>Click <strong>"Show Private Key"</strong> and copy it (starts with <code className="bg-blue-100 dark:bg-blue-900 px-1 rounded">0x...</code>, 66 characters)</li>
+                      </ol>
+                      <p className="mt-2 text-xs text-blue-700 dark:text-blue-300">
+                        ✅ This creates a separate trading wallet with limited permissions - safer for API trading!
+                      </p>
+                    </div>
+                    
+                    <div className="pt-3 border-t border-blue-300 dark:border-blue-700">
+                      <strong className="block mb-2">Option 2: Using Your MetaMask Wallet</strong>
+                      <ol className="list-decimal ml-5 space-y-1">
+                        <li>Open <strong>MetaMask</strong> browser extension</li>
+                        <li>Select the account you use on Hyperliquid</li>
+                        <li>Click the <strong>three dots (⋮)</strong> → <strong>"Account details"</strong></li>
+                        <li>Click <strong>"Export private key"</strong></li>
+                        <li>Enter your MetaMask password</li>
+                        <li>Copy the private key</li>
+                        <li>Your <strong>Wallet Address</strong> is shown at the top of MetaMask (starts with <code className="bg-blue-100 dark:bg-blue-900 px-1 rounded">0x...</code>)</li>
+                      </ol>
+                      <p className="mt-2 text-xs text-orange-700 dark:text-orange-300">
+                        ⚠️ This uses your main wallet - less recommended for automated trading
+                      </p>
+                    </div>
+
+                    <div className="pt-3 border-t border-blue-300 dark:border-blue-700">
+                      <p className="font-medium text-red-700 dark:text-red-300">🔒 Security Tips:</p>
+                      <ul className="list-disc ml-5 space-y-1 mt-1">
+                        <li>Never share your private key with anyone</li>
+                        <li>Private key must be 66 characters and start with <code className="bg-blue-100 dark:bg-blue-900 px-1 rounded">0x</code></li>
+                        <li>We encrypt your key before storing it</li>
+                        <li>Option 1 (API Wallet) is recommended for better security</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Security Notice */}
               <div className="rounded-md bg-yellow-500/10 border border-yellow-500/50 p-3">
                 <p className="text-sm text-muted-foreground">

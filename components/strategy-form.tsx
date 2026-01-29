@@ -1663,28 +1663,42 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                       <div className="border-t pt-4 space-y-4">
                         <h4 className="text-sm font-semibold">Entry Timing</h4>
                         
-                        <div className="flex items-center justify-between">
-                          <div className="space-y-0.5">
-                            <label className="text-sm font-medium">Wait for Candle Close</label>
-                            <p className="text-xs text-muted-foreground">
-                              Only enter after candle/bar closes (more reliable)
-                            </p>
-                          </div>
-                          <Switch
-                            checked={entryExit.entry.timing.waitForClose}
-                            onCheckedChange={(checked) =>
-                              setEntryExit(prev => ({
-                                ...prev,
-                                entry: {
-                                  ...prev.entry,
-                                  timing: {
-                                    ...prev.entry.timing,
-                                    waitForClose: checked,
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div className="space-y-0.5">
+                              <label className="text-sm font-medium">Wait for Candle Close</label>
+                              <p className="text-xs text-muted-foreground">
+                                Only enter within 5s of candle open/close (more reliable signals, requires aligned cadence)
+                              </p>
+                            </div>
+                            <Switch
+                              checked={entryExit.entry.timing.waitForClose}
+                              onCheckedChange={(checked) =>
+                                setEntryExit(prev => ({
+                                  ...prev,
+                                  entry: {
+                                    ...prev.entry,
+                                    timing: {
+                                      ...prev.entry.timing,
+                                      waitForClose: checked,
+                                    },
                                   },
-                                },
-                              }))
-                            }
-                          />
+                                }))
+                              }
+                            />
+                          </div>
+                          
+                          {entryExit.entry.timing.waitForClose && (
+                            <div className="p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-md">
+                              <p className="text-xs text-yellow-600 dark:text-yellow-400 font-medium">
+                                ⚠️ Important: Set your AI Cadence to match your candle timeframe
+                              </p>
+                              <p className="text-xs text-yellow-600/80 dark:text-yellow-400/80 mt-1">
+                                If your candle timeframe is {aiInputs.candles?.timeframe || "5m"}, set AI Cadence to the same interval. Otherwise, 
+                                the AI might repeatedly miss the candle close window and never enter trades.
+                              </p>
+                            </div>
+                          )}
                         </div>
 
                         <div className="space-y-2">

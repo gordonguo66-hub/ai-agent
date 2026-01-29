@@ -76,53 +76,38 @@ export default function Home() {
           {/* Feature Cards */}
           <div className="grid md:grid-cols-3 gap-8">
             <Link href="/strategy/new">
-              <Card className="h-full cursor-pointer trading-card border-blue-900/50 hover:border-blue-800 transition-all duration-300 group">
-                <CardHeader className="pb-4 bg-[#0A0E1A] border-b border-blue-900/50">
+              <Card className="h-full cursor-pointer border-blue-900/50 hover:border-blue-800 transition-all duration-300 group overflow-hidden !bg-[#0A0E1A]">
+                <CardHeader className="!bg-[#0A0E1A] pb-6">
                   <div className="text-4xl mb-4">🎯</div>
                   <CardTitle className="text-2xl mb-2 text-white group-hover:text-gray-300 transition-colors">Create Strategies</CardTitle>
                   <CardDescription className="text-base text-gray-300">
                     Build AI-powered trading strategies with your own models and prompts
                   </CardDescription>
                 </CardHeader>
-                <CardContent className="pt-6">
-                  <p className="text-sm text-gray-400 leading-relaxed">
-                    Choose your model provider, configure risk filters, and write custom prompts.
-                  </p>
-                </CardContent>
               </Card>
             </Link>
 
             <Link href="/dashboard">
-              <Card className="h-full cursor-pointer trading-card border-blue-900/50 hover:border-blue-800 transition-all duration-300 group">
-                <CardHeader className="pb-4 bg-[#0A0E1A] border-b border-blue-900/50">
+              <Card className="h-full cursor-pointer border-blue-900/50 hover:border-blue-800 transition-all duration-300 group overflow-hidden !bg-[#0A0E1A]">
+                <CardHeader className="!bg-[#0A0E1A] pb-6">
                   <div className="text-4xl mb-4">📊</div>
                   <CardTitle className="text-2xl mb-2 text-white group-hover:text-gray-300 transition-colors">Virtual & Live Trading</CardTitle>
                   <CardDescription className="text-base text-gray-300">
                     Trade with real Hyperliquid market data. Start virtual ($100k) or go live with real orders.
                   </CardDescription>
                 </CardHeader>
-                <CardContent className="pt-6">
-                  <p className="text-sm text-gray-400 leading-relaxed">
-                    Monitor sessions, track decisions, view equity curves, and analyze performance in real-time.
-                  </p>
-                </CardContent>
               </Card>
             </Link>
 
             <Link href="/arena">
-              <Card className="h-full cursor-pointer trading-card border-blue-900/50 hover:border-blue-800 transition-all duration-300 group">
-                <CardHeader className="pb-4 bg-[#0A0E1A] border-b border-blue-900/50">
+              <Card className="h-full cursor-pointer border-blue-900/50 hover:border-blue-800 transition-all duration-300 group overflow-hidden !bg-[#0A0E1A]">
+                <CardHeader className="!bg-[#0A0E1A] pb-6">
                   <div className="text-4xl mb-4">🏆</div>
                   <CardTitle className="text-2xl mb-2 text-white group-hover:text-gray-300 transition-colors">Compete & Share</CardTitle>
                   <CardDescription className="text-base text-gray-300">
                     Join the arena leaderboard and engage with the community
                   </CardDescription>
                 </CardHeader>
-                <CardContent className="pt-6">
-                  <p className="text-sm text-gray-400 leading-relaxed">
-                    Opt-in to rankings, share insights, and learn from others.
-                  </p>
-                </CardContent>
               </Card>
             </Link>
           </div>

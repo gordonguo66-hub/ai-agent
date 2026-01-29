@@ -198,7 +198,7 @@ function PostDetailContent({ postId }: { postId: string }) {
                       key={m.id}
                       src={m.media_url}
                       alt=""
-                      className="w-full h-64 object-cover rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
+                      className="w-full h-64 object-contain bg-white rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
                       onClick={() => setLightboxImage(m.media_url)}
                     />
                   ))}
@@ -207,7 +207,7 @@ function PostDetailContent({ postId }: { postId: string }) {
             </CardContent>
           </Card>
 
-          <CommentSection postId={postId} comments={comments} />
+          <CommentSection postId={postId} postAuthorId={post.user_id} comments={comments} />
         </div>
       </div>
 

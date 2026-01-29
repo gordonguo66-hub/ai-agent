@@ -1189,6 +1189,7 @@ export async function POST(
               if (timeSinceCandleClose > toleranceMs && timeSinceCandleClose < (timeframeMs - toleranceMs)) {
                 const timeUntilClose = (timeframeMs - timeSinceCandleClose) / 1000;
                 actionSummary = `Entry timing: Waiting for candle close (${Math.ceil(timeUntilClose)}s remaining)`;
+                console.warn(`[Tick] ⚠️ Waiting for candle close: ${Math.ceil(timeUntilClose)}s remaining. If AI cadence doesn't match candle timeframe (${candleTimeframe}), trades may never execute. Consider setting cadence = ${candleTimeframe}`);
                 riskResult = { passed: false, reason: actionSummary };
               } else {
                 console.log(`[Tick] Entry timing: At candle boundary (within ${toleranceMs}ms tolerance)`);
