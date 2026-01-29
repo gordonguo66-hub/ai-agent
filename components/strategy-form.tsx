@@ -233,7 +233,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
       },
       timing: {
         waitForClose: true,
-        maxSlippagePct: 0.15,
+        maxSlippagePct: 0.005,
       },
     },
     exit: {
@@ -390,7 +390,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
               },
               timing: {
                 waitForClose: true,
-                maxSlippagePct: 0.15,
+                maxSlippagePct: 0.005,
               },
             },
             exit: {
@@ -1675,7 +1675,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                                 ? "" 
                                 : typeof entryExit.entry.timing.maxSlippagePct === "number"
                                 ? entryExit.entry.timing.maxSlippagePct * 100
-                                : 15
+                                : 0.5
                             }
                             onChange={(e) => {
                               const value = e.target.value;
@@ -1699,7 +1699,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                                     ...prev.entry,
                                     timing: {
                                       ...prev.entry.timing,
-                                      maxSlippagePct: 0.15,
+                                      maxSlippagePct: 0.005,
                                     },
                                   },
                                 }));
