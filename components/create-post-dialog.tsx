@@ -18,7 +18,6 @@ export function CreatePostDialog() {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [images, setImages] = useState<string[]>([]);
   const [uploadingImage, setUploadingImage] = useState(false);
@@ -112,13 +111,12 @@ export function CreatePostDialog() {
     e.preventDefault();
     e.stopPropagation();
     
-    const trimmedTitle = title.trim();
     const trimmedBody = body.trim();
     
-    console.log("Form submitted", { title: trimmedTitle, body: trimmedBody, images });
+    console.log("Form submitted", { body: trimmedBody, images });
     
-    if (!trimmedTitle || !trimmedBody) {
-      setError("Please fill in both title and content");
+    if (!trimmedBody) {
+      setError("Please write something");
       return;
     }
 
@@ -143,11 +141,14 @@ export function CreatePostDialog() {
         return;
       }
 
+      // Auto-generate title from first 100 chars of body (for database, not shown to user)
+      const autoTitle = trimmedBody.substring(0, 100) + (trimmedBody.length > 100 ? "..." : "");
+
       // Create the post
       const { data, error: insertError } = await supabase
         .from("posts")
         .insert({
-          title: trimmedTitle,
+          title: autoTitle,
           body: trimmedBody,
           user_id: session.user.id,
         })
@@ -204,7 +205,6 @@ export function CreatePostDialog() {
       // Success - close dialog and refresh
       console.log("Post created successfully!", data[0]);
       setOpen(false);
-      setTitle("");
       setBody("");
       setImages([]);
       setError(null);
@@ -220,7 +220,6 @@ export function CreatePostDialog() {
 
   const handleClose = () => {
     setOpen(false);
-    setTitle("");
     setBody("");
     setImages([]);
     setError(null);
@@ -259,33 +258,19 @@ export function CreatePostDialog() {
               </div>
             )}
             <div>
-              <label htmlFor="title" className="text-sm font-medium">
-                Title
-              </label>
-              <Input
-                id="title"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                required
-                minLength={1}
-                maxLength={200}
-                className="mt-1"
-                disabled={loading}
-              />
-            </div>
-            <div>
               <label htmlFor="body" className="text-sm font-medium">
-                Content
+                What's on your mind?
               </label>
               <Textarea
                 id="body"
                 value={body}
                 onChange={(e) => setBody(e.target.value)}
-                rows={6}
+                rows={8}
                 required
                 minLength={1}
                 maxLength={5000}
                 className="mt-1"
+                placeholder="Share your thoughts..."
                 disabled={loading}
               />
             </div>
@@ -344,7 +329,7 @@ export function CreatePostDialog() {
             <div className="flex gap-4">
               <Button 
                 type="submit" 
-                disabled={loading || uploadingImage || !title.trim() || !body.trim()} 
+                disabled={loading || uploadingImage || !body.trim()} 
                 className="flex-1"
               >
                 {loading ? "Posting..." : "Post"}

@@ -9,6 +9,7 @@ import { Badge } from "./ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./ui/dialog";
 import { createClient } from "@/lib/supabase/browser";
 import { FormattedDate } from "./formatted-date";
+import { UploadIcon, BookmarkIcon, BookmarkFilledIcon, HeartIcon, HeartFilledIcon } from "@radix-ui/react-icons";
 
 interface PostCardProps {
   post: {
@@ -24,6 +25,9 @@ interface PostCardProps {
   commentCount: number;
   currentUserId: string | null;
   initialIsLiked?: boolean;
+  initialIsSaved?: boolean;
+  onSaveToggle?: () => void;
+  onLikeUpdate?: (postId: string, newLikesCount: number) => void;
 }
 
 function UserAvatar({ url, name }: { url?: string; name: string }) {
@@ -51,7 +55,7 @@ function UserAvatar({ url, name }: { url?: string; name: string }) {
   );
 }
 
-export function PostCard({ post, commentCount, currentUserId, initialIsLiked = false }: PostCardProps) {
+export function PostCard({ post, commentCount, currentUserId, initialIsLiked = false, initialIsSaved = false, onSaveToggle, onLikeUpdate }: PostCardProps) {
   const router = useRouter();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -59,7 +63,10 @@ export function PostCard({ post, commentCount, currentUserId, initialIsLiked = f
   const [clientUserId, setClientUserId] = useState<string | null>(null);
   const [isLiked, setIsLiked] = useState(initialIsLiked);
   const [likesCount, setLikesCount] = useState(post.likes_count || 0);
+  const [isSaved, setIsSaved] = useState(initialIsSaved);
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
 
   // Get user ID from client-side as well (more reliable)
   useEffect(() => {
@@ -96,8 +103,14 @@ export function PostCard({ post, commentCount, currentUserId, initialIsLiked = f
 
     // Optimistic update
     const wasLiked = isLiked;
+    const newLikesCount = wasLiked ? Math.max(0, likesCount - 1) : likesCount + 1;
     setIsLiked(!wasLiked);
-    setLikesCount(prev => wasLiked ? Math.max(0, prev - 1) : prev + 1);
+    setLikesCount(newLikesCount);
+    
+    // Notify parent component of the change
+    if (onLikeUpdate) {
+      onLikeUpdate(post.id, newLikesCount);
+    }
 
     try {
       const supabase = createClient();
@@ -106,7 +119,10 @@ export function PostCard({ post, commentCount, currentUserId, initialIsLiked = f
       if (!session?.access_token) {
         // Revert
         setIsLiked(wasLiked);
-        setLikesCount(prev => wasLiked ? prev + 1 : Math.max(0, prev - 1));
+        setLikesCount(likesCount);
+        if (onLikeUpdate) {
+          onLikeUpdate(post.id, likesCount);
+        }
         return;
       }
 
@@ -120,14 +136,75 @@ export function PostCard({ post, commentCount, currentUserId, initialIsLiked = f
       if (!response.ok) {
         // Revert optimistic update on error
         setIsLiked(wasLiked);
-        setLikesCount(prev => wasLiked ? prev + 1 : Math.max(0, prev - 1));
+        setLikesCount(likesCount);
+        if (onLikeUpdate) {
+          onLikeUpdate(post.id, likesCount);
+        }
       }
     } catch (err) {
       console.error("Error toggling like:", err);
       // Revert optimistic update
       setIsLiked(wasLiked);
-      setLikesCount(prev => wasLiked ? prev + 1 : Math.max(0, prev - 1));
+      setLikesCount(likesCount);
+      if (onLikeUpdate) {
+        onLikeUpdate(post.id, likesCount);
+      }
     }
+  };
+
+  const handleSave = async () => {
+    if (!effectiveUserId) {
+      alert("Please sign in to save posts");
+      return;
+    }
+
+    // Optimistic update - instant UI feedback
+    const wasSaved = isSaved;
+    setIsSaved(!wasSaved);
+
+    try {
+      const supabase = createClient();
+      
+      if (!wasSaved) {
+        // Save post
+        const { error } = await supabase
+          .from("saved_posts")
+          .insert({ user_id: effectiveUserId, post_id: post.id });
+
+        if (error) {
+          console.error("Error saving post:", error);
+          setIsSaved(wasSaved); // Revert on error
+        }
+        // Don't reload the page - optimistic update is enough
+      } else {
+        // Unsave post
+        const { error } = await supabase
+          .from("saved_posts")
+          .delete()
+          .eq("user_id", effectiveUserId)
+          .eq("post_id", post.id);
+
+        if (error) {
+          console.error("Error unsaving post:", error);
+          setIsSaved(wasSaved); // Revert on error
+        }
+        // Don't reload the page - optimistic update is enough
+      }
+    } catch (err) {
+      console.error("Error toggling save:", err);
+      setIsSaved(wasSaved); // Revert on error
+    }
+  };
+
+  const handleShare = () => {
+    setShareDialogOpen(true);
+  };
+
+  const copyShareLink = () => {
+    const url = `${window.location.origin}/community/${post.id}`;
+    navigator.clipboard.writeText(url);
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2000);
   };
 
   const handleDelete = async () => {
@@ -169,48 +246,56 @@ export function PostCard({ post, commentCount, currentUserId, initialIsLiked = f
   return (
     <>
       <Card className="hover:shadow-sm transition-shadow relative">
-        <CardHeader className="pb-3">
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex-1 min-w-0">
-              <Link 
-                href={`/community/${post.id}`}
-                className="block"
+        <CardContent className="pt-4">
+          {/* Author Info at Top (Twitter-style) */}
+          <div className="flex items-start justify-between gap-3 mb-3">
+            <Link
+              href={`/u/${post.user_id}`}
+              className="flex items-center gap-2 hover:opacity-80 transition-opacity"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <UserAvatar
+                url={post.profiles?.avatar_url}
+                name={post.profiles?.display_name || post.profiles?.username || "User"}
+              />
+              <div className="flex flex-col">
+                <span className="font-semibold text-sm text-foreground">
+                  {post.profiles?.display_name || post.profiles?.username || `user_${post.user_id.substring(0, 8)}`}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  <FormattedDate date={post.created_at} />
+                </span>
+              </div>
+            </Link>
+            {isOwner && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="text-destructive hover:text-destructive hover:bg-destructive/10 -mt-1 -mr-2"
                 onClick={(e) => {
-                  // Allow navigation
+                  e.preventDefault();
                   e.stopPropagation();
+                  setDeleteDialogOpen(true);
                 }}
               >
-                <CardTitle className="text-lg mb-2 hover:text-primary cursor-pointer transition-colors">
-                  {post.title}
-                </CardTitle>
-              </Link>
-              <CardDescription className="text-sm flex items-center gap-2">
-                <Link
-                  href={`/u/${post.user_id}`}
-                  className="flex items-center gap-1.5 hover:opacity-80 transition-opacity"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <UserAvatar
-                    url={post.profiles?.avatar_url}
-                    name={post.profiles?.display_name || post.profiles?.username || "User"}
-                  />
-                  <span className="font-medium text-foreground hover:underline">
-                    {post.profiles?.display_name || post.profiles?.username || `user_${post.user_id.substring(0, 8)}`}
-                  </span>
-                </Link>
-                <span>•</span>
-                <FormattedDate date={post.created_at} />
-              </CardDescription>
-            </div>
-            <Badge variant="outline" className="flex-shrink-0">
-              {commentCount} {commentCount === 1 ? 'comment' : 'comments'}
-            </Badge>
+                Delete
+              </Button>
+            )}
           </div>
-        </CardHeader>
-        <CardContent className="pt-0">
-          <p className="text-sm text-muted-foreground line-clamp-3 leading-relaxed mb-4">
-            {post.body}
-          </p>
+
+          {/* Post Body (no title, just content) */}
+          <Link 
+            href={`/community/${post.id}`}
+            className="block cursor-pointer"
+            onClick={(e) => {
+              e.stopPropagation();
+            }}
+          >
+            <p className="text-sm leading-relaxed mb-4 whitespace-pre-wrap">
+              {post.body}
+            </p>
+          </Link>
           
           {/* Post Images */}
           {post.post_media && post.post_media.length > 0 && (
@@ -226,7 +311,7 @@ export function PostCard({ post, commentCount, currentUserId, initialIsLiked = f
                   key={media.id}
                   src={media.media_url}
                   alt=""
-                  className="w-full h-32 object-cover rounded cursor-pointer hover:opacity-90 transition-opacity"
+                  className="w-full h-48 object-contain bg-white rounded cursor-pointer hover:opacity-90 transition-opacity"
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
@@ -237,51 +322,65 @@ export function PostCard({ post, commentCount, currentUserId, initialIsLiked = f
             </div>
           )}
 
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <button
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  handleLike();
-                }}
-                className={`flex items-center gap-1 text-sm transition-colors ${
-                  isLiked 
-                    ? "text-red-500 hover:text-red-600" 
-                    : "text-muted-foreground hover:text-red-500"
-                }`}
-              >
-                <span>{isLiked ? "❤️" : "🤍"}</span>
-                <span>{likesCount}</span>
-              </button>
-              <Button
-                variant="link"
-                className="p-0 h-auto text-sm"
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  console.log("Navigating to post:", post.id);
-                  router.push(`/community/${post.id}`);
-                }}
-              >
-                Read more →
-              </Button>
-            </div>
-            {isOwner && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setDeleteDialogOpen(true);
-                }}
-              >
-                Delete
-              </Button>
-            )}
+          {/* Actions at Bottom */}
+          <div className="flex items-center gap-4 pt-2 border-t">
+            <button
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                handleLike();
+              }}
+              className={`flex items-center gap-1 text-sm transition-colors ${
+                isLiked 
+                  ? "text-pink-500 hover:text-pink-600" 
+                  : "text-muted-foreground hover:text-pink-500"
+              }`}
+              title={isLiked ? "Unlike" : "Like"}
+            >
+              {isLiked ? <HeartFilledIcon className="w-4 h-4" /> : <HeartIcon className="w-4 h-4" />}
+              <span>{likesCount}</span>
+            </button>
+            
+            <button
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                handleSave();
+              }}
+              className={`flex items-center gap-1 text-sm transition-colors ${
+                isSaved 
+                  ? "text-blue-500 hover:text-blue-600" 
+                  : "text-muted-foreground hover:text-blue-500"
+              }`}
+              title={isSaved ? "Unsave" : "Save"}
+            >
+              {isSaved ? <BookmarkFilledIcon className="w-4 h-4" /> : <BookmarkIcon className="w-4 h-4" />}
+            </button>
+            
+            <button
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                handleShare();
+              }}
+              className="flex items-center gap-1 text-sm text-muted-foreground hover:text-blue-500 transition-colors"
+              title="Share"
+            >
+              <UploadIcon className="w-4 h-4" />
+            </button>
+            
+            <Button
+              variant="link"
+              className="p-0 h-auto text-sm ml-auto"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                console.log("Navigating to post:", post.id);
+                router.push(`/community/${post.id}`);
+              }}
+            >
+              Read more →
+            </Button>
           </div>
         </CardContent>
       </Card>
@@ -319,6 +418,31 @@ export function PostCard({ post, commentCount, currentUserId, initialIsLiked = f
             >
               {deleting ? "Deleting..." : "Delete"}
             </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Share Dialog */}
+      <Dialog open={shareDialogOpen} onOpenChange={setShareDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Share Post</DialogTitle>
+            <DialogDescription>
+              Share this post with others
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                readOnly
+                value={`${typeof window !== 'undefined' ? window.location.origin : ''}/community/${post.id}`}
+                className="flex-1 px-3 py-2 text-sm border rounded-md bg-muted"
+              />
+              <Button onClick={copyShareLink} variant="outline" size="sm">
+                {copiedLink ? "Copied!" : "Copy"}
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
