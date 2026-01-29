@@ -354,44 +354,6 @@ function ArenaContent() {
               </div>
               <div className="flex items-center gap-2">
                 <Button 
-                  onClick={async () => {
-                    try {
-                      const bearer = await getBearerToken();
-                      const response = await fetch("/api/arena/refresh-snapshots", {
-                        method: "POST",
-                        headers: bearer ? { Authorization: bearer } : undefined,
-                      });
-                      if (response.ok) {
-                        const data = await response.json();
-                        alert(`Refreshed ${data.succeeded || 0} snapshots`);
-                        loadLeaderboards();
-                        loadChartData();
-                      } else {
-                        alert("Failed to refresh snapshots");
-                      }
-                    } catch (error) {
-                      console.error("Failed to refresh snapshots:", error);
-                      alert("Failed to refresh snapshots");
-                    }
-                  }}
-                  variant="outline"
-                  size="sm"
-                  className="border-blue-900 text-gray-300 hover:text-white hover:border-blue-800 hover:bg-blue-950/30 transition-all"
-                >
-                  Refresh Snapshots
-                </Button>
-                <Button 
-                  onClick={() => {
-                    loadLeaderboards();
-                    loadChartData();
-                  }}
-                  variant="outline"
-                  size="sm"
-                  className="border-blue-900 text-gray-300 hover:text-white hover:border-blue-800 hover:bg-blue-950/30 transition-all"
-                >
-                  Refresh Now
-                </Button>
-                <Button 
                   onClick={() => router.push("/dashboard")}
                   size="sm"
                   className="bg-blue-900 hover:bg-blue-800 text-white border border-blue-700 transition-all"
