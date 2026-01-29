@@ -11,6 +11,7 @@ import { getBearerToken } from "@/lib/api/clientAuth";
 import { FormattedDate } from "@/components/formatted-date";
 import { createClient } from "@/lib/supabase/browser";
 import { ImageIcon, Cross2Icon } from "@radix-ui/react-icons";
+import Link from "next/link";
 
 interface Conversation {
   userId: string;
@@ -369,11 +370,13 @@ function MessagesContent() {
                             className={`flex gap-2 items-end ${isMe ? "justify-end" : "justify-start"}`}
                           >
                             {!isMe && (
-                              <UserAvatar
-                                url={selectedUser?.avatar_url}
-                                name={selectedUser?.display_name || "User"}
-                                size="sm"
-                              />
+                              <Link href={`/u/${selectedUserId}`} className="cursor-pointer flex-shrink-0">
+                                <UserAvatar
+                                  url={selectedUser?.avatar_url}
+                                  name={selectedUser?.display_name || "User"}
+                                  size="sm"
+                                />
+                              </Link>
                             )}
                             <div
                               className={`max-w-[70%] rounded-2xl px-4 py-2 ${
@@ -401,11 +404,13 @@ function MessagesContent() {
                               </p>
                             </div>
                             {isMe && (
-                              <UserAvatar
-                                url={currentUserAvatar}
-                                name="You"
-                                size="sm"
-                              />
+                              <Link href={`/u/${currentUserId}`} className="cursor-pointer flex-shrink-0">
+                                <UserAvatar
+                                  url={currentUserAvatar}
+                                  name="You"
+                                  size="sm"
+                                />
+                              </Link>
                             )}
                           </div>
                         );
