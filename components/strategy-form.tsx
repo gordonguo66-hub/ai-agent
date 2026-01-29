@@ -1361,20 +1361,39 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                         </div>
                         <div className="space-y-1">
                           <label className="text-sm font-medium">Candle Timeframe</label>
-                          <Input
-                          value={aiInputs.candles.timeframe}
-                          onChange={(e) =>
-                            setAiInputs(prev => ({
-                              ...prev,
-                              candles: { ...prev.candles, timeframe: e.target.value },
-                            }))
-                          }
-                          placeholder="e.g., 5m, 15m, 1h"
-                          className="h-9"
-                        />
-                        <p className="text-xs text-muted-foreground">
-                          Max Volatility % is measured between these candles
-                        </p>
+                          <Select
+                            value={aiInputs.candles.timeframe}
+                            onValueChange={(value) =>
+                              setAiInputs(prev => ({
+                                ...prev,
+                                candles: { ...prev.candles, timeframe: value },
+                              }))
+                            }
+                          >
+                            <optgroup label="Minutes">
+                              <option value="1m">1 minute</option>
+                              <option value="3m">3 minutes</option>
+                              <option value="5m">5 minutes</option>
+                              <option value="15m">15 minutes</option>
+                              <option value="30m">30 minutes</option>
+                            </optgroup>
+                            <optgroup label="Hours">
+                              <option value="1h">1 hour</option>
+                              <option value="2h">2 hours</option>
+                              <option value="4h">4 hours</option>
+                              <option value="8h">8 hours</option>
+                              <option value="12h">12 hours</option>
+                            </optgroup>
+                            <optgroup label="Days & More">
+                              <option value="1d">1 day</option>
+                              <option value="3d">3 days</option>
+                              <option value="1w">1 week</option>
+                              <option value="1M">1 month</option>
+                            </optgroup>
+                          </Select>
+                          <p className="text-xs text-muted-foreground">
+                            Max Volatility % is measured between these candles
+                          </p>
                       </div>
                       </div>
                     )}
