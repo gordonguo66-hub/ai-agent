@@ -204,7 +204,6 @@ function DashboardContent() {
               <Card className="border-dashed border-blue-900 trading-card">
                 <CardContent className="pt-12 pb-12">
                   <div className="text-center max-w-md mx-auto">
-                    <div className="text-6xl mb-4">🎯</div>
                     <p className="text-gray-300 mb-6 text-base">
                       No strategies yet. Create your first strategy to get started.
                     </p>
@@ -315,7 +314,6 @@ function DashboardContent() {
               <Card className="border-dashed border-blue-900 trading-card">
                 <CardContent className="pt-12 pb-12">
                   <div className="text-center max-w-md mx-auto">
-                    <div className="text-6xl mb-4">📈</div>
                     <p className="text-gray-300 mb-1 text-base">
                       No trading sessions yet.
                     </p>
