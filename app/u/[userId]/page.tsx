@@ -92,6 +92,7 @@ interface SavedPost {
   likes_count: number;
   comments_count: number;
   post_media?: { id: string; media_url: string }[];
+  isLiked?: boolean;
 }
 
 function ProfileContent({ userId }: { userId: string }) {
@@ -962,7 +963,11 @@ function ProfileContent({ userId }: { userId: string }) {
                       {/* Post Meta */}
                       <div className="flex items-center gap-4 text-sm text-muted-foreground">
                         <span className="flex items-center gap-1">
-                          <HeartFilledIcon className="w-4 h-4 text-pink-500" /> {post.likes_count}
+                          {post.isLiked ? (
+                            <HeartFilledIcon className="w-4 h-4 text-pink-500" />
+                          ) : (
+                            <HeartIcon className="w-4 h-4" />
+                          )} {post.likes_count}
                         </span>
                         <span>💬 {post.comments_count}</span>
                         <Link
