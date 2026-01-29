@@ -11,7 +11,6 @@ import { getBearerToken } from "@/lib/api/clientAuth";
 import { FormattedDate } from "@/components/formatted-date";
 import { createClient } from "@/lib/supabase/browser";
 import { ImageIcon, Cross2Icon } from "@radix-ui/react-icons";
-import Link from "next/link";
 
 interface Conversation {
   userId: string;
