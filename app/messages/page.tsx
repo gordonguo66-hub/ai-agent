@@ -78,6 +78,7 @@ function MessagesContent() {
   const [newMessage, setNewMessage] = useState("");
   const [sending, setSending] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [currentUserAvatar, setCurrentUserAvatar] = useState<string | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -110,12 +111,24 @@ function MessagesContent() {
         const data = await response.json();
         setConversations(data.conversations || []);
         
-        // Get current user ID from JWT
+        // Get current user ID and avatar from JWT and profile
         if (bearer) {
           const parts = bearer.replace('Bearer ', '').split('.');
           if (parts.length === 3) {
             const payload = JSON.parse(atob(parts[1]));
-            setCurrentUserId(payload.sub || null);
+            const userId = payload.sub || null;
+            setCurrentUserId(userId);
+            
+            // Fetch current user's avatar
+            if (userId) {
+              const profileResponse = await fetch(`/api/profiles/${userId}`, {
+                headers: bearer ? { Authorization: bearer } : undefined,
+              });
+              if (profileResponse.ok) {
+                const profileData = await profileResponse.json();
+                setCurrentUserAvatar(profileData.profile?.avatar_url || null);
+              }
+            }
           }
         }
       }
@@ -353,15 +366,13 @@ function MessagesContent() {
                         return (
                           <div
                             key={msg.id}
-                            className={`flex gap-2 ${isMe ? "justify-end" : "justify-start"}`}
+                            className={`flex gap-2 ${isMe ? "justify-end flex-row-reverse" : "justify-start"}`}
                           >
-                            {!isMe && (
-                              <UserAvatar
-                                url={selectedUser?.avatar_url}
-                                name={selectedUser?.display_name || "User"}
-                                size="sm"
-                              />
-                            )}
+                            <UserAvatar
+                              url={isMe ? currentUserAvatar : selectedUser?.avatar_url}
+                              name={isMe ? "You" : selectedUser?.display_name || "User"}
+                              size="sm"
+                            />
                             <div
                               className={`max-w-[70%] rounded-lg px-4 py-2 ${
                                 isMe
