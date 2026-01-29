@@ -193,7 +193,6 @@ function DashboardContent() {
           <div className="mb-12">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-2xl font-bold text-white flex items-center gap-2">
-                <span className="text-2xl">🎯</span>
                 My Strategies
               </h2>
               <span className="text-sm text-gray-300 bg-blue-950/30 px-3 py-1 rounded-full border border-blue-900">
@@ -301,7 +300,6 @@ function DashboardContent() {
           <div>
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-2xl font-bold text-white flex items-center gap-2">
-                <span className="text-2xl">📈</span>
                 Trading Sessions
               </h2>
               {sessions.length > 0 && (
