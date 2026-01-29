@@ -726,7 +726,7 @@ function ProfileContent({ userId }: { userId: string }) {
                   />
                   <Label htmlFor="post-visibility" className="cursor-pointer">
                     <span className="font-medium">
-                      {postVisibility === "public" ? "🌎 Public" : "👤 Profile Only"}
+                      {postVisibility === "public" ? "Public" : "Profile Only"}
                     </span>
                     <span className="block text-xs text-muted-foreground">
                       {postVisibility === "public" 
