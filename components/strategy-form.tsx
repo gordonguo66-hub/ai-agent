@@ -1373,7 +1373,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                             <optgroup label="Minutes">
                               <option value="1m">1 minute</option>
                               <option value="3m">3 minutes</option>
-                              <option value="5m">5 minutes</option>
+                              <option value="5m">5 minutes (default)</option>
                               <option value="15m">15 minutes</option>
                               <option value="30m">30 minutes</option>
                             </optgroup>
