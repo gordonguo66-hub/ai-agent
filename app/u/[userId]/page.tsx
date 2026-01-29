@@ -664,7 +664,7 @@ function ProfileContent({ userId }: { userId: string }) {
                       <Badge variant="secondary">{profile.age} years old</Badge>
                     )}
                     <Badge variant="outline">
-                      Joined <FormattedDate date={profile.created_at} format="date" />
+                      Joined{" "}<FormattedDate date={profile.created_at} format="date" />
                     </Badge>
                   </div>
                 </div>
