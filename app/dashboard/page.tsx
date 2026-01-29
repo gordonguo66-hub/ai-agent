@@ -317,14 +317,9 @@ function DashboardContent() {
                     <p className="text-gray-200 mb-1 text-base">
                       No trading sessions yet.
                     </p>
-                    <p className="text-sm text-gray-300 mb-6">
+                    <p className="text-sm text-gray-300">
                       Create a session from a strategy to start dry-run or live trading.
                     </p>
-                    <Link href="/settings/exchange">
-                      <Button variant="outline" className="border-blue-900 text-gray-300 hover:text-white hover:border-blue-800 hover:bg-blue-950/30 transition-all">
-                        Connect Exchange First
-                      </Button>
-                    </Link>
                   </div>
                 </CardContent>
               </Card>
