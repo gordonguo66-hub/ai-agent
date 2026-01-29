@@ -290,18 +290,21 @@ export async function GET(request: NextRequest) {
       yMin = minValue === Infinity ? -1 : minValue - padding;
       yMax = maxValue === -Infinity ? 1 : maxValue + padding;
       
-      // Ensure 0 line is visible if data crosses zero or is close to it
-      if (yMin > 0 && yMin < 2) yMin = -0.5;
-      if (yMax < 0 && yMax > -2) yMax = 0.5;
+      // Always ensure 0 is visible on the Y-axis
+      if (yMin > 0) yMin = -0.5;
+      if (yMax < 0) yMax = 0.5;
     } else {
-      // For equity, use percentage of the average value for padding
+      // For equity, always include $100k starting point
       const avgValue = (minValue + maxValue) / 2;
-      // Ensure at least 2% range for visibility, up to 10% for large ranges
       const minPadding = avgValue * 0.01; // 1% of avg value
       padding = Math.max(range * 0.15, minPadding, 500); // At least $500 padding
       
       yMin = minValue === Infinity ? 99000 : minValue - padding;
       yMax = maxValue === -Infinity ? 101000 : maxValue + padding;
+      
+      // Always ensure $100k is visible on the Y-axis
+      if (yMin > 100000) yMin = 99500;
+      if (yMax < 100000) yMax = 100500;
       
       // Round to nice numbers for equity
       yMin = Math.floor(yMin / 100) * 100;

@@ -533,13 +533,8 @@ function ArenaContent() {
                               timeOpts.timeZone = timezone;
                               dateOpts.timeZone = timezone;
                             }
-                            if (hoursRange < 24) {
-                              return date.toLocaleTimeString("en-US", timeOpts);
-                            } else if (hoursRange < 168) {
-                              return date.toLocaleDateString("en-US", dateOpts) + " " + date.toLocaleTimeString("en-US", { ...timeOpts, minute: undefined });
-                            } else {
-                              return date.toLocaleDateString("en-US", dateOpts);
-                            }
+                            // Always show just the date (month/day) for cleaner look
+                            return date.toLocaleDateString("en-US", dateOpts);
                           }}
                           tickCount={6}
                           minTickGap={50}
