@@ -18,6 +18,7 @@ export function CreatePostDialog() {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
   const [body, setBody] = useState("");
   const [images, setImages] = useState<string[]>([]);
   const [uploadingImage, setUploadingImage] = useState(false);
@@ -202,15 +203,20 @@ export function CreatePostDialog() {
         console.log("📷 No images to save");
       }
 
-      // Success - close dialog and refresh
+      // Success - show notification, then close and refresh
       console.log("Post created successfully!", data[0]);
-      setOpen(false);
-      setBody("");
-      setImages([]);
-      setError(null);
+      setSuccess(true);
+      setLoading(false);
       
-      // Refresh the page
-      window.location.href = "/community?t=" + Date.now();
+      // Wait 1.5 seconds to show success message, then redirect
+      setTimeout(() => {
+        setOpen(false);
+        setBody("");
+        setImages([]);
+        setError(null);
+        setSuccess(false);
+        window.location.href = "/community?t=" + Date.now();
+      }, 1500);
     } catch (err: any) {
       console.error("Post creation error:", err);
       setError(err.message || "An unexpected error occurred. Please try again.");
@@ -252,7 +258,12 @@ export function CreatePostDialog() {
                 <strong>Error:</strong> {error}
               </div>
             )}
-            {loading && (
+            {success && (
+              <div className="p-4 text-sm text-emerald-300 bg-emerald-900/30 border border-emerald-700 rounded-md animate-in fade-in slide-in-from-top-2 duration-300">
+                <strong>🎉 Success!</strong> Your post has been published to the Community.
+              </div>
+            )}
+            {loading && !success && (
               <div className="p-3 text-sm text-muted-foreground bg-muted/50 rounded-md">
                 Posting your message...
               </div>
@@ -271,7 +282,7 @@ export function CreatePostDialog() {
                 maxLength={5000}
                 className="mt-1"
                 placeholder="Share your thoughts..."
-                disabled={loading}
+                disabled={loading || success}
               />
             </div>
 
@@ -292,8 +303,8 @@ export function CreatePostDialog() {
                         <button
                           type="button"
                           onClick={() => removeImage(index)}
-                          className="absolute -top-2 -right-2 bg-destructive text-destructive-foreground rounded-full w-5 h-5 flex items-center justify-center text-xs"
-                          disabled={loading}
+                          className="absolute -top-2 -right-2 bg-destructive text-destructive-foreground rounded-full w-5 h-5 flex items-center justify-center text-xs disabled:opacity-50"
+                          disabled={loading || success}
                         >
                           ×
                         </button>
@@ -309,14 +320,14 @@ export function CreatePostDialog() {
                   accept="image/*"
                   onChange={handleImageUpload}
                   className="hidden"
-                  disabled={loading || uploadingImage}
+                  disabled={loading || uploadingImage || success}
                 />
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
                   onClick={() => fileInputRef.current?.click()}
-                  disabled={loading || uploadingImage || images.length >= 4}
+                  disabled={loading || uploadingImage || images.length >= 4 || success}
                 >
                   {uploadingImage ? "Uploading..." : "Add Image"}
                 </Button>
@@ -329,16 +340,16 @@ export function CreatePostDialog() {
             <div className="flex gap-4">
               <Button 
                 type="submit" 
-                disabled={loading || uploadingImage || !body.trim()} 
+                disabled={loading || uploadingImage || !body.trim() || success} 
                 className="flex-1"
               >
-                {loading ? "Posting..." : "Post"}
+                {success ? "Posted!" : loading ? "Posting..." : "Post"}
               </Button>
               <Button
                 type="button"
                 variant="outline"
                 onClick={handleClose}
-                disabled={loading}
+                disabled={loading || success}
               >
                 Cancel
               </Button>

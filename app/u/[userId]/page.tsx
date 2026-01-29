@@ -126,6 +126,7 @@ function ProfileContent({ userId }: { userId: string }) {
   const [isFollowing, setIsFollowing] = useState(false);
   const [followLoading, setFollowLoading] = useState(false);
   const [postVisibility, setPostVisibility] = useState<"public" | "profile_only">("public");
+  const [postSuccess, setPostSuccess] = useState<string | null>(null);
 
   const isOwner = currentUserId === userId;
 
@@ -426,6 +427,15 @@ function ProfileContent({ userId }: { userId: string }) {
           replies: [],
         };
         setPosts(prev => [newPost, ...prev]);
+        
+        // Show success notification
+        const successMessage = visibilityToPost === "public"
+          ? "🎉 Post published! It's now visible in the Community feed."
+          : "✅ Post created! It's visible on your profile.";
+        setPostSuccess(successMessage);
+        
+        // Clear notification after 4 seconds
+        setTimeout(() => setPostSuccess(null), 4000);
       } else {
         const error = await response.json();
         // Restore inputs on error
@@ -668,6 +678,13 @@ function ProfileContent({ userId }: { userId: string }) {
               </div>
             </CardContent>
           </Card>
+
+          {/* Success Notification */}
+          {postSuccess && (
+            <div className="mb-4 p-4 bg-emerald-900/30 border border-emerald-700 rounded-lg animate-in fade-in slide-in-from-top-2 duration-300">
+              <p className="text-emerald-300 text-sm font-medium">{postSuccess}</p>
+            </div>
+          )}
 
           {/* Post Composer (owner only) */}
           {isOwner && (
