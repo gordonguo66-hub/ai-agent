@@ -1330,33 +1330,38 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                       />
                     </div>
                     {aiInputs.candles.enabled && (
-                      <div className="pl-4 space-y-2 border-l-2">
-                        <Input
-                          type="number"
-                          value={aiInputs.candles.count}
-                          onChange={(e) => {
-                            const value = e.target.value;
-                            setAiInputs(prev => ({
-                              ...prev,
-                              candles: { 
-                                ...prev.candles, 
-                                count: value === "" ? "" : parseInt(value) || prev.candles.count 
-                              },
-                            }));
-                          }}
-                          onBlur={(e) => {
-                            // When user leaves the field, ensure it has a valid number
-                            if (e.target.value === "" || parseInt(e.target.value) < 1) {
+                      <div className="pl-4 space-y-3 border-l-2">
+                        <div className="space-y-1">
+                          <label className="text-sm font-medium">Number of Candles</label>
+                          <Input
+                            type="number"
+                            value={aiInputs.candles.count}
+                            onChange={(e) => {
+                              const value = e.target.value;
                               setAiInputs(prev => ({
                                 ...prev,
-                                candles: { ...prev.candles, count: 200 },
+                                candles: { 
+                                  ...prev.candles, 
+                                  count: value === "" ? "" : parseInt(value) || prev.candles.count 
+                                },
                               }));
-                            }
-                          }}
-                          placeholder="Count"
-                          className="h-9"
-                        />
-                        <Input
+                            }}
+                            onBlur={(e) => {
+                              // When user leaves the field, ensure it has a valid number
+                              if (e.target.value === "" || parseInt(e.target.value) < 1) {
+                                setAiInputs(prev => ({
+                                  ...prev,
+                                  candles: { ...prev.candles, count: 200 },
+                                }));
+                              }
+                            }}
+                            placeholder="e.g., 200"
+                            className="h-9"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-sm font-medium">Candle Timeframe</label>
+                          <Input
                           value={aiInputs.candles.timeframe}
                           onChange={(e) =>
                             setAiInputs(prev => ({
@@ -1364,9 +1369,13 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                               candles: { ...prev.candles, timeframe: e.target.value },
                             }))
                           }
-                          placeholder="Timeframe (e.g., 5m)"
+                          placeholder="e.g., 5m, 15m, 1h"
                           className="h-9"
                         />
+                        <p className="text-xs text-muted-foreground">
+                          Max Volatility % is measured between these candles
+                        </p>
+                      </div>
                       </div>
                     )}
 
