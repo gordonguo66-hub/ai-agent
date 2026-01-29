@@ -1659,31 +1659,60 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                         </div>
 
                         {entryExit.entry.confirmation.requireVolatilityCondition && (
-                          <div className="space-y-2">
-                            <label className="text-sm font-medium">Max Volatility %</label>
-                            <Input
-                              type="number"
-                              step="0.1"
-                              min="0"
-                              value={entryExit.entry.confirmation.volatilityMax || ""}
-                              onChange={(e) =>
-                                setEntryExit(prev => ({
-                                  ...prev,
-                                  entry: {
-                                    ...prev.entry,
-                                    confirmation: {
-                                      ...prev.entry.confirmation,
-                                      volatilityMax: e.target.value ? parseFloat(e.target.value) : null,
+                          <div className="space-y-4">
+                            <div className="space-y-2">
+                              <label className="text-sm font-medium">Min Volatility %</label>
+                              <Input
+                                type="number"
+                                step="0.1"
+                                min="0"
+                                value={entryExit.entry.confirmation.volatilityMin ?? ""}
+                                onChange={(e) =>
+                                  setEntryExit(prev => ({
+                                    ...prev,
+                                    entry: {
+                                      ...prev.entry,
+                                      confirmation: {
+                                        ...prev.entry.confirmation,
+                                        volatilityMin: e.target.value ? parseFloat(e.target.value) : null,
+                                      },
                                     },
-                                  },
-                                }))
-                              }
-                              className="h-11"
-                              placeholder="e.g., 5.0"
-                            />
-                            <p className="text-xs text-muted-foreground">
-                              Maximum volatility percentage to allow entry
-                            </p>
+                                  }))
+                                }
+                                className="h-11"
+                                placeholder="0"
+                              />
+                              <p className="text-xs text-muted-foreground">
+                                Minimum volatility required to enter (0 = no minimum)
+                              </p>
+                            </div>
+                            
+                            <div className="space-y-2">
+                              <label className="text-sm font-medium">Max Volatility %</label>
+                              <Input
+                                type="number"
+                                step="0.1"
+                                min="0"
+                                value={entryExit.entry.confirmation.volatilityMax || ""}
+                                onChange={(e) =>
+                                  setEntryExit(prev => ({
+                                    ...prev,
+                                    entry: {
+                                      ...prev.entry,
+                                      confirmation: {
+                                        ...prev.entry.confirmation,
+                                        volatilityMax: e.target.value ? parseFloat(e.target.value) : null,
+                                      },
+                                    },
+                                  }))
+                                }
+                                className="h-11"
+                                placeholder="e.g., 5.0"
+                              />
+                              <p className="text-xs text-muted-foreground">
+                                Maximum volatility percentage to allow entry
+                              </p>
+                            </div>
                           </div>
                         )}
                       </div>
