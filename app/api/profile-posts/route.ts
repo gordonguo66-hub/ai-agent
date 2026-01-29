@@ -14,10 +14,15 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { content, media_urls } = body;
+    const { content, media_urls, visibility = "profile_only" } = body;
 
     if (!content || typeof content !== "string" || content.trim().length === 0) {
       return NextResponse.json({ error: "Content is required" }, { status: 400 });
+    }
+
+    // Validate visibility
+    if (visibility !== "public" && visibility !== "profile_only") {
+      return NextResponse.json({ error: "Invalid visibility value" }, { status: 400 });
     }
 
     const serviceClient = createServiceRoleClient();
@@ -43,12 +48,13 @@ export async function POST(request: NextRequest) {
     }
 
     // Create the post
-    console.log("[Create Post] Creating post for user:", user.id, "content:", content.substring(0, 50));
+    console.log("[Create Post] Creating post for user:", user.id, "content:", content.substring(0, 50), "visibility:", visibility);
     const { data: post, error: postError } = await serviceClient
       .from("profile_posts")
       .insert({
         author_id: user.id,
         content: content.trim(),
+        visibility: visibility,
       })
       .select()
       .single();

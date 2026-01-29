@@ -21,6 +21,8 @@ interface PostCardProps {
     created_at: string;
     likes_count?: number;
     post_media?: { id: string; media_url: string }[];
+    source?: string; // "posts" or "profile_posts"
+    original_id?: string; // Original ID for profile posts
   };
   commentCount: number;
   currentUserId: string | null;
@@ -126,7 +128,12 @@ export function PostCard({ post, commentCount, currentUserId, initialIsLiked = f
         return;
       }
 
-      const response = await fetch(`/api/posts/${post.id}/like`, {
+      // Use the correct API endpoint based on post source
+      const apiEndpoint = post.source === "profile_posts"
+        ? `/api/profile-posts/${post.original_id}/like`
+        : `/api/posts/${post.id}/like`;
+      
+      const response = await fetch(apiEndpoint, {
         method: wasLiked ? "DELETE" : "POST",
         headers: {
           Authorization: `Bearer ${session.access_token}`,
@@ -345,7 +352,12 @@ export function PostCard({ post, commentCount, currentUserId, initialIsLiked = f
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                router.push(`/community/${post.id}`);
+                // Navigate to appropriate detail page based on post source
+                if (post.source === "profile_posts") {
+                  router.push(`/u/${post.user_id}`); // Profile posts go to user profile
+                } else {
+                  router.push(`/community/${post.id}`); // Regular posts go to post detail
+                }
               }}
               className="flex items-center gap-1 text-sm text-muted-foreground hover:text-blue-500 transition-colors"
               title="View comments"
@@ -389,7 +401,12 @@ export function PostCard({ post, commentCount, currentUserId, initialIsLiked = f
                 e.preventDefault();
                 e.stopPropagation();
                 console.log("Navigating to post:", post.id);
-                router.push(`/community/${post.id}`);
+                // Navigate to appropriate detail page based on post source
+                if (post.source === "profile_posts") {
+                  router.push(`/u/${post.user_id}`); // Profile posts go to user profile
+                } else {
+                  router.push(`/community/${post.id}`); // Regular posts go to post detail
+                }
               }}
             >
               Read more →

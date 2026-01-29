@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import { AuthGuard } from "@/components/auth-guard";
 import { createClient } from "@/lib/supabase/browser";
 import { getBearerToken } from "@/lib/api/clientAuth";
@@ -124,6 +125,7 @@ function ProfileContent({ userId }: { userId: string }) {
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
   const [isFollowing, setIsFollowing] = useState(false);
   const [followLoading, setFollowLoading] = useState(false);
+  const [postVisibility, setPostVisibility] = useState<"public" | "profile_only">("public");
 
   const isOwner = currentUserId === userId;
 
@@ -389,6 +391,7 @@ function ProfileContent({ userId }: { userId: string }) {
     setCreatingPost(true);
     const contentToPost = newPostContent;
     const mediaToPost = [...newPostMedia];
+    const visibilityToPost = postVisibility;
     
     // Clear inputs immediately for better UX
     setNewPostContent("");
@@ -405,6 +408,7 @@ function ProfileContent({ userId }: { userId: string }) {
         body: JSON.stringify({
           content: contentToPost,
           media_urls: mediaToPost,
+          visibility: visibilityToPost,
         }),
       });
 
@@ -695,6 +699,25 @@ function ProfileContent({ userId }: { userId: string }) {
                     ))}
                   </div>
                 )}
+
+                {/* Visibility Toggle */}
+                <div className="flex items-center gap-2 mb-3 p-3 bg-muted/50 rounded-md">
+                  <Switch
+                    checked={postVisibility === "public"}
+                    onCheckedChange={(checked) => setPostVisibility(checked ? "public" : "profile_only")}
+                    id="post-visibility"
+                  />
+                  <Label htmlFor="post-visibility" className="cursor-pointer">
+                    <span className="font-medium">
+                      {postVisibility === "public" ? "🌎 Public" : "👤 Profile Only"}
+                    </span>
+                    <span className="block text-xs text-muted-foreground">
+                      {postVisibility === "public" 
+                        ? "Post will appear in Community feed" 
+                        : "Only visible on your profile"}
+                    </span>
+                  </Label>
+                </div>
 
                 <div className="flex items-center justify-between">
                   <div>

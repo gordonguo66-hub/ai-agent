@@ -77,29 +77,46 @@ function CommunityContent() {
       setCurrentUserId(userId);
 
       // Fetch posts (without join - we'll fetch profiles separately)
-      let postsData: any[] | null = null;
+      let postsData: any[] = [];
 
-      // Try with likes_count first
-      const { data: postsWithLikesData, error: postsWithLikesError } = await supabase
+      // Fetch regular community posts
+      const { data: regularPosts, error: regularPostsError } = await supabase
         .from("posts")
         .select("id, user_id, title, body, created_at, likes_count")
         .order("created_at", { ascending: false });
 
-      if (postsWithLikesError) {
-        console.error("Error fetching posts with likes_count:", postsWithLikesError);
-        // Fallback: try without likes_count column
-        const { data: fallbackData, error: fallbackError } = await supabase
-          .from("posts")
-          .select("id, user_id, title, body, created_at")
-          .order("created_at", { ascending: false });
-        
-        if (fallbackError) {
-          console.error("Error fetching posts:", fallbackError);
-        }
-        postsData = (fallbackData || []).map(p => ({ ...p, likes_count: 0 }));
-      } else {
-        postsData = postsWithLikesData;
+      if (!regularPostsError && regularPosts) {
+        postsData = regularPosts.map(p => ({
+          ...p,
+          source: "posts",
+          likes_count: p.likes_count || 0,
+        }));
       }
+
+      // Fetch public profile posts
+      const { data: profilePosts, error: profilePostsError } = await supabase
+        .from("profile_posts")
+        .select("id, author_id, content, created_at, likes_count")
+        .eq("visibility", "public")
+        .order("created_at", { ascending: false });
+
+      if (!profilePostsError && profilePosts) {
+        // Normalize profile posts to match posts structure
+        const normalizedProfilePosts = profilePosts.map(p => ({
+          id: `profile_${p.id}`, // Prefix to avoid ID conflicts
+          original_id: p.id,
+          user_id: p.author_id,
+          title: p.content.substring(0, 100), // Auto-generate title for compatibility
+          body: p.content,
+          created_at: p.created_at,
+          likes_count: p.likes_count || 0,
+          source: "profile_posts",
+        }));
+        postsData = [...postsData, ...normalizedProfilePosts];
+      }
+
+      // Sort all posts by created_at
+      postsData.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
       // Fetch profiles and media separately and attach to posts
       if (postsData && postsData.length > 0) {
@@ -116,27 +133,50 @@ function CommunityContent() {
 
         // Fetch media (may not exist yet)
         let mediaByPost = new Map<string, any[]>();
+        
+        // Fetch media for regular posts
         try {
-          console.log("📷 Fetching media for posts:", postIds);
-          const { data: mediaData, error: mediaError } = await supabase
-            .from("post_media")
-            .select("id, post_id, media_url")
-            .in("post_id", postIds);
-          
-          console.log("📷 Media fetch result:", { mediaData, mediaError });
-          
-          if (!mediaError && mediaData) {
-            mediaData.forEach(m => {
-              if (!mediaByPost.has(m.post_id)) {
-                mediaByPost.set(m.post_id, []);
-              }
-              mediaByPost.get(m.post_id)!.push({ id: m.id, media_url: m.media_url });
-            });
-            console.log("📷 Media by post:", Object.fromEntries(mediaByPost));
+          const regularPostIds = postsData.filter(p => p.source === "posts").map(p => p.id);
+          if (regularPostIds.length > 0) {
+            const { data: mediaData, error: mediaError } = await supabase
+              .from("post_media")
+              .select("id, post_id, media_url")
+              .in("post_id", regularPostIds);
+            
+            if (!mediaError && mediaData) {
+              mediaData.forEach(m => {
+                if (!mediaByPost.has(m.post_id)) {
+                  mediaByPost.set(m.post_id, []);
+                }
+                mediaByPost.get(m.post_id)!.push({ id: m.id, media_url: m.media_url });
+              });
+            }
           }
         } catch (err) {
           console.error("📷 post_media fetch error:", err);
-          // post_media table might not exist yet
+        }
+
+        // Fetch media for profile posts
+        try {
+          const profilePostIds = postsData.filter(p => p.source === "profile_posts").map(p => p.original_id);
+          if (profilePostIds.length > 0) {
+            const { data: profileMediaData, error: profileMediaError } = await supabase
+              .from("profile_post_media")
+              .select("id, post_id, media_url")
+              .in("post_id", profilePostIds);
+            
+            if (!profileMediaError && profileMediaData) {
+              profileMediaData.forEach(m => {
+                const prefixedId = `profile_${m.post_id}`;
+                if (!mediaByPost.has(prefixedId)) {
+                  mediaByPost.set(prefixedId, []);
+                }
+                mediaByPost.get(prefixedId)!.push({ id: m.id, media_url: m.media_url });
+              });
+            }
+          }
+        } catch (err) {
+          console.error("📷 profile_post_media fetch error:", err);
         }
 
         postsData = postsData.map(post => ({
@@ -151,40 +191,50 @@ function CommunityContent() {
 
       // Check which posts the current user has liked
       if (userId && postsWithLikes.length > 0) {
-        const postIds = postsWithLikes.map(p => p.id);
         try {
-          // Fetch likes
-          const { data: userLikes, error: likesError } = await supabase
-            .from("post_likes")
-            .select("post_id")
-            .eq("user_id", userId)
-            .in("post_id", postIds);
+          const likedPostIds = new Set<string>();
+          const savedPostIds = new Set<string>();
           
-          // Fetch saved posts
-          const { data: userSaves, error: savesError } = await supabase
-            .from("saved_posts")
-            .select("post_id")
-            .eq("user_id", userId)
-            .in("post_id", postIds);
-          
-          if (!likesError && !savesError) {
-            const likedPostIds = new Set((userLikes || []).map(l => l.post_id));
-            const savedPostIds = new Set((userSaves || []).map(s => s.post_id));
-            postsWithLikes = postsWithLikes.map(post => ({
-              ...post,
-              isLiked: likedPostIds.has(post.id),
-              isSaved: savedPostIds.has(post.id),
-            }));
-          } else {
-            // Tables might not exist yet
-            postsWithLikes = postsWithLikes.map(post => ({
-              ...post,
-              isLiked: false,
-              isSaved: false,
-            }));
+          // Fetch likes for regular posts
+          const regularPostIds = postsWithLikes.filter(p => p.source === "posts").map(p => p.id);
+          if (regularPostIds.length > 0) {
+            const { data: userLikes } = await supabase
+              .from("post_likes")
+              .select("post_id")
+              .eq("user_id", userId)
+              .in("post_id", regularPostIds);
+            
+            (userLikes || []).forEach(l => likedPostIds.add(l.post_id));
+            
+            // Fetch saved regular posts
+            const { data: userSaves } = await supabase
+              .from("saved_posts")
+              .select("post_id")
+              .eq("user_id", userId)
+              .in("post_id", regularPostIds);
+            
+            (userSaves || []).forEach(s => savedPostIds.add(s.post_id));
           }
-        } catch {
-          // Likes/saves table doesn't exist yet
+          
+          // Fetch likes for profile posts
+          const profilePostOriginalIds = postsWithLikes.filter(p => p.source === "profile_posts").map(p => p.original_id);
+          if (profilePostOriginalIds.length > 0) {
+            const { data: profileLikes } = await supabase
+              .from("profile_post_likes")
+              .select("post_id")
+              .eq("user_id", userId)
+              .in("post_id", profilePostOriginalIds);
+            
+            (profileLikes || []).forEach(l => likedPostIds.add(`profile_${l.post_id}`));
+          }
+          
+          postsWithLikes = postsWithLikes.map(post => ({
+            ...post,
+            isLiked: likedPostIds.has(post.id),
+            isSaved: savedPostIds.has(post.id), // Profile posts can't be saved (for now)
+          }));
+        } catch (err) {
+          console.error("Error fetching likes/saves:", err);
           postsWithLikes = postsWithLikes.map(post => ({
             ...post,
             isLiked: false,
@@ -202,14 +252,27 @@ function CommunityContent() {
       setPosts(postsWithLikes);
 
       // Fetch comment counts (including all replies)
+      const counts: Record<string, number> = {};
+      
+      // Fetch comments for regular posts
       const { data: commentData } = await supabase
         .from("comments")
         .select("post_id");
-
-      const counts: Record<string, number> = {};
+      
       (commentData || []).forEach((c: any) => {
         counts[c.post_id] = (counts[c.post_id] || 0) + 1;
       });
+      
+      // Fetch replies for profile posts
+      const { data: replyData } = await supabase
+        .from("profile_post_replies")
+        .select("post_id");
+      
+      (replyData || []).forEach((r: any) => {
+        const prefixedId = `profile_${r.post_id}`;
+        counts[prefixedId] = (counts[prefixedId] || 0) + 1;
+      });
+      
       setCommentCounts(counts);
     } catch (error) {
       console.error("Error loading community data:", error);
