@@ -366,18 +366,20 @@ function MessagesContent() {
                         return (
                           <div
                             key={msg.id}
-                            className={`flex gap-2 ${isMe ? "justify-end flex-row-reverse" : "justify-start"}`}
+                            className={`flex gap-2 items-end ${isMe ? "justify-end" : "justify-start"}`}
                           >
-                            <UserAvatar
-                              url={isMe ? currentUserAvatar : selectedUser?.avatar_url}
-                              name={isMe ? "You" : selectedUser?.display_name || "User"}
-                              size="sm"
-                            />
+                            {!isMe && (
+                              <UserAvatar
+                                url={selectedUser?.avatar_url}
+                                name={selectedUser?.display_name || "User"}
+                                size="sm"
+                              />
+                            )}
                             <div
-                              className={`max-w-[70%] rounded-lg px-4 py-2 ${
+                              className={`max-w-[70%] rounded-2xl px-4 py-2 ${
                                 isMe
-                                  ? "bg-primary text-primary-foreground"
-                                  : "bg-muted"
+                                  ? "bg-primary text-primary-foreground rounded-br-sm"
+                                  : "bg-muted rounded-bl-sm"
                               }`}
                             >
                               {msg.image_url && (
@@ -398,6 +400,13 @@ function MessagesContent() {
                                 <FormattedDate date={msg.created_at} format="time" />
                               </p>
                             </div>
+                            {isMe && (
+                              <UserAvatar
+                                url={currentUserAvatar}
+                                name="You"
+                                size="sm"
+                              />
+                            )}
                           </div>
                         );
                       })
