@@ -45,7 +45,7 @@ function EditStrategyContent() {
 
   if (loading) {
     return (
-      <div className="min-h-[calc(100vh-4rem)] bg-background">
+      <div className="min-h-[calc(100vh-4rem)] page-container">
         <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
           <div className="max-w-3xl mx-auto">
             <div className="flex items-center justify-center py-16">
@@ -59,7 +59,7 @@ function EditStrategyContent() {
 
   if (error || !strategy) {
     return (
-      <div className="min-h-[calc(100vh-4rem)] bg-background">
+      <div className="min-h-[calc(100vh-4rem)] page-container">
         <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
           <div className="max-w-3xl mx-auto">
             <div className="flex flex-col items-center justify-center py-16 space-y-4">
@@ -75,7 +75,7 @@ function EditStrategyContent() {
   }
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] bg-background">
+    <div className="min-h-[calc(100vh-4rem)] page-container">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
         <div className="max-w-3xl mx-auto">
           <div className="mb-4">
