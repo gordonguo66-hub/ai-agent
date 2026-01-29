@@ -630,14 +630,23 @@ function ProfileContent({ userId }: { userId: string }) {
                         Edit Profile
                       </Button>
                     ) : currentUserId && (
-                      <Button
-                        variant={isFollowing ? "outline" : "default"}
-                        size="sm"
-                        onClick={handleFollowToggle}
-                        disabled={followLoading}
-                      >
-                        {followLoading ? "..." : isFollowing ? "Unfollow" : "Follow"}
-                      </Button>
+                      <div className="flex gap-2">
+                        <Button
+                          variant={isFollowing ? "outline" : "default"}
+                          size="sm"
+                          onClick={handleFollowToggle}
+                          disabled={followLoading}
+                        >
+                          {followLoading ? "..." : isFollowing ? "Unfollow" : "Follow"}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => router.push(`/messages?user=${userId}`)}
+                        >
+                          Message
+                        </Button>
+                      </div>
                     )}
                   </div>
 

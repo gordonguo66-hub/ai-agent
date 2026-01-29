@@ -187,6 +187,16 @@ export function Nav() {
                   Community
                 </Link>
                 <Link
+                  href="/messages"
+                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-all duration-300 ${
+                    isActive("/messages")
+                      ? "bg-blue-900/50 text-white border border-blue-700"
+                      : "text-gray-300 hover:text-white hover:bg-blue-950/30 border border-transparent"
+                  }`}
+                >
+                  Messages
+                </Link>
+                <Link
                   href="/settings"
                   className={`px-4 py-2 text-sm font-medium rounded-lg transition-all duration-300 ${
                     pathname?.startsWith("/settings")
