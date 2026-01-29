@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS direct_messages (
   sender_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   recipient_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   content TEXT NOT NULL,
+  image_url TEXT,
   read BOOLEAN DEFAULT false,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   

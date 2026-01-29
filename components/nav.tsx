@@ -6,6 +6,7 @@ import { Button } from "./ui/button";
 import { createClient } from "@/lib/supabase/browser";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { EnvelopeClosedIcon } from "@radix-ui/react-icons";
 
 export function Nav() {
   const pathname = usePathname();
@@ -187,16 +188,6 @@ export function Nav() {
                   Community
                 </Link>
                 <Link
-                  href="/messages"
-                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-all duration-300 ${
-                    isActive("/messages")
-                      ? "bg-blue-900/50 text-white border border-blue-700"
-                      : "text-gray-300 hover:text-white hover:bg-blue-950/30 border border-transparent"
-                  }`}
-                >
-                  Messages
-                </Link>
-                <Link
                   href="/settings"
                   className={`px-4 py-2 text-sm font-medium rounded-lg transition-all duration-300 ${
                     pathname?.startsWith("/settings")
@@ -214,6 +205,13 @@ export function Nav() {
               <span className="text-sm text-gray-400">Loading...</span>
             ) : user ? (
               <>
+                <Link
+                  href="/messages"
+                  className="p-2 rounded-lg border border-blue-900 bg-blue-950/30 hover:bg-blue-900/30 hover:border-blue-800 transition-all duration-300"
+                  title="Messages"
+                >
+                  <EnvelopeClosedIcon className="w-5 h-5 text-white" />
+                </Link>
                 <Link 
                   href={`/u/${user.id}`}
                   className="flex items-center gap-2 px-3 py-2 rounded-lg border border-blue-900 bg-blue-950/30 hover:bg-blue-900/30 hover:border-blue-800 transition-all duration-300"

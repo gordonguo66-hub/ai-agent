@@ -99,11 +99,11 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { recipient_id, content } = body;
+    const { recipient_id, content, image_url } = body;
 
-    if (!recipient_id || !content?.trim()) {
+    if (!recipient_id || (!content?.trim() && !image_url)) {
       return NextResponse.json(
-        { error: "recipient_id and content are required" },
+        { error: "recipient_id and either content or image_url are required" },
         { status: 400 }
       );
     }
@@ -138,7 +138,8 @@ export async function POST(request: NextRequest) {
       .insert({
         sender_id: user.id,
         recipient_id: recipient_id,
-        content: content.trim(),
+        content: content?.trim() || "[Image]",
+        image_url: image_url || null,
       })
       .select()
       .single();

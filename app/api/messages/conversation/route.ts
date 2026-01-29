@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
     // Fetch all messages between these two users
     const { data: messages, error: messagesError } = await serviceClient
       .from("direct_messages")
-      .select("id, sender_id, recipient_id, content, read, created_at")
+      .select("id, sender_id, recipient_id, content, image_url, read, created_at")
       .or(`and(sender_id.eq.${user.id},recipient_id.eq.${otherUserId}),and(sender_id.eq.${otherUserId},recipient_id.eq.${user.id})`)
       .order("created_at", { ascending: true });
 

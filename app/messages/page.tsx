@@ -9,6 +9,8 @@ import { Input } from "@/components/ui/input";
 import { AuthGuard } from "@/components/auth-guard";
 import { getBearerToken } from "@/lib/api/clientAuth";
 import { FormattedDate } from "@/components/formatted-date";
+import { createClient } from "@/lib/supabase/browser";
+import { ImageIcon, Cross2Icon } from "@radix-ui/react-icons";
 
 interface Conversation {
   userId: string;
@@ -28,6 +30,7 @@ interface Message {
   sender_id: string;
   recipient_id: string;
   content: string;
+  image_url?: string;
   read: boolean;
   created_at: string;
 }
@@ -75,7 +78,10 @@ function MessagesContent() {
   const [newMessage, setNewMessage] = useState("");
   const [sending, setSending] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     loadConversations();
@@ -143,12 +149,59 @@ function MessagesContent() {
     }
   };
 
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      alert("Please select an image file");
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      alert("Image must be less than 5MB");
+      return;
+    }
+
+    setUploadingImage(true);
+    try {
+      const supabase = createClient();
+      const ext = file.name.split(".").pop();
+      const fileName = `${currentUserId}/${Date.now()}-${Math.random().toString(36).substring(7)}.${ext}`;
+
+      const { data, error: uploadError } = await supabase.storage
+        .from("post-media")
+        .upload(fileName, file);
+
+      if (uploadError) {
+        alert("Failed to upload image");
+        return;
+      }
+
+      const { data: { publicUrl } } = supabase.storage
+        .from("post-media")
+        .getPublicUrl(data.path);
+
+      setImageUrl(publicUrl);
+    } catch (error) {
+      console.error("Error uploading image:", error);
+      alert("Failed to upload image");
+    } finally {
+      setUploadingImage(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
+  };
+
   const handleSendMessage = async () => {
-    if (!newMessage.trim() || !selectedUserId) return;
+    if ((!newMessage.trim() && !imageUrl) || !selectedUserId) return;
 
     setSending(true);
-    const contentToSend = newMessage;
+    const contentToSend = newMessage.trim() || "[Image]";
+    const imageToSend = imageUrl;
     setNewMessage(""); // Clear immediately for better UX
+    setImageUrl(null);
 
     try {
       const bearer = await getBearerToken();
@@ -161,6 +214,7 @@ function MessagesContent() {
         body: JSON.stringify({
           recipient_id: selectedUserId,
           content: contentToSend,
+          image_url: imageToSend,
         }),
       });
 
@@ -170,13 +224,15 @@ function MessagesContent() {
         setMessages(prev => [...prev, data.message]);
       } else {
         // Restore message on error
-        setNewMessage(contentToSend);
+        setNewMessage(contentToSend === "[Image]" ? "" : contentToSend);
+        setImageUrl(imageToSend);
         const error = await response.json();
         alert(error.error || "Failed to send message");
       }
     } catch (error) {
       console.error("Error sending message:", error);
-      setNewMessage(contentToSend);
+      setNewMessage(contentToSend === "[Image]" ? "" : contentToSend);
+      setImageUrl(imageToSend);
       alert("Failed to send message");
     } finally {
       setSending(false);
@@ -306,9 +362,20 @@ function MessagesContent() {
                                   : "bg-muted"
                               }`}
                             >
-                              <p className="text-sm whitespace-pre-wrap break-words">
-                                {msg.content}
-                              </p>
+                              {msg.image_url && (
+                                <img
+                                  src={msg.image_url}
+                                  alt="Shared image"
+                                  className="max-w-full rounded mb-2 cursor-pointer hover:opacity-90 transition-opacity"
+                                  style={{ maxHeight: "300px" }}
+                                  onClick={() => window.open(msg.image_url, "_blank")}
+                                />
+                              )}
+                              {msg.content && msg.content !== "[Image]" && (
+                                <p className="text-sm whitespace-pre-wrap break-words">
+                                  {msg.content}
+                                </p>
+                              )}
                               <p className={`text-xs mt-1 ${isMe ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
                                 <FormattedDate date={msg.created_at} format="time" />
                               </p>
@@ -322,7 +389,40 @@ function MessagesContent() {
 
                   {/* Message Input */}
                   <div className="p-4 border-t">
+                    {/* Image Preview */}
+                    {imageUrl && (
+                      <div className="mb-3 relative inline-block">
+                        <img
+                          src={imageUrl}
+                          alt="Upload preview"
+                          className="w-32 h-32 object-cover rounded"
+                        />
+                        <button
+                          onClick={() => setImageUrl(null)}
+                          className="absolute -top-2 -right-2 bg-destructive text-destructive-foreground rounded-full w-6 h-6 flex items-center justify-center"
+                        >
+                          <Cross2Icon className="w-4 h-4" />
+                        </button>
+                      </div>
+                    )}
+                    
                     <div className="flex gap-2">
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={handleImageUpload}
+                      />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={uploadingImage || sending || !!imageUrl}
+                        className="flex-shrink-0"
+                      >
+                        <ImageIcon className="w-4 h-4" />
+                      </Button>
                       <Input
                         placeholder="Type a message..."
                         value={newMessage}
@@ -337,7 +437,7 @@ function MessagesContent() {
                       />
                       <Button
                         onClick={handleSendMessage}
-                        disabled={sending || !newMessage.trim()}
+                        disabled={sending || (!newMessage.trim() && !imageUrl)}
                       >
                         {sending ? "..." : "Send"}
                       </Button>
