@@ -865,7 +865,7 @@ function ProfileContent({ userId }: { userId: string }) {
                         <span>{post.likesCount || 0}</span>
                       </button>
                       <p className="text-xs text-muted-foreground">
-                        <FormattedDate date={post.created_at} format="datetime" /> · {post.replyCount} {post.replyCount === 1 ? "reply" : "replies"}
+                        <FormattedDate date={post.created_at} format="compact" /> · {post.replyCount} {post.replyCount === 1 ? "reply" : "replies"}
                       </p>
                     </div>
 
@@ -887,7 +887,7 @@ function ProfileContent({ userId }: { userId: string }) {
                                 >
                                   {reply.author?.display_name || "User"}
                                 </Link>
-                                <FormattedDate date={reply.created_at} format="datetime" className="text-xs text-muted-foreground" />
+                                <FormattedDate date={reply.created_at} format="compact" className="text-xs text-muted-foreground" />
                               </div>
                               <p className="text-sm">{reply.content}</p>
                             </div>
@@ -968,7 +968,7 @@ function ProfileContent({ userId }: { userId: string }) {
                             {post.author.display_name}
                           </Link>
                           <p className="text-xs text-muted-foreground">
-                            <FormattedDate date={post.created_at} format="datetime" />
+                            <FormattedDate date={post.created_at} format="compact" />
                           </p>
                         </div>
                       </div>

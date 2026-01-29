@@ -295,7 +295,7 @@ function MessagesContent() {
                               {conv.lastMessage}
                             </p>
                             <p className="text-xs text-muted-foreground mt-1">
-                              <FormattedDate date={conv.lastMessageTime} format="datetime" />
+                              <FormattedDate date={conv.lastMessageTime} format="compact" />
                             </p>
                           </div>
                         </div>
