@@ -1683,7 +1683,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                                 placeholder="0"
                               />
                               <p className="text-xs text-muted-foreground">
-                                Minimum volatility required to enter (0 = no minimum)
+                                Minimum volatility required to enter
                               </p>
                             </div>
                             
