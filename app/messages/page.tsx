@@ -405,7 +405,7 @@ function MessagesContent() {
                             {isMe && (
                               <Link href={`/u/${currentUserId}`} className="cursor-pointer flex-shrink-0">
                                 <UserAvatar
-                                  url={currentUserAvatar}
+                                  url={currentUserAvatar ?? undefined}
                                   name="You"
                                   size="sm"
                                 />
