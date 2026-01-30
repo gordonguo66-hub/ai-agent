@@ -1062,24 +1062,30 @@ function SessionDetailContent({ sessionId }: { sessionId: string }) {
       return {
         totalReturn: 0,
         maxDrawdown: 0,
-        winRate: 0,
+        winRate: null as number | null,
         totalTrades: (trades || []).length,
         totalPnL: 0,
+        closedTrades: 0,
       };
     }
 
     try {
-      const closedTrades = (trades || []).filter(
-        (t: any) =>
-          t &&
-          t.action &&
-          (t.action === "close" || t.action === "reduce" || t.action === "flip")
-      );
+      // Closed trades: prefer explicit action, but fall back to realized_pnl presence
+      // This makes Win Rate resilient if some rows have missing/variant action values.
+      const closedTrades = (trades || []).filter((t: any) => {
+        if (!t) return false;
+        const action = String(t.action || "").toLowerCase();
+        const realized = Number(
+          t.realized_pnl ?? t.realizedPnl ?? 0
+        );
+        const hasRealized = Number.isFinite(realized) && realized !== 0;
+        return action === "close" || action === "reduce" || action === "flip" || hasRealized;
+      });
       const winningTrades = closedTrades.filter(
-        (t: any) => Number(t.realized_pnl || 0) > 0
+        (t: any) => Number(t.realized_pnl ?? t.realizedPnl ?? 0) > 0
       );
       const totalRealizedPnL = closedTrades.reduce(
-        (sum: number, t: any) => sum + Number(t.realized_pnl || 0),
+        (sum: number, t: any) => sum + Number(t.realized_pnl ?? t.realizedPnl ?? 0),
         0
       );
 
@@ -1104,25 +1110,27 @@ function SessionDetailContent({ sessionId }: { sessionId: string }) {
       const winRate =
         closedTrades.length > 0
           ? (winningTrades.length / closedTrades.length) * 100
-          : 0;
+          : null;
 
       const metricsReturnPct = pnlTotals.returnPct ?? 0;
 
       return {
         totalReturn: Number.isFinite(metricsReturnPct) ? metricsReturnPct : 0,
         maxDrawdown: Number.isFinite(maxDrawdown) ? maxDrawdown : 0,
-        winRate: Number.isFinite(winRate) ? winRate : 0,
+        winRate: winRate !== null && Number.isFinite(winRate) ? winRate : null,
         totalTrades: (trades || []).length,
         totalPnL: Number.isFinite(totalRealizedPnL) ? totalRealizedPnL : 0,
+        closedTrades: closedTrades.length,
       };
     } catch (error) {
       console.error("[Metrics Update] Error calculating metrics:", error);
       return {
         totalReturn: 0,
         maxDrawdown: 0,
-        winRate: 0,
+        winRate: null as number | null,
         totalTrades: (trades || []).length,
         totalPnL: 0,
+        closedTrades: 0,
       };
     }
   }, [pnlTotals, trades, equityPointsData, startBal]);
@@ -1629,7 +1637,9 @@ function SessionDetailContent({ sessionId }: { sessionId: string }) {
                   <CardDescription>Win Rate</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">{metrics.winRate.toFixed(1)}%</div>
+                  <div className="text-2xl font-bold">
+                    {metrics.winRate === null ? "0.0%" : `${metrics.winRate.toFixed(1)}%`}
+                  </div>
                 </CardContent>
               </Card>
               <Card>

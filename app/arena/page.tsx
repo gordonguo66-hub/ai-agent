@@ -30,6 +30,24 @@ function getUserColor(userId: string): string {
   return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
 }
 
+function roundTo(n: number, decimals: number): number {
+  const factor = Math.pow(10, decimals);
+  // Use Math.round to match toFixed() behavior at the chosen precision
+  return Math.round(n * factor) / factor;
+}
+
+function normalizeRoundedZero(n: number, decimals: number): number {
+  const rounded = roundTo(n, decimals);
+  // Prevent "-0" after rounding (e.g. -0.04 -> -0.0 at 1dp)
+  return Object.is(rounded, -0) ? 0 : rounded;
+}
+
+function formatReturnPct(value: number, decimals: number): string {
+  const v = normalizeRoundedZero(value, decimals);
+  const sign = v > 0 ? "+" : "";
+  return `${sign}${v.toFixed(decimals)}%`;
+}
+
 // Avatar component with fallback to initials
 function UserAvatar({ displayName, avatarUrl, size = 24 }: { displayName: string; avatarUrl?: string | null; size?: number }) {
   const initials = displayName
@@ -127,17 +145,21 @@ function ChartAvatarDotInner({ cx, cy, participant, isRefreshing }: { cx: number
 }
 
 function ChartAvatarDot(props: any) {
-  const { cx, cy, participant, rank, chartView, isRefreshing } = props;
+  const { cx, cy, participant, rank, chartView, isRefreshing, latestValueForDisplay } = props;
   
   if (!participant) return null;
   
   const size = 48; // Max size for foreignObject (to accommodate hover enlargement)
-  const emoji = rank === 1 ? "🥇" : rank === 2 ? "🥈" : "🥉";
+  const emoji = rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : null;
   
   // Get the value to display
   const value = chartView === "return" 
-    ? `${participant.returnPct >= 0 ? '+' : ''}${participant.returnPct.toFixed(1)}%`
-    : `$${(participant.latestValue / 1000).toFixed(0)}k`;
+    ? formatReturnPct(Number(participant.returnPct ?? 0), 1)
+    : Number.isFinite(latestValueForDisplay)
+      ? `$${(latestValueForDisplay / 1000).toFixed(0)}k`
+      : Number.isFinite(participant.latestValue)
+        ? `$${(participant.latestValue / 1000).toFixed(0)}k`
+        : "N/A";
   
   return (
     <g>
@@ -163,7 +185,7 @@ function ChartAvatarDot(props: any) {
         <div className="flex justify-start items-center h-full">
           <div className="bg-background/95 backdrop-blur-sm border border-border rounded-md px-2 py-1 shadow-lg whitespace-nowrap">
             <div className="flex items-center gap-1.5">
-              <span className="text-sm">{emoji}</span>
+              {emoji && <span className="text-sm">{emoji}</span>}
               <span className="font-medium text-xs">{participant.displayName}</span>
               <span className="font-mono text-xs">{value}</span>
             </div>
@@ -194,6 +216,7 @@ function ArenaContent() {
   // Refs to prevent unnecessary re-renders
   const chartRef = useRef<any>(null);
   const isInitialLoad = useRef(true);
+  const chartRequestId = useRef(0);
 
   // Load current user ID
   useEffect(() => {
@@ -215,7 +238,9 @@ function ArenaContent() {
     loadUserId();
   }, []);
 
-  const loadChartData = useCallback(async (isManualRefresh = false) => {
+  const loadChartData = useCallback(async (options?: { allowEmpty?: boolean }) => {
+    const requestId = ++chartRequestId.current;
+    const allowEmpty = options?.allowEmpty ?? isInitialLoad.current;
     // Only show loading spinner on initial load, not on auto-refresh
     if (isInitialLoad.current) {
       setLoadingChart(true);
@@ -228,13 +253,23 @@ function ArenaContent() {
       const bearer = await getBearerToken();
       const viewParam = `&view=${chartView}`;
       const showEndedParam = showEndedSessions ? `&showEnded=true` : '';
-      const response = await fetch(`/api/arena/chart?mode=arena&hours=${chartHours}${viewParam}${showEndedParam}`, {
+      const timestamp = Date.now();
+      const response = await fetch(`/api/arena/chart?mode=arena&hours=${chartHours}${viewParam}${showEndedParam}&t=${timestamp}`, {
         headers: bearer ? { Authorization: bearer } : undefined,
+        cache: "no-store",
       });
       if (response.ok) {
         const data = await response.json();
-        setChartData(data.chartData || []);
-        setChartParticipants(data.participants || []);
+        if (requestId !== chartRequestId.current) {
+          return;
+        }
+        const nextChartData = data.chartData || [];
+        const nextParticipants = data.participants || [];
+        const hasNewData = Array.isArray(nextChartData) && nextChartData.length > 0;
+        const hasNewParticipants = Array.isArray(nextParticipants) && nextParticipants.length > 0;
+
+        setChartData((prev) => (hasNewData || allowEmpty ? nextChartData : prev));
+        setChartParticipants((prev) => (hasNewParticipants || allowEmpty ? nextParticipants : prev));
         setChartYAxisDomain(data.yAxisDomain || null);
         if (data.dataQualityWarning) {
           setChartWarning(data.dataQualityWarning);
@@ -272,8 +307,12 @@ function ArenaContent() {
   }, [showEndedSessions]);
 
   useEffect(() => {
+    isInitialLoad.current = true;
     loadLeaderboards();
-    loadChartData();
+    loadChartData({ allowEmpty: true });
+  }, [loadLeaderboards, loadChartData]);
+
+  useEffect(() => {
     const interval = setInterval(() => {
       loadLeaderboards();
       loadChartData();
@@ -281,32 +320,68 @@ function ArenaContent() {
     return () => clearInterval(interval);
   }, [loadLeaderboards, loadChartData]);
 
+  const sortedParticipants = useMemo(() => {
+    if (!chartParticipants || chartParticipants.length === 0) return [];
+    return [...chartParticipants].sort((a, b) => {
+      if (chartView === "equity") {
+        const aVal = Number.isFinite(a.latestValue) ? a.latestValue : -Infinity;
+        const bVal = Number.isFinite(b.latestValue) ? b.latestValue : -Infinity;
+        if (bVal !== aVal) return bVal - aVal;
+        return String(a.entryId).localeCompare(String(b.entryId));
+      }
+      if (b.returnPct !== a.returnPct) return b.returnPct - a.returnPct;
+      return String(a.entryId).localeCompare(String(b.entryId));
+    });
+  }, [chartParticipants, chartView]);
+
+  const rankByEntryId = useMemo(() => {
+    const map = new Map<string, number>();
+    sortedParticipants.forEach((p, index) => {
+      map.set(p.entryId, index + 1);
+    });
+    return map;
+  }, [sortedParticipants]);
+
+  const participantByEntryId = useMemo(() => {
+    const map = new Map<string, any>();
+    chartParticipants.forEach((p) => {
+      map.set(p.entryId, p);
+    });
+    return map;
+  }, [chartParticipants]);
+
+  const chartHoursRange = useMemo(() => {
+    if (!chartData || chartData.length === 0) return null;
+    const dataTimes = chartData.map(d => d.time).filter((t) => Number.isFinite(t));
+    if (dataTimes.length === 0) return null;
+    const minTime = Math.min(...dataTimes);
+    const maxTime = Math.max(...dataTimes);
+    return (maxTime - minTime) / (1000 * 60 * 60);
+  }, [chartData]);
+
   // Compute displayed participants based on topN selection
   const displayedParticipants = useMemo(() => {
-    if (!chartParticipants || chartParticipants.length === 0) return [];
-    
-    // Sort by return % descending
-    const sorted = [...chartParticipants].sort((a, b) => b.returnPct - a.returnPct);
+    if (sortedParticipants.length === 0) return [];
     
     if (topN === "me") {
       // Show only current user
-      const me = sorted.find(p => p.userId === currentUserId);
+      const me = sortedParticipants.find(p => p.userId === currentUserId);
       return me ? [me] : [];
     }
     
     // Get top N
-    let result = sorted.slice(0, topN);
+    let result = sortedParticipants.slice(0, topN);
     
     // Always include current user if they're participating but not in top N
     if (currentUserId) {
-      const meIndex = sorted.findIndex(p => p.userId === currentUserId);
+      const meIndex = sortedParticipants.findIndex(p => p.userId === currentUserId);
       if (meIndex >= topN) {
-        result.push(sorted[meIndex]);
+        result.push(sortedParticipants[meIndex]);
       }
     }
     
     return result;
-  }, [chartParticipants, topN, currentUserId]);
+  }, [sortedParticipants, topN, currentUserId]);
 
   // Generate colors for displayed participants
   const participantColors = useMemo(() => {
@@ -328,7 +403,7 @@ function ArenaContent() {
 
   const formatPercent = (value: number | null) => {
     if (value === null || value === undefined) return "N/A";
-    return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
+    return formatReturnPct(value, 2);
   };
 
   const getRankEmoji = (rank: number) => {
@@ -481,31 +556,43 @@ function ArenaContent() {
                           scale="time"
                           domain={["dataMin", "dataMax"]}
                           tickFormatter={(value) => {
-                            if (!value) return "";
+                            if (!Number.isFinite(value)) return "";
                             const date = new Date(value);
                             if (isNaN(date.getTime())) return "";
-                            const dataTimes = chartData.map(d => d.time).filter(t => t != null);
-                            if (dataTimes.length === 0) return "";
-                            const minTime = Math.min(...dataTimes);
-                            const maxTime = Math.max(...dataTimes);
-                            const hoursRange = (maxTime - minTime) / (1000 * 60 * 60);
+                            const hoursRange = chartHoursRange;
+                            if (hoursRange == null) {
+                              return date.toLocaleDateString("en-US", { month: "numeric", day: "numeric" });
+                            }
                             const timeOpts: Intl.DateTimeFormatOptions = { hour: "2-digit", minute: "2-digit", hour12: false };
                             const dateOpts: Intl.DateTimeFormatOptions = { month: "numeric", day: "numeric" };
                             if (timezone) {
                               timeOpts.timeZone = timezone;
                               dateOpts.timeZone = timezone;
                             }
-                            // Always show just the date (month/day) for cleaner look
+                            if (hoursRange <= 24) {
+                              return date.toLocaleTimeString("en-US", timeOpts);
+                            }
+                            if (hoursRange <= 72) {
+                              return `${date.toLocaleDateString("en-US", dateOpts)} ${date.toLocaleTimeString("en-US", timeOpts)}`;
+                            }
                             return date.toLocaleDateString("en-US", dateOpts);
                           }}
-                          tickCount={6}
-                          minTickGap={50}
+                          tickCount={8}
+                          minTickGap={40}
                           tick={{ fontSize: 11, fill: '#9CA3AF' }}
                           stroke="#374151"
                         />
                         <YAxis
-                          domain={chartYAxisDomain ? [chartYAxisDomain.min, chartYAxisDomain.max] : ["auto", "auto"]}
+                          domain={(() => {
+                            if (!chartYAxisDomain) return ["auto", "auto"] as any;
+                            if (chartView === "return") {
+                              // Force domain to use server-provided values exactly (no client-side adjustment)
+                              return [chartYAxisDomain.min, chartYAxisDomain.max] as any;
+                            }
+                            return [chartYAxisDomain.min, chartYAxisDomain.max] as any;
+                          })()}
                           tickFormatter={(value) => {
+                            if (!Number.isFinite(value)) return "";
                             if (chartView === "equity") {
                               // Determine precision based on the Y-axis range
                               const range = chartYAxisDomain 
@@ -521,7 +608,7 @@ function ArenaContent() {
                               }
                               return `$${value.toFixed(0)}`;
                             } else {
-                              return `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
+                              return formatReturnPct(Number(value), 1);
                             }
                           }}
                           tick={{ fontSize: 11, fill: '#9CA3AF' }}
@@ -532,18 +619,19 @@ function ArenaContent() {
                         <Tooltip
                           labelFormatter={(value) => formatDateCompact(new Date(value), timezone)}
                           formatter={(value: any, name: string) => {
-                            const participantIndex = displayedParticipants.findIndex(p => p.entryId === name);
-                            const participant = displayedParticipants[participantIndex];
+                            const participant = participantByEntryId.get(name);
                             const displayName = participant?.displayName || name;
-                            const rank = participantIndex + 1;
-                            const isTop3 = rank <= 3;
+                            const rank = rankByEntryId.get(name) || 0;
+                            const isTop3 = rank > 0 && rank <= 3;
                             const emoji = rank === 1 ? "🥇 " : rank === 2 ? "🥈 " : rank === 3 ? "🥉 " : "";
                             
                             const formattedValue = chartView === "equity" 
                               ? `$${Number(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                              : `${value >= 0 ? "+" : ""}${Number(value).toFixed(2)}%`;
+                              : formatReturnPct(Number(value), 2);
                             
-                            const label = isTop3 ? `${emoji}${displayName} (#${rank})` : `${displayName} (#${rank})`;
+                            const label = rank > 0
+                              ? (isTop3 ? `${emoji}${displayName} (#${rank})` : `${displayName} (#${rank})`)
+                              : displayName;
                             return [formattedValue, label];
                           }}
                           contentStyle={{
@@ -575,25 +663,26 @@ function ArenaContent() {
                             strokeDasharray="3 3"
                             strokeOpacity={0.3}
                             strokeWidth={2}
-                            label={{ value: "Starting $100k", position: "left", fill: "#6B7280", fontSize: 10 }}
+                            label={{ value: "$100k", position: "left", fill: "#9CA3AF", fontSize: 11 }}
                           />
                         )}
-                        {displayedParticipants.map((participant, index) => {
+                        {displayedParticipants.map((participant) => {
                           const color = participantColors[participant.entryId];
                           const isMe = participant.userId === currentUserId;
-                          const isTop3 = index < 3;
-                          const rank = index + 1;
+                          const rank = rankByEntryId.get(participant.entryId) || 0;
+                          const isTop3 = rank > 0 && rank <= 3;
                           
                           // Find the latest data point for this participant
                           const latestDataPoint = chartData
                             .slice()
                             .reverse()
                             .find((d: any) => d[participant.entryId] != null);
+                          const latestValueForDisplay = latestDataPoint?.[participant.entryId];
                           
                           return (
                             <Line
                               key={participant.entryId}
-                              type="monotone"
+                              type="linear"
                               dataKey={participant.entryId}
                               stroke={color}
                               strokeWidth={isMe ? 3 : isTop3 ? 2.5 : 2}
@@ -605,10 +694,22 @@ function ArenaContent() {
                                   // Return invisible circle for non-final points
                                   return <circle key={`${participant.entryId}-${dotIndex}-hidden`} cx={cx} cy={cy} r={0} fill="transparent" />;
                                 }
-                                return <ChartAvatarDot key={`${participant.entryId}-${dotIndex}`} cx={cx} cy={cy} participant={participant} rank={rank} chartView={chartView} isRefreshing={isRefreshing} />;
+                                return (
+                                  <ChartAvatarDot
+                                    key={`${participant.entryId}-${dotIndex}`}
+                                    cx={cx}
+                                    cy={cy}
+                                    participant={participant}
+                                    rank={rank}
+                                    chartView={chartView}
+                                    isRefreshing={isRefreshing}
+                                    latestValueForDisplay={latestValueForDisplay}
+                                  />
+                                );
                               }) : false}
                               activeDot={{ r: isMe ? 6 : 4 }}
                               connectNulls={false}
+                              isAnimationActive={false}
                             />
                           );
                         })}
@@ -733,7 +834,9 @@ function ArenaContent() {
                               {formatPercent(entry.pnlPct)}
                             </TableCell>
                             <TableCell className="text-right text-gray-200">{entry.tradesCount}</TableCell>
-                            <TableCell className="text-right text-gray-200">{formatPercent(entry.winRate)}</TableCell>
+                            <TableCell className="text-right text-gray-200">
+                              {entry.winRate != null ? `${entry.winRate.toFixed(2)}%` : "N/A"}
+                            </TableCell>
                             <TableCell className="text-right text-rose-400 font-semibold">
                               {entry.maxDrawdownPct != null ? `-${entry.maxDrawdownPct.toFixed(2)}%` : "N/A"}
                             </TableCell>

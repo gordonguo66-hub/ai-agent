@@ -47,7 +47,8 @@ export async function updateArenaSnapshot(sessionId: string): Promise<void> {
       return;
     }
 
-    const account = session.virtual_accounts;
+    const rawAccounts = session.virtual_accounts;
+    const account = Array.isArray(rawAccounts) ? rawAccounts[0] : rawAccounts;
     if (!account) {
       console.error(`[Arena] No account found for session ${sessionId}`);
       return;
@@ -74,7 +75,7 @@ export async function updateArenaSnapshot(sessionId: string): Promise<void> {
       max_drawdown_pct: null,
     };
 
-    if (arenaEntry.mode === "virtual") {
+    if (arenaEntry.mode === "virtual" || arenaEntry.mode === "arena") {
       // Virtual arena: use equity calculated correctly (cashBalance + sum(positionValue))
       if (account) {
         // First, ensure account equity is up-to-date by marking positions to market
