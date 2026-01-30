@@ -79,7 +79,11 @@ function EditStrategyContent() {
       <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
         <div className="max-w-3xl mx-auto">
           <div className="mb-4">
-            <Button variant="outline" onClick={() => router.push(`/strategy/${strategyId}`)}>
+            <Button
+              variant="outline"
+              onClick={() => router.push(`/strategy/${strategyId}`)}
+              className="text-white border-white/30 hover:text-white hover:bg-white/10"
+            >
               ← Back to Strategy
             </Button>
           </div>

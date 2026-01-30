@@ -656,16 +656,16 @@ export async function POST(
       let orderbookSnapshot: any = null;
       if (aiInputs.orderbook?.enabled) {
         try {
-          const orderbookTop = await hyperliquidClient.getOrderbookTop(market);
           const depth = aiInputs.orderbook.depth || 20;
-          // For now, we only get top of book. Full L2 orderbook would require more API calls
+          const orderbook = await hyperliquidClient.getOrderbook(market, depth);
           orderbookSnapshot = {
-            bid: orderbookTop.bid,
-            ask: orderbookTop.ask,
-            mid: orderbookTop.mid,
-            spread: orderbookTop.ask - orderbookTop.bid,
-            depth: depth,
-            note: `Top of book only. Full ${depth}-level orderbook requires additional API calls.`,
+            bid: orderbook.bid,
+            ask: orderbook.ask,
+            mid: orderbook.mid,
+            spread: orderbook.ask - orderbook.bid,
+            depth: orderbook.bids.length,
+            bids: orderbook.bids,
+            asks: orderbook.asks,
           };
           marketSnapshot.orderbook = orderbookSnapshot;
         } catch (error: any) {
@@ -1137,7 +1137,7 @@ export async function POST(
             }
             
             // Check volatility condition
-            if (riskResult.passed !== false && confirmation.requireVolatilityCondition && confirmation.volatilityMax) {
+            if (riskResult.passed !== false && confirmation.requireVolatilityCondition && (confirmation.volatilityMin || confirmation.volatilityMax)) {
               // Use ATR or volatility indicator for real volatility measurement
               let currentVolatility = 0;
               
@@ -1152,48 +1152,22 @@ export async function POST(
                 currentVolatility = Math.abs((currentPrice - (marketPosition?.avg_entry || currentPrice)) / currentPrice) * 100;
               }
               
-              if (currentVolatility > confirmation.volatilityMax) {
-                const volatilitySource = indicatorsSnapshot?.atr ? "ATR" : indicatorsSnapshot?.volatility ? "StdDev" : "Price Change";
+              const volatilitySource = indicatorsSnapshot?.atr ? "ATR" : indicatorsSnapshot?.volatility ? "StdDev" : "Price Change";
+              if (confirmation.volatilityMin && currentVolatility < confirmation.volatilityMin) {
+                actionSummary = `Entry confirmation: Volatility ${currentVolatility.toFixed(2)}% (${volatilitySource}) below min ${confirmation.volatilityMin}%`;
+                riskResult = { passed: false, reason: actionSummary };
+              } else if (confirmation.volatilityMax && currentVolatility > confirmation.volatilityMax) {
                 actionSummary = `Entry confirmation: Volatility ${currentVolatility.toFixed(2)}% (${volatilitySource}) exceeds max ${confirmation.volatilityMax}%`;
                 riskResult = { passed: false, reason: actionSummary };
               }
             }
           }
 
-          // 6. ENTRY TIMING - Check waitForClose and maxSlippage
+          // 6. ENTRY TIMING - Check maxSlippage (waitForClose is deprecated)
           if (riskResult.passed !== false) {
             const entryTiming = entryExit.entry?.timing || {};
-            
-            // Check waitForClose - Verify we're at a candle boundary
             if (entryTiming.waitForClose) {
-              const candleTimeframe = aiInputs.candles?.timeframe || "5m";
-              
-              // Parse timeframe to milliseconds
-              const parseTimeframe = (tf: string): number => {
-                const match = tf.match(/^(\d+)([mhd])$/);
-                if (!match) return 300000; // Default 5m
-                const value = parseInt(match[1]);
-                const unit = match[2];
-                if (unit === "m") return value * 60 * 1000;
-                if (unit === "h") return value * 60 * 60 * 1000;
-                if (unit === "d") return value * 24 * 60 * 60 * 1000;
-                return 300000; // Default 5m
-              };
-              
-              const timeframeMs = parseTimeframe(candleTimeframe);
-              const currentTimeMs = new Date().getTime();
-              const timeSinceCandleClose = currentTimeMs % timeframeMs;
-              const toleranceMs = 5000; // 5 second tolerance
-              
-              // Allow entry if we're within 5s of candle open/close
-              if (timeSinceCandleClose > toleranceMs && timeSinceCandleClose < (timeframeMs - toleranceMs)) {
-                const timeUntilClose = (timeframeMs - timeSinceCandleClose) / 1000;
-                actionSummary = `Entry timing: Waiting for candle close (${Math.ceil(timeUntilClose)}s remaining)`;
-                console.warn(`[Tick] ⚠️ Waiting for candle close: ${Math.ceil(timeUntilClose)}s remaining. If AI cadence doesn't match candle timeframe (${candleTimeframe}), trades may never execute. Consider setting cadence = ${candleTimeframe}`);
-                riskResult = { passed: false, reason: actionSummary };
-              } else {
-                console.log(`[Tick] Entry timing: At candle boundary (within ${toleranceMs}ms tolerance)`);
-              }
+              console.warn("[Tick] waitForClose is deprecated and ignored.");
             }
             
             // Check maxSlippage - Calculate expected slippage and reject if too high

@@ -139,12 +139,16 @@ export async function GET(
     let orderbookSnapshot: any = null;
     if (aiInputs.orderbook?.enabled) {
       try {
-        const orderbookTop = await hyperliquidClient.getOrderbookTop(market);
+        const depth = aiInputs.orderbook.depth || 20;
+        const orderbook = await hyperliquidClient.getOrderbook(market, depth);
         orderbookSnapshot = {
-          bid: orderbookTop.bid,
-          ask: orderbookTop.ask,
-          mid: orderbookTop.mid,
-          spread: orderbookTop.ask - orderbookTop.bid,
+          bid: orderbook.bid,
+          ask: orderbook.ask,
+          mid: orderbook.mid,
+          spread: orderbook.ask - orderbook.bid,
+          depth: orderbook.bids.length,
+          bids: orderbook.bids,
+          asks: orderbook.asks,
         };
         marketSnapshot.orderbook = orderbookSnapshot;
       } catch (error: any) {

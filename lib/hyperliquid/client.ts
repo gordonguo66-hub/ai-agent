@@ -24,6 +24,18 @@ export interface OrderbookTop {
   mid: number;
 }
 
+export interface OrderbookLevel {
+  price: number;
+  size: number;
+  count: number;
+}
+
+export interface OrderbookL2 extends OrderbookTop {
+  bids: OrderbookLevel[];
+  asks: OrderbookLevel[];
+  time?: number;
+}
+
 export interface AccountState {
   positions: Array<{
     coin: string;
@@ -95,9 +107,10 @@ export class HyperliquidClient {
   }
 
   /**
-   * Get top of orderbook (bid/ask/mid) for a market
+   * Get L2 orderbook for a market (up to depth levels)
+   * NOTE: Hyperliquid returns full book; we slice to requested depth.
    */
-  async getOrderbookTop(market: string): Promise<OrderbookTop> {
+  async getOrderbook(market: string, depth: number = 20): Promise<OrderbookL2> {
     try {
       const response = await fetch(`${this.apiBase}/info`, {
         method: "POST",
@@ -119,25 +132,46 @@ export class HyperliquidClient {
       // l2Book returns: { coin, time, levels: [ bids[], asks[] ] }
       // Each level is { px: "113377.0", sz: "7.66", n: 17 }
       const levels = data?.levels;
-      const bidLevels: Array<{ px: string }> = Array.isArray(levels?.[0]) ? levels[0] : [];
-      const askLevels: Array<{ px: string }> = Array.isArray(levels?.[1]) ? levels[1] : [];
+      const bidLevels: Array<{ px: string; sz: string; n: number }> = Array.isArray(levels?.[0]) ? levels[0] : [];
+      const askLevels: Array<{ px: string; sz: string; n: number }> = Array.isArray(levels?.[1]) ? levels[1] : [];
 
       if (bidLevels.length === 0 || askLevels.length === 0) {
         throw new Error(`Insufficient orderbook data for ${market}`);
       }
 
+      const safeDepth = Math.max(1, Math.floor(depth));
+      const bidSlice = bidLevels.slice(0, safeDepth);
+      const askSlice = askLevels.slice(0, safeDepth);
+
       // Best bid is first (desc), best ask is first (asc) per docs
-      const bestBid = parseFloat(bidLevels[0].px);
-      const bestAsk = parseFloat(askLevels[0].px);
+      const bestBid = parseFloat(bidSlice[0].px);
+      const bestAsk = parseFloat(askSlice[0].px);
+
+      const toLevel = (level: { px: string; sz: string; n: number }): OrderbookLevel => ({
+        price: parseFloat(level.px),
+        size: parseFloat(level.sz),
+        count: level.n ?? 0,
+      });
 
       return {
         bid: bestBid,
         ask: bestAsk,
         mid: (bestBid + bestAsk) / 2,
+        bids: bidSlice.map(toLevel),
+        asks: askSlice.map(toLevel),
+        time: data?.time,
       };
     } catch (error: any) {
       throw new Error(`Failed to get orderbook for ${market}: ${error.message}`);
     }
+  }
+
+  /**
+   * Get top of orderbook (bid/ask/mid) for a market
+   */
+  async getOrderbookTop(market: string): Promise<OrderbookTop> {
+    const orderbook = await this.getOrderbook(market, 1);
+    return { bid: orderbook.bid, ask: orderbook.ask, mid: orderbook.mid };
   }
 
   /**

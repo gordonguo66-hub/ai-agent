@@ -154,16 +154,16 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
   // AI Inputs
   const [aiInputs, setAiInputs] = useState<{
     candles: { enabled: boolean; count: number | ""; timeframe: string };
-    orderbook: { enabled: boolean; depth: number };
+    orderbook: { enabled: boolean; depth: number | "" };
     indicators: {
-      rsi: { enabled: boolean; period: number };
-      atr: { enabled: boolean; period: number };
-      volatility: { enabled: boolean; window: number };
-      ema: { enabled: boolean; fast: number; slow: number };
+      rsi: { enabled: boolean; period: number | "" };
+      atr: { enabled: boolean; period: number | "" };
+      volatility: { enabled: boolean; window: number | "" };
+      ema: { enabled: boolean; fast: number | ""; slow: number | "" };
     };
     includePositionState: boolean;
     includeRecentDecisions: boolean;
-    recentDecisionsCount: number;
+    recentDecisionsCount: number | "";
   }>({
     candles: { enabled: true, count: 200, timeframe: "5m" },
     orderbook: { enabled: false, depth: 20 },
@@ -190,6 +190,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
       confirmation: {
         minSignals: number | "";
         requireVolatilityCondition: boolean;
+        volatilityMin: number | null;
         volatilityMax: number | null;
       };
       timing: {
@@ -201,8 +202,8 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
       mode: "signal" | "tp_sl" | "trailing" | "time";
       maxLossProtectionPct: number | null;
       maxProfitCapPct: number | null;
-      takeProfitPct: number;
-      stopLossPct: number;
+      takeProfitPct: number | "";
+      stopLossPct: number | "";
       trailingStopPct: number | null;
       initialStopLossPct: number | null;
       maxHoldMinutes: number | null;
@@ -229,10 +230,11 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
       confirmation: {
         minSignals: 2,
         requireVolatilityCondition: false,
+        volatilityMin: null as number | null,
         volatilityMax: null as number | null,
       },
       timing: {
-        waitForClose: true,
+        waitForClose: false,
         maxSlippagePct: 0.005,
       },
     },
@@ -386,10 +388,11 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
               confirmation: {
                 minSignals: 2,
                 requireVolatilityCondition: false,
+                volatilityMin: null,
                 volatilityMax: null,
               },
               timing: {
-                waitForClose: true,
+                waitForClose: false,
                 maxSlippagePct: 0.005,
               },
             },
@@ -541,6 +544,30 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
       return;
     }
 
+    if (!name || !name.trim()) {
+      setError("Strategy Name is required");
+      setLoading(false);
+      return;
+    }
+
+    if (!modelProvider || !modelProvider.trim()) {
+      setError("Model Provider is required");
+      setLoading(false);
+      return;
+    }
+
+    if (!modelName || !modelName.trim()) {
+      setError("Model Name is required");
+      setLoading(false);
+      return;
+    }
+
+    if (!prompt || !prompt.trim()) {
+      setError("Trading Prompt is required");
+      setLoading(false);
+      return;
+    }
+
     // Validate cadence
     const totalCadenceSeconds = getTotalCadenceSeconds();
     if (totalCadenceSeconds <= 0) {
@@ -571,6 +598,81 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
       return;
     }
 
+    if (useManualInput && manualMarketsInput.trim() && availableMarkets.length > 0) {
+      const availableSymbols = new Set(availableMarkets.map(m => m.symbol.toUpperCase()));
+      const invalidMarkets = finalMarkets.filter(symbol => !availableSymbols.has(symbol));
+      if (invalidMarkets.length > 0) {
+        setError(`Invalid markets: ${invalidMarkets.slice(0, 5).join(", ")}${invalidMarkets.length > 5 ? "..." : ""}`);
+        setLoading(false);
+        return;
+      }
+    }
+
+    const confirmation = entryExit.entry.confirmation;
+    if (confirmation.requireVolatilityCondition) {
+      const volatilityMin = confirmation.volatilityMin ?? null;
+      const volatilityMax = confirmation.volatilityMax ?? null;
+      if (volatilityMin !== null && volatilityMin < 0) {
+        setError("Min Volatility % must be 0 or greater");
+        setLoading(false);
+        return;
+      }
+      if (volatilityMax !== null && volatilityMax < 0) {
+        setError("Max Volatility % must be 0 or greater");
+        setLoading(false);
+        return;
+      }
+      if (volatilityMin !== null && volatilityMax !== null && volatilityMin > volatilityMax) {
+        setError("Min Volatility % cannot be greater than Max Volatility %");
+        setLoading(false);
+        return;
+      }
+    }
+
+    if (entryExit.exit.mode === "trailing") {
+      if (!entryExit.exit.trailingStopPct || entryExit.exit.trailingStopPct <= 0) {
+        setError("Trailing Stop % is required when using Trailing exit mode");
+        setLoading(false);
+        return;
+      }
+    }
+
+    if (entryExit.exit.mode === "tp_sl") {
+      if (!entryExit.exit.takeProfitPct || entryExit.exit.takeProfitPct <= 0) {
+        setError("Take Profit % must be greater than 0");
+        setLoading(false);
+        return;
+      }
+      if (!entryExit.exit.stopLossPct || entryExit.exit.stopLossPct <= 0) {
+        setError("Stop Loss % must be greater than 0");
+        setLoading(false);
+        return;
+      }
+      if (entryExit.exit.takeProfitPct <= entryExit.exit.stopLossPct) {
+        setError("Take Profit % must be greater than Stop Loss %");
+        setLoading(false);
+        return;
+      }
+    }
+
+    if (typeof risk.maxLeverage === "number" && risk.maxLeverage > 20) {
+      setError("Max Leverage must be 20x or less");
+      setLoading(false);
+      return;
+    }
+
+    if (typeof risk.maxPositionUsd === "number" && risk.maxPositionUsd > 100000) {
+      setError("Max Position Size must be $100,000 or less");
+      setLoading(false);
+      return;
+    }
+
+    if (typeof risk.maxDailyLossPct === "number" && risk.maxDailyLossPct > 50) {
+      setError("Max Daily Loss % must be 50% or less");
+      setLoading(false);
+      return;
+    }
+
     const supabase = createClient();
     const {
       data: { session },
@@ -594,6 +696,31 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
         ...aiInputs.candles,
         count: typeof aiInputs.candles.count === "number" ? aiInputs.candles.count : 200,
       },
+      orderbook: {
+        ...aiInputs.orderbook,
+        depth: typeof aiInputs.orderbook.depth === "number" ? aiInputs.orderbook.depth : 20,
+      },
+      indicators: {
+        ...aiInputs.indicators,
+        rsi: {
+          ...aiInputs.indicators.rsi,
+          period: typeof aiInputs.indicators.rsi.period === "number" ? aiInputs.indicators.rsi.period : 14,
+        },
+        atr: {
+          ...aiInputs.indicators.atr,
+          period: typeof aiInputs.indicators.atr.period === "number" ? aiInputs.indicators.atr.period : 14,
+        },
+        volatility: {
+          ...aiInputs.indicators.volatility,
+          window: typeof aiInputs.indicators.volatility.window === "number" ? aiInputs.indicators.volatility.window : 50,
+        },
+        ema: {
+          ...aiInputs.indicators.ema,
+          fast: typeof aiInputs.indicators.ema.fast === "number" ? aiInputs.indicators.ema.fast : 12,
+          slow: typeof aiInputs.indicators.ema.slow === "number" ? aiInputs.indicators.ema.slow : 26,
+        },
+      },
+      recentDecisionsCount: typeof aiInputs.recentDecisionsCount === "number" ? aiInputs.recentDecisionsCount : 5,
     };
     
     // Ensure numeric fields are numbers before saving
@@ -603,12 +730,18 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
         ...entryExit.entry,
         timing: {
           ...entryExit.entry.timing,
+          waitForClose: false,
           maxSlippagePct: typeof entryExit.entry.timing.maxSlippagePct === "number" ? entryExit.entry.timing.maxSlippagePct : 0.15,
         },
         confirmation: {
           ...entryExit.entry.confirmation,
           minSignals: typeof entryExit.entry.confirmation.minSignals === "number" ? entryExit.entry.confirmation.minSignals : 2,
         },
+      },
+      exit: {
+        ...entryExit.exit,
+        takeProfitPct: typeof entryExit.exit.takeProfitPct === "number" ? entryExit.exit.takeProfitPct : 2,
+        stopLossPct: typeof entryExit.exit.stopLossPct === "number" ? entryExit.exit.stopLossPct : 1,
       },
       tradeControl: {
         ...entryExit.tradeControl,
@@ -1342,7 +1475,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                                 ...prev,
                                 candles: { 
                                   ...prev.candles, 
-                                  count: value === "" ? "" : parseInt(value) || prev.candles.count 
+                                count: value === "" ? "" : parseInt(value)
                                 },
                               }));
                             }}
@@ -1392,7 +1525,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                             </optgroup>
                           </Select>
                           <p className="text-xs text-muted-foreground">
-                            Max Volatility % is measured between these candles
+                            Volatility is measured between these candles
                           </p>
                       </div>
                       </div>
@@ -1400,8 +1533,8 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
 
                     <div className="flex items-center justify-between">
                       <div>
-                        <label className="text-sm font-semibold">Orderbook</label>
-                        <p className="text-xs text-muted-foreground">Order book depth</p>
+                        <label className="text-sm font-semibold">Orderbook (L2)</label>
+                        <p className="text-xs text-muted-foreground">Depth levels from the order book</p>
                       </div>
                       <Switch
                         checked={aiInputs.orderbook.enabled}
@@ -1413,6 +1546,37 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                         }
                       />
                     </div>
+                    {aiInputs.orderbook.enabled && (
+                      <div className="pl-4 space-y-2 border-l-2">
+                        <label className="text-sm font-medium">Orderbook Depth</label>
+                        <Input
+                          type="number"
+                          min="1"
+                          max="200"
+                          value={aiInputs.orderbook.depth}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            setAiInputs(prev => ({
+                              ...prev,
+                              orderbook: {
+                                ...prev.orderbook,
+                                depth: value === "" ? "" : parseInt(value),
+                              },
+                            }));
+                          }}
+                          onBlur={(e) => {
+                            if (e.target.value === "" || parseInt(e.target.value) < 1) {
+                              setAiInputs(prev => ({
+                                ...prev,
+                                orderbook: { ...prev.orderbook, depth: 20 },
+                              }));
+                            }
+                          }}
+                          className="h-9"
+                        />
+                        <p className="text-xs text-muted-foreground">Number of bid/ask levels to include</p>
+                      </div>
+                    )}
 
                     <div className="space-y-3">
                       <label className="text-sm font-semibold">Technical Indicators</label>
@@ -1432,6 +1596,39 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                             }
                           />
                         </div>
+                        {aiInputs.indicators.rsi.enabled && (
+                          <div className="pl-4 space-y-1">
+                            <label className="text-xs text-muted-foreground">RSI Period</label>
+                            <Input
+                              type="number"
+                              min="2"
+                              max="200"
+                              value={aiInputs.indicators.rsi.period}
+                              onChange={(e) => {
+                                const value = e.target.value;
+                                setAiInputs(prev => ({
+                                  ...prev,
+                                  indicators: {
+                                    ...prev.indicators,
+                                    rsi: {
+                                      ...prev.indicators.rsi,
+                                    period: value === "" ? "" : parseInt(value),
+                                    },
+                                  },
+                                }));
+                              }}
+                              onBlur={(e) => {
+                                if (e.target.value === "" || parseInt(e.target.value) < 2) {
+                                  setAiInputs(prev => ({
+                                    ...prev,
+                                    indicators: { ...prev.indicators, rsi: { ...prev.indicators.rsi, period: 14 } },
+                                  }));
+                                }
+                              }}
+                              className="h-9"
+                            />
+                          </div>
+                        )}
                         <div className="flex items-center justify-between">
                           <span className="text-sm">ATR</span>
                           <Switch
@@ -1447,6 +1644,39 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                             }
                           />
                         </div>
+                        {aiInputs.indicators.atr.enabled && (
+                          <div className="pl-4 space-y-1">
+                            <label className="text-xs text-muted-foreground">ATR Period</label>
+                            <Input
+                              type="number"
+                              min="2"
+                              max="200"
+                              value={aiInputs.indicators.atr.period}
+                              onChange={(e) => {
+                                const value = e.target.value;
+                                setAiInputs(prev => ({
+                                  ...prev,
+                                  indicators: {
+                                    ...prev.indicators,
+                                    atr: {
+                                      ...prev.indicators.atr,
+                                    period: value === "" ? "" : parseInt(value),
+                                    },
+                                  },
+                                }));
+                              }}
+                              onBlur={(e) => {
+                                if (e.target.value === "" || parseInt(e.target.value) < 2) {
+                                  setAiInputs(prev => ({
+                                    ...prev,
+                                    indicators: { ...prev.indicators, atr: { ...prev.indicators.atr, period: 14 } },
+                                  }));
+                                }
+                              }}
+                              className="h-9"
+                            />
+                          </div>
+                        )}
                         <div className="flex items-center justify-between">
                           <span className="text-sm">Volatility</span>
                           <Switch
@@ -1462,6 +1692,42 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                             }
                           />
                         </div>
+                        {aiInputs.indicators.volatility.enabled && (
+                          <div className="pl-4 space-y-1">
+                            <label className="text-xs text-muted-foreground">Volatility Window</label>
+                            <Input
+                              type="number"
+                              min="2"
+                              max="500"
+                              value={aiInputs.indicators.volatility.window}
+                              onChange={(e) => {
+                                const value = e.target.value;
+                                setAiInputs(prev => ({
+                                  ...prev,
+                                  indicators: {
+                                    ...prev.indicators,
+                                    volatility: {
+                                      ...prev.indicators.volatility,
+                                    window: value === "" ? "" : parseInt(value),
+                                    },
+                                  },
+                                }));
+                              }}
+                              onBlur={(e) => {
+                                if (e.target.value === "" || parseInt(e.target.value) < 2) {
+                                  setAiInputs(prev => ({
+                                    ...prev,
+                                    indicators: {
+                                      ...prev.indicators,
+                                      volatility: { ...prev.indicators.volatility, window: 50 },
+                                    },
+                                  }));
+                                }
+                              }}
+                              className="h-9"
+                            />
+                          </div>
+                        )}
                         <div className="flex items-center justify-between">
                           <span className="text-sm">EMA</span>
                           <Switch
@@ -1477,6 +1743,72 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                             }
                           />
                         </div>
+                        {aiInputs.indicators.ema.enabled && (
+                          <div className="pl-4 grid grid-cols-2 gap-2">
+                            <div className="space-y-1">
+                              <label className="text-xs text-muted-foreground">EMA Fast</label>
+                              <Input
+                                type="number"
+                                min="2"
+                                max="200"
+                                value={aiInputs.indicators.ema.fast}
+                                onChange={(e) => {
+                                  const value = e.target.value;
+                                  setAiInputs(prev => ({
+                                    ...prev,
+                                    indicators: {
+                                      ...prev.indicators,
+                                      ema: {
+                                        ...prev.indicators.ema,
+                                        fast: value === "" ? "" : parseInt(value),
+                                      },
+                                    },
+                                  }));
+                                }}
+                                onBlur={(e) => {
+                                  if (e.target.value === "" || parseInt(e.target.value) < 2) {
+                                    setAiInputs(prev => ({
+                                      ...prev,
+                                      indicators: { ...prev.indicators, ema: { ...prev.indicators.ema, fast: 12 } },
+                                    }));
+                                  }
+                                }}
+                                className="h-9"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="text-xs text-muted-foreground">EMA Slow</label>
+                              <Input
+                                type="number"
+                                min="2"
+                                max="200"
+                                value={aiInputs.indicators.ema.slow}
+                                onChange={(e) => {
+                                  const value = e.target.value;
+                                  setAiInputs(prev => ({
+                                    ...prev,
+                                    indicators: {
+                                      ...prev.indicators,
+                                      ema: {
+                                        ...prev.indicators.ema,
+                                        slow: value === "" ? "" : parseInt(value),
+                                      },
+                                    },
+                                  }));
+                                }}
+                                onBlur={(e) => {
+                                  if (e.target.value === "" || parseInt(e.target.value) < 2) {
+                                    setAiInputs(prev => ({
+                                      ...prev,
+                                      indicators: { ...prev.indicators, ema: { ...prev.indicators.ema, slow: 26 } },
+                                    }));
+                                  }
+                                }}
+                                className="h-9"
+                              />
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -1505,6 +1837,31 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                         }
                       />
                     </div>
+                    {aiInputs.includeRecentDecisions && (
+                      <div className="pl-4 space-y-2 border-l-2">
+                        <label className="text-sm font-medium">Recent Decisions Count</label>
+                        <Input
+                          type="number"
+                          min="1"
+                          max="50"
+                          value={aiInputs.recentDecisionsCount}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            setAiInputs(prev => ({
+                              ...prev,
+                              recentDecisionsCount: value === "" ? "" : parseInt(value),
+                            }));
+                          }}
+                          onBlur={(e) => {
+                            if (e.target.value === "" || parseInt(e.target.value) < 1) {
+                              setAiInputs(prev => ({ ...prev, recentDecisionsCount: 5 }));
+                            }
+                          }}
+                          className="h-9"
+                        />
+                        <p className="text-xs text-muted-foreground">How many past decisions to include in context</p>
+                      </div>
+                    )}
                   </div>
                 </TabsContent>
 
@@ -1630,7 +1987,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                             className="h-11"
                           />
                           <p className="text-xs text-muted-foreground">
-                            Require multiple confirming signals before entry (1-5)
+                            Higher values require higher AI confidence (1-5)
                           </p>
                         </div>
 
@@ -1876,10 +2233,21 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                                   ...prev,
                                   exit: {
                                     ...prev.exit,
-                                    takeProfitPct: parseFloat(e.target.value) || 2.0,
+                                    takeProfitPct: e.target.value === "" ? "" : parseFloat(e.target.value),
                                   },
                                 }))
                               }
+                              onBlur={(e) => {
+                                if (e.target.value === "" || parseFloat(e.target.value) <= 0) {
+                                  setEntryExit(prev => ({
+                                    ...prev,
+                                    exit: {
+                                      ...prev.exit,
+                                      takeProfitPct: 2.0,
+                                    },
+                                  }));
+                                }
+                              }}
                               className="h-11"
                             />
                             <p className="text-xs text-muted-foreground">
@@ -1899,10 +2267,21 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                                   ...prev,
                                   exit: {
                                     ...prev.exit,
-                                    stopLossPct: parseFloat(e.target.value) || 1.0,
+                                    stopLossPct: e.target.value === "" ? "" : parseFloat(e.target.value),
                                   },
                                 }))
                               }
+                              onBlur={(e) => {
+                                if (e.target.value === "" || parseFloat(e.target.value) <= 0) {
+                                  setEntryExit(prev => ({
+                                    ...prev,
+                                    exit: {
+                                      ...prev.exit,
+                                      stopLossPct: 1.0,
+                                    },
+                                  }));
+                                }
+                              }}
                               className="h-11"
                             />
                             <p className="text-xs text-muted-foreground">
@@ -2183,7 +2562,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                               ...prev,
                               confidenceControl: {
                                 ...prev.confidenceControl,
-                                minConfidence: value === "" ? "" : (parseFloat(value) / 100) || prev.confidenceControl.minConfidence,
+                                minConfidence: value === "" ? "" : parseFloat(value) / 100,
                               },
                             }));
                           }}
@@ -2244,7 +2623,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                           const value = e.target.value;
                           setRisk(prev => ({
                             ...prev,
-                            maxDailyLossPct: value === "" ? "" : parseFloat(value) || prev.maxDailyLossPct,
+                            maxDailyLossPct: value === "" ? "" : parseFloat(value),
                           }));
                         }}
                         onBlur={(e) => {
@@ -2270,7 +2649,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                           const value = e.target.value;
                           setRisk(prev => ({
                             ...prev,
-                            maxPositionUsd: value === "" ? "" : parseFloat(value) || prev.maxPositionUsd,
+                            maxPositionUsd: value === "" ? "" : parseFloat(value),
                           }));
                         }}
                         onBlur={(e) => {
@@ -2297,7 +2676,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                             const value = e.target.value;
                             setRisk(prev => ({
                               ...prev,
-                              maxLeverage: value === "" ? "" : parseFloat(value) || prev.maxLeverage,
+                              maxLeverage: value === "" ? "" : parseFloat(value),
                             }));
                           }}
                           onBlur={(e) => {

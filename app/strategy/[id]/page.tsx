@@ -207,9 +207,17 @@ function StrategyDetailContent() {
               <CardDescription className="text-gray-300">Used by both Virtual and Live modes</CardDescription>
             </CardHeader>
             <CardContent className="text-sm text-gray-300 space-y-1">
-              <div>max_position_usd: {strategy.filters?.risk?.maxPositionUsd ?? "(not set)"}</div>
-              <div>max_leverage: {strategy.filters?.risk?.maxLeverage ?? "(not set)"}</div>
-              <div>max_daily_loss_pct: {strategy.filters?.risk?.maxDailyLossPct ?? "(not set)"}</div>
+              <div>
+                Max Position (USD): {strategy.filters?.risk?.maxPositionUsd ?? "(not set)"}
+              </div>
+              <div>
+                Max Leverage: {strategy.filters?.risk?.maxLeverage ?? "(not set)"}
+              </div>
+              <div>
+                Max Daily Loss (%): {strategy.filters?.risk?.maxDailyLossPct !== undefined && strategy.filters?.risk?.maxDailyLossPct !== null
+                  ? `${strategy.filters.risk.maxDailyLossPct}%`
+                  : "(not set)"}
+              </div>
             </CardContent>
           </Card>
 
