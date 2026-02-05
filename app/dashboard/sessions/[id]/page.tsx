@@ -678,20 +678,22 @@ function SessionDetailContent({ sessionId }: { sessionId: string }) {
           const startISO = new Date(capturedTimeRange.start).toISOString();
           const endISO = new Date(capturedTimeRange.end).toISOString();
           equityQuery.gte("t", startISO).lte("t", endISO);
-          
+
           console.log(`[loadAll] 🔍 Applying SERVER-SIDE time filter to query:`, {
             start: startISO,
             end: endISO,
             startLocal: new Date(capturedTimeRange.start).toLocaleString(),
             endLocal: new Date(capturedTimeRange.end).toLocaleString(),
           });
-          // For specific time ranges, order OLDEST first to show from start of range
-          equityQuery.order("t", { ascending: true }).limit(20000);
+          // Use range() instead of limit() to bypass Supabase's default 1000 row limit
+          // Order oldest-first for chronological display
+          equityQuery.order("t", { ascending: true }).range(0, 99999);
         } else {
-          console.log(`[loadAll] 🌍 No time filter - fetching ALL equity points for session (will downsample if needed)`);
-          // For "All Time", fetch everything and we'll downsample on client if needed
-          // Order newest first to prioritize recent data if limit is hit
-          equityQuery.order("t", { ascending: false }).limit(100000);
+          console.log(`[loadAll] 🌍 No time filter - fetching ALL equity points for session`);
+          // CRITICAL: Use range() instead of limit() to bypass Supabase's default 1000 row limit
+          // Set to 1,000,000 to support 5+ years of data at any cadence
+          // Order oldest-first so chart displays chronologically
+          equityQuery.order("t", { ascending: true }).range(0, 999999);
         }
         
         const [tradesResult, positionsResult, equityResult] = await Promise.all([
@@ -755,13 +757,8 @@ function SessionDetailContent({ sessionId }: { sessionId: string }) {
         
         // CRITICAL FIX: Always update equity data, even if empty
         // This ensures time range changes clear old data instead of keeping stale data
-        // IMPORTANT: Only reverse for "All Time" queries (which fetch newest-first)
-        // For time-filtered queries, data already comes in correct order (oldest-first)
+        // Data now comes in chronological order (ascending) - no reversal needed
         let fetchedEquityData = equityResult.data || [];
-        if (!capturedTimeRange) {
-          // "All Time" query fetched descending (newest first), so reverse to get chronological order
-          fetchedEquityData = fetchedEquityData.reverse();
-        }
         
         // SMART DOWNSAMPLING: For long-running sessions (>10000 points), downsample old data
         // Keep all recent data (last 7 days) at full resolution, downsample older data
@@ -1027,7 +1024,8 @@ function SessionDetailContent({ sessionId }: { sessionId: string }) {
         },
         Array.isArray(positions) ? positions : [],
         Array.isArray(trades) ? trades : [],
-        positionPrices || {}
+        positionPrices || {},
+        session?.mode  // Pass mode so live sessions use DB equity
       );
     } catch (error) {
       console.error("[UI] Error calculating pnlTotals:", error);
@@ -1229,17 +1227,18 @@ function SessionDetailContent({ sessionId }: { sessionId: string }) {
     return true;
   });
 
-  // If we have no stored equity points yet, seed with starting equity so the curve reflects reality.
-  // The chart component will add the current equity as the latest point.
-  if (equityPointsForChart.length === 0 && startBal != null) {
-    const sessionStart = session?.started_at || session?.created_at;
-    if (sessionStart) {
-      equityPointsForChart = [
-        {
-          time: new Date(sessionStart).getTime(),
-          equity: Number(startBal),
-        },
-      ];
+  // If we have no stored equity points OR the first point is well after session start,
+  // inject a baseline point at session creation time so the chart starts correctly
+  const sessionStart = session?.started_at || session?.created_at;
+  const sessionStartTime = sessionStart ? new Date(sessionStart).getTime() : null;
+
+  if (sessionStartTime && startBal != null) {
+    if (equityPointsForChart.length === 0) {
+      // No data at all - create baseline point
+      equityPointsForChart = [{ time: sessionStartTime, equity: Number(startBal) }];
+    } else if (equityPointsForChart[0].time > sessionStartTime + (6 * 60 * 1000)) {
+      // Data exists but starts more than 6 minutes after session creation - prepend baseline
+      equityPointsForChart.unshift({ time: sessionStartTime, equity: Number(startBal) });
     }
   }
 
