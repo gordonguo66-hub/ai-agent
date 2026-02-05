@@ -65,6 +65,19 @@ export interface PlaceOrderResponse {
   };
 }
 
+export interface SpotBalance {
+  coin: string;
+  total: number;
+  hold: number;
+  available: number;
+}
+
+export interface TotalEquity {
+  perpEquity: number;      // From clearinghouseState (perp margin account)
+  spotUsdcBalance: number; // USDC in spot wallet
+  totalEquity: number;     // Combined total
+}
+
 export class HyperliquidClient {
   private apiBase: string;
 
@@ -308,6 +321,70 @@ export class HyperliquidClient {
   async getMidPrice(market: string): Promise<number> {
     const orderbook = await this.getOrderbookTop(market);
     return orderbook.mid;
+  }
+
+  /**
+   * Get spot wallet balances for a wallet address
+   * Returns balances for all tokens in the spot wallet
+   */
+  async getSpotBalances(walletAddress: string): Promise<SpotBalance[]> {
+    try {
+      const response = await fetch(`${this.apiBase}/info`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          type: "spotClearinghouseState",
+          user: walletAddress,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Hyperliquid API error: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      const balances = data.balances || [];
+
+      return balances.map((b: any) => ({
+        coin: b.coin || "UNKNOWN",
+        total: Number(b.total || 0),
+        hold: Number(b.hold || 0),
+        available: Number(b.total || 0) - Number(b.hold || 0),
+      }));
+    } catch (error: any) {
+      console.error(`[Hyperliquid API] Failed to get spot balances: ${error.message}`);
+      return [];
+    }
+  }
+
+  /**
+   * Get total equity across both perp margin and spot USDC
+   * This prevents showing $0 if user has funds in spot but not perps
+   */
+  async getTotalEquity(walletAddress: string): Promise<TotalEquity> {
+    // Fetch both in parallel
+    const [accountState, spotBalances] = await Promise.all([
+      this.getAccountState(walletAddress),
+      this.getSpotBalances(walletAddress),
+    ]);
+
+    const perpEquity = Number(accountState.marginSummary.accountValue || 0);
+
+    // Find USDC balance in spot (this is the main stablecoin for trading)
+    const usdcBalance = spotBalances.find(b => b.coin === "USDC");
+    const spotUsdcBalance = usdcBalance?.total || 0;
+
+    const totalEquity = perpEquity + spotUsdcBalance;
+
+    console.log(`[Hyperliquid API] Total equity breakdown - Perp: $${perpEquity.toFixed(2)}, Spot USDC: $${spotUsdcBalance.toFixed(2)}, Total: $${totalEquity.toFixed(2)}`);
+
+    return {
+      perpEquity,
+      spotUsdcBalance,
+      totalEquity,
+    };
   }
 }
 
