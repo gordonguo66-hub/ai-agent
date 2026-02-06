@@ -52,9 +52,11 @@ export async function GET(request: NextRequest) {
             .eq("account_id", account.id);
 
           if (!positions || positions.length === 0) {
-            // No positions, equity = cash_balance
-            const calculatedEquity = Number(account.cash_balance || 0);
-            
+            // No positions - for live mode use synced equity, for virtual use cash_balance
+            const calculatedEquity = s.mode === "live"
+              ? Number(account.equity || 0)  // Live: use Hyperliquid-synced equity
+              : Number(account.cash_balance || 0);  // Virtual: cash_balance
+
             // Update account object with calculated equity
             const updatedAccount = {
               ...account,
@@ -90,8 +92,12 @@ export async function GET(request: NextRequest) {
             }
           }
 
-          // Calculate real-time equity = cash + unrealized PnL
-          const calculatedEquity = Number(account.cash_balance || 0) + totalUnrealizedPnl;
+          // Calculate real-time equity
+          // For live mode: use Hyperliquid-synced equity (already accurate)
+          // For virtual mode: cash + unrealized PnL
+          const calculatedEquity = s.mode === "live"
+            ? Number(account.equity || 0)
+            : Number(account.cash_balance || 0) + totalUnrealizedPnl;
 
           // Update account object with calculated equity
           const updatedAccount = {
