@@ -4,23 +4,27 @@ import { getUserFromRequest } from "@/lib/api/serverAuth";
 import { decryptCredential } from "@/lib/crypto/credentials";
 import { resolveStrategyApiKey } from "@/lib/ai/resolveApiKey";
 import { openAICompatibleIntentCall, normalizeBaseUrl } from "@/lib/ai/openaiCompatible";
-import { getMidPrices } from "@/lib/hyperliquid/prices";
-import { getCandles } from "@/lib/hyperliquid/candles";
+import { getMidPrices as getHyperliquidPrices } from "@/lib/hyperliquid/prices";
+import { getMidPrices as getCoinbasePrices, getOrderbook as getCoinbaseOrderbook } from "@/lib/coinbase/prices";
+import { getCandles as getHyperliquidCandles } from "@/lib/hyperliquid/candles";
+import { getCandles as getCoinbaseCandles } from "@/lib/coinbase/candles";
 import { placeMarketOrder as placeVirtualOrder, markToMarket, getPositions } from "@/lib/brokers/virtualBroker";
 import { calcTotals, verifyReconciliation } from "@/lib/accounting/pnl";
-import { HyperliquidBroker } from "@/lib/brokers/hyperliquidBroker";
 import { hyperliquidClient } from "@/lib/hyperliquid/client";
+import { CoinbaseClient } from "@/lib/coinbase/client";
 import { calculateIndicators } from "@/lib/indicators/calculations";
-import { BrokerContext, MarketData, OrderRequest } from "@/lib/engine/types";
 import {
   getOrCreateLiveAccount,
   syncPositionsFromHyperliquid,
+  syncPositionsFromCoinbase,
   updateAccountEquity,
+  updateCoinbaseAccountEquity,
   recordLiveTrade,
   getLivePositions,
-  getLiveTrades,
 } from "@/lib/brokers/liveBroker";
-import { placeMarketOrder as placeRealOrder } from "@/lib/hyperliquid/orderExecution";
+import { placeMarketOrder as placeHyperliquidOrder } from "@/lib/hyperliquid/orderExecution";
+import { placeMarketOrder as placeCoinbaseOrder } from "@/lib/coinbase/orderExecution";
+import { Venue } from "@/lib/engine/types";
 
 const PROVIDER_BASE_URLS: Record<string, string> = {
   openai: "https://api.openai.com/v1",
@@ -55,11 +59,14 @@ function getTables(mode: string) {
 }
 
 /**
- * Unified order execution that routes to either real or virtual broker based on session mode
+ * Unified order execution that routes to either real or virtual broker based on session mode and venue
  */
 async function placeMarketOrder(params: {
   sessionMode: "virtual" | "live" | "arena";
+  venue?: Venue;
   livePrivateKey?: string;
+  liveApiKey?: string;
+  liveApiSecret?: string;
   account_id: string;
   strategy_id: string;
   session_id: string;
@@ -68,56 +75,187 @@ async function placeMarketOrder(params: {
   notionalUsd: number;
   slippageBps: number;
   feeBps: number;
+  isExit?: boolean; // Whether this is an exit/close order (for reduce_only and action tracking)
+  exitPosition?: { side: "long" | "short"; avgEntry: number }; // Position data for calculating realized PnL on exits
+  leverage?: number; // Leverage to use for Hyperliquid entry orders (default 1x)
 }): Promise<{
   success: boolean;
   error?: string;
   trade?: any;
 }> {
-  const { sessionMode, livePrivateKey, ...orderParams } = params;
+  const { sessionMode, venue = "hyperliquid", livePrivateKey, liveApiKey, liveApiSecret, isExit, exitPosition, leverage = 1, ...orderParams } = params;
+
+  console.log(`[Order Execution] Session mode: ${sessionMode}, Venue: ${venue}`);
 
   if (sessionMode === "live") {
-    // LIVE MODE: Place real order on Hyperliquid
-    if (!livePrivateKey) {
-      return { success: false, error: "Private key required for live trading" };
-    }
+    // LIVE MODE: Place real order on exchange based on venue
+    if (venue === "coinbase") {
+      // COINBASE LIVE ORDER
+      if (!liveApiKey || !liveApiSecret) {
+        return { success: false, error: "Coinbase API credentials required for live trading" };
+      }
 
-    console.log(`[Order Execution] 🔴 LIVE MODE: Placing REAL order on Hyperliquid`);
-    
-    try {
-      // Remove -PERP suffix if present (SDK uses coin name without suffix)
-      const coin = orderParams.market.replace(/-PERP$/i, "");
-      
-      const result = await placeRealOrder(
-        livePrivateKey,
-        coin,
-        orderParams.side,
-        orderParams.notionalUsd,
-        orderParams.slippageBps / 10000 // Convert bps to decimal (e.g., 5 bps = 0.0005)
-      );
+      console.log(`[Order Execution] 🔴 LIVE MODE: Placing REAL order on Coinbase`);
 
-      if (result.success) {
-        console.log(`[Order Execution] ✅ REAL order placed successfully: ${result.orderId}`);
-        return {
-          success: true,
-          trade: {
-            order_id: result.orderId,
-            fill_price: result.fillPrice,
-            fill_size: result.fillSize,
-          },
-        };
-      } else {
-        console.error(`[Order Execution] ❌ REAL order failed: ${result.error}`);
+      try {
+        const result = await placeCoinbaseOrder(
+          liveApiKey,
+          liveApiSecret,
+          orderParams.market, // Already in BTC-USD format
+          orderParams.side,
+          orderParams.notionalUsd
+        );
+
+        if (result.success) {
+          console.log(`[Order Execution] ✅ Coinbase order placed successfully: ${result.orderId}`);
+
+          // Record the trade in our database
+          try {
+            const tradeSize = result.fillSize || 0;
+            const tradePrice = result.fillPrice || 0;
+            const tradeFee = (result.fillValue || orderParams.notionalUsd) * (orderParams.feeBps / 10000);
+
+            // Calculate realized PnL for exit trades
+            let realizedPnl = 0;
+            if (isExit && exitPosition && tradeSize > 0 && tradePrice > 0) {
+              if (exitPosition.side === "long") {
+                // Long position: profit = (exit price - entry price) * size
+                realizedPnl = (tradePrice - exitPosition.avgEntry) * tradeSize;
+              } else {
+                // Short position: profit = (entry price - exit price) * size
+                realizedPnl = (exitPosition.avgEntry - tradePrice) * tradeSize;
+              }
+              console.log(`[Order Execution] 💰 Calculated realized PnL: ${exitPosition.side} entry=$${exitPosition.avgEntry.toFixed(2)}, exit=$${tradePrice.toFixed(2)}, size=${tradeSize.toFixed(8)} → PnL=$${realizedPnl.toFixed(4)}`);
+            }
+
+            await recordLiveTrade(
+              orderParams.account_id,
+              orderParams.session_id || "",
+              {
+                market: orderParams.market,
+                action: isExit ? "close" : "open",
+                side: orderParams.side,
+                size: tradeSize,
+                price: tradePrice,
+                fee: tradeFee,
+                realized_pnl: realizedPnl,
+                venue_order_id: result.orderId,
+                leverage: 1, // Coinbase spot trading has no leverage
+              }
+            );
+            console.log(`[Order Execution] ✅ Coinbase trade recorded: ${tradeSize.toFixed(8)} @ $${tradePrice.toFixed(2)}, PnL: $${realizedPnl.toFixed(4)} (1x leverage)`);
+          } catch (dbError: any) {
+            console.error(`[Order Execution] ❌ Failed to record Coinbase trade:`, dbError);
+          }
+
+          return {
+            success: true,
+            trade: {
+              order_id: result.orderId,
+              fill_price: result.fillPrice,
+              fill_size: result.fillSize,
+            },
+          };
+        } else {
+          console.error(`[Order Execution] ❌ Coinbase order failed: ${result.error}`);
+          return {
+            success: false,
+            error: result.error || "Order failed",
+          };
+        }
+      } catch (error: any) {
+        console.error(`[Order Execution] ❌ Exception placing Coinbase order:`, error);
         return {
           success: false,
-          error: result.error || "Order failed",
+          error: error.message || "Failed to place order",
         };
       }
-    } catch (error: any) {
-      console.error(`[Order Execution] ❌ Exception placing REAL order:`, error);
-      return {
-        success: false,
-        error: error.message || "Failed to place order",
-      };
+    } else {
+      // HYPERLIQUID LIVE ORDER
+      if (!livePrivateKey) {
+        return { success: false, error: "Private key required for Hyperliquid live trading" };
+      }
+
+      console.log(`[Order Execution] 🔴 LIVE MODE: Placing REAL order on Hyperliquid`);
+
+      try {
+        // Remove -PERP suffix if present (SDK uses coin name without suffix)
+        const coin = orderParams.market.replace(/-PERP$/i, "");
+
+        const result = await placeHyperliquidOrder(
+          livePrivateKey,
+          coin,
+          orderParams.side,
+          orderParams.notionalUsd,
+          orderParams.slippageBps / 10000,
+          !!isExit,
+          leverage // Pass leverage to set on Hyperliquid before placing order
+        );
+
+        if (result.success) {
+          console.log(`[Order Execution] ✅ Hyperliquid order placed successfully: ${result.orderId}`);
+
+          // Record the trade in our database for tracking
+          try {
+            const tradeSize = result.fillSize || 0;
+            const tradePrice = result.fillPrice || 0;
+            const tradeFee = tradeSize * tradePrice * (orderParams.feeBps / 10000);
+
+            // Calculate realized PnL for exit trades
+            let realizedPnl = 0;
+            if (isExit && exitPosition && tradeSize > 0 && tradePrice > 0) {
+              if (exitPosition.side === "long") {
+                // Long position: profit = (exit price - entry price) * size
+                realizedPnl = (tradePrice - exitPosition.avgEntry) * tradeSize;
+              } else {
+                // Short position: profit = (entry price - exit price) * size
+                realizedPnl = (exitPosition.avgEntry - tradePrice) * tradeSize;
+              }
+              console.log(`[Order Execution] 💰 Calculated realized PnL: ${exitPosition.side} entry=$${exitPosition.avgEntry.toFixed(2)}, exit=$${tradePrice.toFixed(2)}, size=${tradeSize.toFixed(4)} → PnL=$${realizedPnl.toFixed(4)}`);
+            }
+
+            await recordLiveTrade(
+              orderParams.account_id,
+              orderParams.session_id || "",
+              {
+                market: orderParams.market,
+                action: isExit ? "close" : "open",
+                side: orderParams.side,
+                size: tradeSize,
+                price: tradePrice,
+                fee: tradeFee,
+                realized_pnl: realizedPnl,
+                venue_order_id: result.orderId,
+                leverage: leverage, // Record the leverage used for this trade
+              }
+            );
+            console.log(`[Order Execution] ✅ Trade recorded: ${tradeSize.toFixed(4)} ${coin} @ $${tradePrice.toFixed(2)}, PnL: $${realizedPnl.toFixed(4)} (${leverage}x leverage)`);
+          } catch (dbError: any) {
+            console.error(`[Order Execution] ❌ Failed to record trade in database:`, dbError);
+          }
+
+          return {
+            success: true,
+            trade: {
+              order_id: result.orderId,
+              fill_price: result.fillPrice,
+              fill_size: result.fillSize,
+            },
+          };
+        } else {
+          console.error(`[Order Execution] ❌ Hyperliquid order failed: ${result.error}`);
+          return {
+            success: false,
+            error: result.error || "Order failed",
+          };
+        }
+      } catch (error: any) {
+        console.error(`[Order Execution] ❌ Exception placing Hyperliquid order:`, error);
+        return {
+          success: false,
+          error: error.message || "Failed to place order",
+        };
+      }
     }
   } else {
     // VIRTUAL/ARENA MODE: Use virtual broker (simulation)
@@ -264,18 +402,21 @@ export async function POST(
         return NextResponse.json({ error: "Virtual account not found" }, { status: 404 });
       }
     } else if (sessionMode === "live") {
-      // Verify exchange connection exists for live mode
+      // Verify exchange connection exists for live mode based on venue
+      const liveVenue: Venue = (session.venue as Venue) || "hyperliquid";
       const { data: exchangeConnection } = await serviceClient
         .from("exchange_connections")
-        .select("id, wallet_address")
+        .select("id, wallet_address, api_key")
         .eq("user_id", user.id)
+        .eq("venue", liveVenue)
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
 
       if (!exchangeConnection) {
+        const venueName = liveVenue === "coinbase" ? "Coinbase" : "Hyperliquid";
         return NextResponse.json(
-          { error: "No exchange connection found. Please connect your Hyperliquid account in Settings." },
+          { error: `No ${venueName} exchange connection found. Please connect your ${venueName} account in Settings.` },
           { status: 400 }
         );
       }
@@ -287,10 +428,12 @@ export async function POST(
     let accountEquity = 0;
     let account: any = null;
     let accountId: string | null = null;
-    let liveBroker: HyperliquidBroker | null = null;
     let liveWalletAddress: string | null = null;
     let livePrivateKey: string | null = null;
+    let liveApiKey: string | null = null;
+    let liveApiSecret: string | null = null;
     let exchangeConnectionId: string | null = null;
+    const liveVenue: Venue = (session.venue as Venue) || "hyperliquid";
 
     // Arena mode is virtual-only, so both "virtual" and "arena" use virtual broker
     if (sessionMode === "virtual" || sessionMode === "arena") {
@@ -300,64 +443,83 @@ export async function POST(
       }
       accountEquity = Number(account.equity || 100000);
       accountId = account.id;
-      
+
       // Assertion: Arena mode must use virtual broker
       if (sessionMode === "arena") {
         console.log(`[Tick] ✅ Arena session verified: using virtual broker, account_id=${accountId}`);
       }
     } else {
-      // Live mode: get or create live account
-      liveBroker = new HyperliquidBroker();
-      
-      // Get exchange connection with encrypted credentials
+      // Live mode: get or create live account based on venue
+      console.log(`[Tick] Live mode with venue: ${liveVenue}`);
+
+      // Get exchange connection with encrypted credentials based on venue
       const { data: exchangeConnection } = await serviceClient
         .from("exchange_connections")
-        .select("id, wallet_address, key_material_encrypted")
+        .select("id, venue, wallet_address, key_material_encrypted, api_key, api_secret_encrypted")
         .eq("user_id", user.id)
+        .eq("venue", liveVenue)
         .order("created_at", { ascending: false })
         .limit(1)
         .single();
-      
+
       if (!exchangeConnection) {
-        return NextResponse.json({ error: "Exchange connection not found" }, { status: 404 });
+        const venueName = liveVenue === "coinbase" ? "Coinbase" : "Hyperliquid";
+        return NextResponse.json({ error: `${venueName} exchange connection not found` }, { status: 404 });
       }
-      
-      liveWalletAddress = exchangeConnection.wallet_address;
+
       exchangeConnectionId = exchangeConnection.id;
-      
-      // Decrypt private key for order signing
+
+      // Decrypt credentials based on venue
       try {
-        livePrivateKey = decryptCredential(exchangeConnection.key_material_encrypted);
-        console.log(`[Tick] 🔐 Decrypted private key for live trading`);
+        if (liveVenue === "coinbase") {
+          liveApiKey = exchangeConnection.api_key;
+          liveApiSecret = decryptCredential(exchangeConnection.api_secret_encrypted);
+          console.log(`[Tick] 🔐 Decrypted Coinbase API credentials`);
+        } else {
+          liveWalletAddress = exchangeConnection.wallet_address;
+          livePrivateKey = decryptCredential(exchangeConnection.key_material_encrypted);
+          console.log(`[Tick] 🔐 Decrypted Hyperliquid private key`);
+        }
       } catch (err: any) {
-        console.error("[Tick] Failed to decrypt private key:", err);
+        console.error("[Tick] Failed to decrypt credentials:", err);
         return NextResponse.json({ error: "Failed to decrypt exchange credentials" }, { status: 500 });
       }
-      
-      if (!liveWalletAddress) {
-        return NextResponse.json({ error: "Exchange connection missing wallet address" }, { status: 400 });
+
+      // Validate credentials based on venue
+      if (liveVenue === "coinbase") {
+        if (!liveApiKey || !liveApiSecret) {
+          return NextResponse.json({ error: "Coinbase credentials incomplete" }, { status: 400 });
+        }
+      } else {
+        if (!liveWalletAddress) {
+          return NextResponse.json({ error: "Hyperliquid wallet address missing" }, { status: 400 });
+        }
       }
-      
+
       // Get or create live account (tracks equity/positions in DB)
-      account = await getOrCreateLiveAccount(user.id, serviceClient);
+      account = await getOrCreateLiveAccount(user.id, serviceClient, liveVenue);
       accountId = account.id;
-      
+
       if (!accountId) {
         return NextResponse.json({ error: "Failed to create live account" }, { status: 500 });
       }
-      
-      // liveWalletAddress is guaranteed to be non-null here due to check above
-      const walletAddr = liveWalletAddress!;
-      
-      // Sync positions and equity from Hyperliquid
-      await syncPositionsFromHyperliquid(accountId, walletAddr);
-      const { equity } = await updateAccountEquity(accountId, walletAddr);
-      accountEquity = equity;
-      
+
+      // Sync positions and equity from exchange based on venue
+      if (liveVenue === "coinbase") {
+        await syncPositionsFromCoinbase(accountId, liveApiKey!, liveApiSecret!);
+        const { equity } = await updateCoinbaseAccountEquity(accountId, liveApiKey!, liveApiSecret!);
+        accountEquity = equity;
+      } else {
+        const walletAddr = liveWalletAddress!;
+        await syncPositionsFromHyperliquid(accountId, walletAddr);
+        const { equity } = await updateAccountEquity(accountId, walletAddr);
+        accountEquity = equity;
+      }
+
       // Update account object with fresh data
-      account.equity = equity;
-      
-      console.log(`[Tick] Live mode - Account ${accountId} equity: $${accountEquity.toFixed(2)}`);
+      account.equity = accountEquity;
+
+      console.log(`[Tick] Live mode (${liveVenue}) - Account ${accountId} equity: $${accountEquity.toFixed(2)}`);
     }
 
     // Get markets to process
@@ -365,34 +527,51 @@ export async function POST(
     if (markets.length === 0) {
       return NextResponse.json({ error: "No markets configured in strategy" }, { status: 400 });
     }
-    
-    // Round-robin: Process only ONE market per tick to reduce AI call frequency
-    // Calculate which market to process based on session start time and cadence
-    // Use strategy filters cadence (most up-to-date) if available, otherwise session cadence
+
+    // Get market processing mode from strategy filters (default: "all" for new behavior)
+    // "all" = process all markets every tick
+    // "round-robin" = process one market per tick, cycling through
+    const marketProcessingMode = filters.marketProcessingMode || "all";
+
+    // Get cadence for round-robin calculation and logging
     const strategyFilters = strategy.filters || {};
     const cadenceSeconds = strategyFilters.cadenceSeconds || session.cadence_seconds || 30;
-    const sessionStartTime = session.started_at 
-      ? new Date(session.started_at).getTime() 
-      : new Date(session.created_at).getTime();
-    const cadenceMs = cadenceSeconds * 1000;
-    const ticksSinceStart = Math.floor((Date.now() - sessionStartTime) / cadenceMs);
-    const marketIndex = ticksSinceStart % markets.length;
-    const marketsToProcess = [markets[marketIndex]]; // Process only one market per tick
-    
-    console.log(`[Tick] 🔄 Round-robin: Processing market ${marketIndex + 1}/${markets.length} (${marketsToProcess[0]})`);
-    console.log(`[Tick] 📊 This reduces AI calls from ${markets.length} per tick to 1 per tick`);
-    console.log(`[Tick] 📊 With ${markets.length} markets and ${cadenceSeconds}s cadence: ${markets.length} calls/${cadenceSeconds}s → 1 call/${cadenceSeconds}s`);
+
+    let marketsToProcess: string[];
+    if (marketProcessingMode === "round-robin" && markets.length > 1) {
+      // Round-robin: Process only ONE market per tick to reduce AI call frequency
+      // Calculate which market to process based on session start time and cadence
+      const sessionStartTime = session.started_at
+        ? new Date(session.started_at).getTime()
+        : new Date(session.created_at).getTime();
+      const cadenceMs = cadenceSeconds * 1000;
+      const ticksSinceStart = Math.floor((Date.now() - sessionStartTime) / cadenceMs);
+      const marketIndex = ticksSinceStart % markets.length;
+      marketsToProcess = [markets[marketIndex]];
+
+      console.log(`[Tick] 🔄 Round-robin mode: Processing market ${marketIndex + 1}/${markets.length} (${marketsToProcess[0]})`);
+      console.log(`[Tick] 📊 Each market analyzed every ${cadenceSeconds * markets.length}s (1 AI call per tick)`);
+    } else {
+      // All mode: Process ALL markets every tick
+      marketsToProcess = markets;
+      console.log(`[Tick] 📊 All-markets mode: Processing ${markets.length} market(s) (${markets.join(', ')})`);
+    }
 
     // Get positions early so we can price ALL open markets for accurate equity
     let allPositionsForExit: any[] = [];
-    // Arena is virtual-only, so both "virtual" and "arena" use virtual broker
-    if ((sessionMode === "virtual" || sessionMode === "arena") && accountId) {
-      allPositionsForExit = await getPositions(accountId);
-    } else if (sessionMode === "live" && accountId) {
-      allPositionsForExit = await getLivePositions(accountId);
+    // Get positions using correct function based on mode
+    if (accountId) {
+      allPositionsForExit = sessionMode === "live"
+        ? await getLivePositions(accountId)
+        : await getPositions(accountId);
+      console.log(`[Tick] 📊 Loaded ${allPositionsForExit.length} positions for exit checks (${sessionMode} mode)`);
     }
 
-    // Fetch real prices from Hyperliquid
+    // Get venue from session (default to hyperliquid for backwards compatibility)
+    const sessionVenue: Venue = (session.venue as Venue) || "hyperliquid";
+    console.log(`[Tick] 📊 Using venue: ${sessionVenue}`);
+
+    // Fetch real prices from exchange based on venue
     // IMPORTANT: include ALL open position markets so equity reflects full portfolio
     let pricesByMarket: Record<string, number>;
     try {
@@ -400,7 +579,10 @@ export async function POST(
       for (const position of allPositionsForExit) {
         if (position?.market) pricingMarkets.add(position.market);
       }
-      pricesByMarket = await getMidPrices(Array.from(pricingMarkets));
+      const marketsArray = Array.from(pricingMarkets);
+      pricesByMarket = sessionVenue === "coinbase"
+        ? await getCoinbasePrices(marketsArray)
+        : await getHyperliquidPrices(marketsArray);
       if (Object.keys(pricesByMarket).length === 0) {
         return NextResponse.json({ error: "Failed to fetch prices for any market" }, { status: 500 });
       }
@@ -418,6 +600,8 @@ export async function POST(
     // ENFORCE EXIT RULES - Check all positions for exit conditions BEFORE processing new trades
     const entryExit = filters.entryExit || {};
     const exitRules = entryExit.exit || {};
+    const tradeControlForExits = entryExit.tradeControl || {};
+    const minHoldMinutesForExits = tradeControlForExits.minHoldMinutes ?? 5;
     
     const now = new Date();
     
@@ -457,6 +641,8 @@ export async function POST(
 
       let shouldExit = false;
       let exitReason = "";
+      let isEmergencyExit = false; // Emergency exits bypass min hold time (to protect capital)
+      let isTimeBasedExit = false; // Time-based exits bypass min hold time (that's the point)
 
       // Check exit rules based on exit mode
       
@@ -465,11 +651,13 @@ export async function POST(
         // Optional emergency override: max loss protection
         if (exitRules.maxLossProtectionPct && unrealizedPnlPct <= -Math.abs(exitRules.maxLossProtectionPct)) {
           shouldExit = true;
+          isEmergencyExit = true; // Emergency: don't let loss grow further
           exitReason = `Max loss protection: ${unrealizedPnlPct.toFixed(2)}% <= -${exitRules.maxLossProtectionPct}% (emergency guardrail)`;
         }
         // Optional emergency override: max profit cap
         else if (exitRules.maxProfitCapPct && unrealizedPnlPct >= exitRules.maxProfitCapPct) {
           shouldExit = true;
+          isEmergencyExit = true; // Emergency: lock in max profit
           exitReason = `Max profit cap: ${unrealizedPnlPct.toFixed(2)}% >= ${exitRules.maxProfitCapPct}% (emergency guardrail)`;
         }
         // Otherwise, only AI can trigger exits (checked after AI call)
@@ -517,7 +705,8 @@ export async function POST(
         
         if (dropFromPeakPct >= exitRules.trailingStopPct && positionPrice !== peakPrice) {
           shouldExit = true;
-          exitReason = `Trailing stop: ${dropFromPeakPct.toFixed(2)}% drop from peak ${peakPrice.toFixed(2)} >= ${exitRules.trailingStopPct}%`;
+          const extremeLabel = position.side === "long" ? "peak" : "trough";
+          exitReason = `Trailing stop: ${dropFromPeakPct.toFixed(2)}% from ${extremeLabel} ${peakPrice.toFixed(2)} >= ${exitRules.trailingStopPct}%`;
         }
         
         // Check optional initial hard stop loss (NOT take profit)
@@ -530,26 +719,46 @@ export async function POST(
       // MODE: TIME-BASED - Exit after max hold time
       else if (exitRules.mode === "time" && exitRules.maxHoldMinutes && positionAgeMinutes >= exitRules.maxHoldMinutes) {
         shouldExit = true;
+        isTimeBasedExit = true; // Time-based: min hold doesn't apply
         exitReason = `Max hold time: ${positionAgeMinutes.toFixed(1)} minutes >= ${exitRules.maxHoldMinutes} minutes`;
+      }
+
+      // MIN HOLD TIME CHECK: Block exits (except emergency/time-based) if position is too young
+      // This prevents chop trading where positions are closed too quickly after opening
+      const minHoldMs = minHoldMinutesForExits * 60 * 1000;
+      const positionAgeMs = positionAgeMinutes * 60 * 1000;
+      
+      if (shouldExit && !isEmergencyExit && !isTimeBasedExit && positionAgeMs < minHoldMs) {
+        const remainingMinutes = Math.ceil((minHoldMs - positionAgeMs) / 1000 / 60);
+        console.log(`[Tick] ⏳ Min hold time blocks exit: ${remainingMinutes} min remaining (position: ${position.market} ${position.side}, age: ${positionAgeMinutes.toFixed(1)} min, min: ${minHoldMinutesForExits} min)`);
+        console.log(`[Tick] ⏳ Would have exited for: ${exitReason}`);
+        shouldExit = false; // Block the exit
       }
 
       // Execute exit if conditions met
       if (shouldExit) {
         console.log(`[Tick] 🚪 Auto-exiting position ${position.market} (${position.side}): ${exitReason}`);
         const exitSide = position.side === "long" ? "sell" : "buy";
-        const positionValue = entryPrice * size;
-        
+        // CRITICAL FIX: Use CURRENT price * size so that placeRealOrder (which divides by current price)
+        // recovers the correct base size. Using entryPrice * size would under/over-close if price moved.
+        const exitNotional = positionPrice * size;
+
         const exitResult = await placeMarketOrder({
           sessionMode,
+          venue: liveVenue,
           livePrivateKey: livePrivateKey || undefined,
+          liveApiKey: liveApiKey || undefined,
+          liveApiSecret: liveApiSecret || undefined,
           account_id: account.id,
           strategy_id: strategy.id,
           session_id: sessionId,
           market: position.market,
           side: exitSide,
-          notionalUsd: positionValue, // Close entire position
-          slippageBps: 5,
+          notionalUsd: exitNotional, // Close entire position at current price
+          slippageBps: 50, // 0.5% slippage for exits (must fill to protect capital)
           feeBps: 5,
+          isExit: true,
+          exitPosition: { side: position.side as "long" | "short", avgEntry: entryPrice },
         });
 
         if (exitResult.success) {
@@ -612,8 +821,13 @@ export async function POST(
       }
 
       // Get current positions for this market and all markets
-      const allPositions = await getPositions(account.id);
+      // CRITICAL: Use correct position function based on mode
+      const allPositions = sessionMode === "live"
+        ? await getLivePositions(account.id)
+        : await getPositions(account.id);
       const marketPosition = allPositions.find((p) => p.market === market);
+      
+      console.log(`[Tick] 📊 Loaded ${allPositions.length} positions for ${sessionMode} mode, market ${market} position: ${marketPosition ? `${marketPosition.side} ${marketPosition.size}` : 'NONE'}`);
 
       // Build AI input payload - COMPILE ALL REQUESTED AI INPUTS
       const aiInputs = filters.aiInputs || {};
@@ -634,9 +848,12 @@ export async function POST(
           if (typeof candleInterval === 'number') {
             candleInterval = `${candleInterval}m`;
           }
-          
-          const fetchedCandles = await getCandles(market, candleInterval, candleCount);
-          candles = fetchedCandles.map((c) => ({
+
+          // Use venue-specific candle fetching
+          const fetchedCandles = sessionVenue === "coinbase"
+            ? await getCoinbaseCandles(market, candleInterval, candleCount)
+            : await getHyperliquidCandles(market, candleInterval, candleCount);
+          candles = fetchedCandles.map((c: any) => ({
             time: c.t,
             open: c.o,
             high: c.h,
@@ -652,12 +869,15 @@ export async function POST(
         }
       }
 
-      // Fetch orderbook if enabled
+      // Fetch orderbook if enabled (venue-aware)
       let orderbookSnapshot: any = null;
       if (aiInputs.orderbook?.enabled) {
         try {
           const depth = aiInputs.orderbook.depth || 20;
-          const orderbook = await hyperliquidClient.getOrderbook(market, depth);
+          // Use venue-specific orderbook fetching
+          const orderbook = sessionVenue === "coinbase"
+            ? await getCoinbaseOrderbook(market, depth)
+            : await hyperliquidClient.getOrderbook(market, depth);
           orderbookSnapshot = {
             bid: orderbook.bid,
             ask: orderbook.ask,
@@ -767,9 +987,9 @@ export async function POST(
           throw new Error(`Unknown provider: ${strategy.model_provider}`);
         }
 
-        // Fetch recent decisions if enabled
+        // Fetch recent decisions if enabled (default to true for backwards compatibility)
         let recentDecisions: any[] = [];
-        if (aiInputs.includeRecentDecisions) {
+        if (aiInputs.includeRecentDecisions !== false) {
           try {
             const decisionsCount = aiInputs.recentDecisionsCount || 5;
             const { data: decisionsData } = await serviceClient
@@ -794,21 +1014,59 @@ export async function POST(
           }
         }
 
+        // Fetch recent trades if enabled (default to true for backwards compatibility)
+        let recentTrades: any[] = [];
+        if (aiInputs.includeRecentTrades !== false) {
+          try {
+            const tradesCount = aiInputs.recentTradesCount || 10;
+            const { data: tradesData } = await serviceClient
+              .from(tables.trades)
+              .select("id, created_at, market, side, action, price, size, realized_pnl")
+              .eq("session_id", sessionId)
+              .order("created_at", { ascending: false })
+              .limit(tradesCount);
+
+            if (tradesData) {
+              recentTrades = tradesData.map((t) => ({
+                timestamp: t.created_at,
+                market: t.market,
+                side: t.side,
+                action: t.action,
+                price: Number(t.price),
+                size: Number(t.size),
+                realizedPnl: t.realized_pnl ? Number(t.realized_pnl) : null,
+              }));
+            }
+          } catch (error: any) {
+            console.error(`[Tick] Failed to fetch recent trades:`, error);
+            // Continue without recent trades - don't fail the tick
+          }
+        }
+
         // Build context for AI - COMPILED WITH ALL REQUESTED AI INPUTS
+        const contextPositions = aiInputs.includePositionState !== false ? positionsSnapshot : [];
+        const contextCurrentPosition = aiInputs.includePositionState !== false && marketPosition ? {
+          market: marketPosition.market,
+          side: marketPosition.side,
+          size: Number(marketPosition.size),
+          avg_entry: Number(marketPosition.avg_entry),
+          unrealized_pnl: Number(marketPosition.unrealized_pnl || 0),
+        } : null;
+        
+        console.log(`[Tick] 📊 AI Context - Positions: ${contextPositions.length} total, Current ${market} position: ${contextCurrentPosition ? `${contextCurrentPosition.side} ${contextCurrentPosition.size}` : 'NONE'}`);
+        if (contextPositions.length > 0) {
+          console.log(`[Tick] 📊 All positions being sent to AI:`, contextPositions);
+        }
+        
         const context: any = {
           market,
           marketData: marketSnapshot, // Includes price, candles (if enabled), orderbook (if enabled)
           account: accountInfo, // Total equity, cash balance, starting equity
-          positions: aiInputs.includePositionState !== false ? positionsSnapshot : [], // ALL positions (unless disabled)
-          currentMarketPosition: aiInputs.includePositionState !== false && marketPosition ? {
-            market: marketPosition.market,
-            side: marketPosition.side,
-            size: Number(marketPosition.size),
-            avg_entry: Number(marketPosition.avg_entry),
-            unrealized_pnl: Number(marketPosition.unrealized_pnl || 0),
-          } : null, // Current market's position (if any and if enabled)
+          positions: contextPositions, // ALL positions (unless disabled)
+          currentMarketPosition: contextCurrentPosition, // Current market's position (if any and if enabled)
           indicators: indicatorsSnapshot, // RSI, ATR, Volatility, EMA (if enabled and calculated)
-          recentDecisions: aiInputs.includeRecentDecisions ? recentDecisions : [], // Previous AI decisions (if enabled)
+          recentDecisions: aiInputs.includeRecentDecisions !== false ? recentDecisions : [], // Previous AI decisions (default enabled)
+          recentTrades: aiInputs.includeRecentTrades !== false ? recentTrades : [], // Previous trade executions (default enabled)
           // Strategy configuration to guide AI
           strategy: {
             entryBehaviors: entry.behaviors || { trend: true, breakout: true, meanReversion: true },
@@ -832,7 +1090,7 @@ export async function POST(
         };
 
         // Call AI
-        intent = await openAICompatibleIntentCall({
+        const aiResponse = await openAICompatibleIntentCall({
           baseUrl: normalizeBaseUrl(baseUrl),
           apiKey,
           model: strategy.model_name,
@@ -841,46 +1099,203 @@ export async function POST(
           context,
         });
 
+        intent = aiResponse.intent;
         confidence = intent.confidence || 0;
 
-        // AI-DRIVEN EXIT FOR "SIGNAL" MODE: Exit only when AI intent conflicts with current position
-        // - "neutral" = do nothing, keep position
-        // - "long" when holding short = exit short (buy to close)
-        // - "short" when holding long = exit long (sell to close)
+        // Deduct from balance based on actual API usage with tiered markup
+        try {
+          const { calculateCost, calculateChargedCents, getMarkupForTier } = await import("@/lib/pricing/apiCosts");
+
+          // Get user's subscription tier for tiered markup
+          const { data: userSub } = await serviceClient
+            .from("user_subscriptions")
+            .select("plan_id, status")
+            .eq("user_id", user.id)
+            .single();
+
+          // Determine tier: active subscription = plan_id, otherwise on_demand
+          const tier = (userSub?.status === "active" && userSub?.plan_id) ? userSub.plan_id : "on_demand";
+          const markup = getMarkupForTier(tier);
+
+          const actualCostUsd = calculateCost(
+            aiResponse.model,
+            aiResponse.usage.inputTokens,
+            aiResponse.usage.outputTokens
+          );
+          const chargedCents = calculateChargedCents(actualCostUsd, tier);
+
+          const bearer = request.headers.get("Authorization");
+          const deductRes = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/credits/usage`, {
+            method: "POST",
+            headers: {
+              "Authorization": bearer || "",
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              amount_cents: chargedCents,
+              description: `AI decision (${aiResponse.model})`,
+              metadata: {
+                session_id: sessionId,
+                model: aiResponse.model,
+                input_tokens: aiResponse.usage.inputTokens,
+                output_tokens: aiResponse.usage.outputTokens,
+                total_tokens: aiResponse.usage.totalTokens,
+                actual_cost_usd: actualCostUsd,
+                actual_cost_cents: Math.round(actualCostUsd * 100),
+                charged_cents: chargedCents,
+                markup_percent: markup * 100,
+                tier: tier,
+                bias: intent.bias,
+              },
+            }),
+          });
+
+          if (!deductRes.ok) {
+            if (deductRes.status === 402) {
+              // Insufficient balance - pause session
+              console.error(`[Tick ${sessionId}] Insufficient balance, pausing session`);
+              await serviceClient
+                .from("trading_sessions")
+                .update({
+                  status: "paused",
+                  error_message: "Insufficient balance to continue trading. Please add funds to resume."
+                })
+                .eq("id", sessionId);
+
+              return NextResponse.json(
+                { error: "Insufficient balance to continue trading" },
+                { status: 402 }
+              );
+            }
+            const errorText = await deductRes.text();
+            console.error(`[Tick ${sessionId}] Balance deduction failed:`, errorText);
+          } else {
+            const deductData = await deductRes.json();
+            console.log(`[Tick ${sessionId}] Balance deducted:`, {
+              tier: tier,
+              markup: `${(markup * 100).toFixed(0)}%`,
+              chargedCents: chargedCents,
+              chargedUsd: (chargedCents / 100).toFixed(4),
+              newBalanceCents: deductData.new_balance_cents,
+              model: aiResponse.model,
+              tokens: aiResponse.usage.totalTokens,
+              actualCostUsd: actualCostUsd.toFixed(6),
+            });
+          }
+        } catch (billingError: any) {
+          // Log but don't fail the tick - billing system should not block trading
+          console.error(`[Tick ${sessionId}] Balance deduction failed (non-fatal):`, billingError.message);
+        }
+
+        // AI-DRIVEN EXIT FOR "SIGNAL" MODE
+        // Exit triggers:
+        // - "close" = explicitly close position (profit taking, risk reduction, etc.)
+        // - "long" when holding short = exit short (direction reversal)
+        // - "short" when holding long = exit long (direction reversal)
+        // - "neutral" = do nothing, keep position open
         // This must happen BEFORE entry logic, so we exit before considering new entries
         const currentExitRules = entryExit.exit || {};
         if (currentExitRules.mode === "signal" && marketPosition) {
           const positionSide = marketPosition.side; // "long" or "short"
-          const aiIntent = intent.bias; // "long", "short", or "neutral"
+          const aiIntent = intent.bias; // "long", "short", "neutral", or "close"
           
-          // Only exit if AI intent conflicts with current position
-          const shouldExit = 
-            (positionSide === "long" && aiIntent === "short") || // Holding long, AI wants short → exit long
-            (positionSide === "short" && aiIntent === "long");   // Holding short, AI wants long → exit short
+          // Calculate unrealized PnL for logging
+          const entryPrice = Number(marketPosition.avg_entry);
+          const posSize = Number(marketPosition.size);
+          const unrealizedPnl = positionSide === "long" 
+            ? (currentPrice - entryPrice) * posSize
+            : (entryPrice - currentPrice) * posSize;
+          const unrealizedPnlPct = entryPrice > 0 ? (unrealizedPnl / (entryPrice * posSize)) * 100 : 0;
           
-          if (shouldExit) {
-            console.log(`[Tick] 🤖 AI-driven exit: AI intent "${aiIntent}" conflicts with ${positionSide} position for ${market}`);
+          // Exit conditions:
+          // 1. AI says "close" - explicit exit request (profit taking, risk management)
+          // 2. AI says opposite direction - reversal signal
+          const isExplicitClose = aiIntent === "close";
+          const isDirectionReversal = 
+            (positionSide === "long" && aiIntent === "short") ||
+            (positionSide === "short" && aiIntent === "long");
+          
+          let shouldExitAI = isExplicitClose || isDirectionReversal;
+          
+          // MIN HOLD TIME CHECK FOR AI-DRIVEN EXITS
+          // This prevents chop trading where AI closes positions too quickly after opening
+          if (shouldExitAI) {
+            const tradeControlForAI = entryExit.tradeControl || {};
+            const minHoldMinutesAI = tradeControlForAI.minHoldMinutes ?? 5;
+            const minHoldMsAI = minHoldMinutesAI * 60 * 1000;
+            const nowForAIExit = new Date(); // Local timestamp for this check
+            
+            // Get when position was opened
+            const { data: positionOpenTradeAI } = await serviceClient
+              .from(tables.trades)
+              .select("created_at")
+              .eq("account_id", account.id)
+              .eq("market", market)
+              .eq("action", "open")
+              .order("created_at", { ascending: true })
+              .limit(1)
+              .maybeSingle();
+            
+            if (positionOpenTradeAI) {
+              const timeSinceOpenAI = nowForAIExit.getTime() - new Date(positionOpenTradeAI.created_at).getTime();
+              
+              if (timeSinceOpenAI < minHoldMsAI) {
+                const remainingMinutesAI = Math.ceil((minHoldMsAI - timeSinceOpenAI) / 1000 / 60);
+                console.log(`[Tick] ⏳ Min hold time blocks AI exit: ${remainingMinutesAI} min remaining`);
+                console.log(`[Tick] ⏳ AI wanted to: ${isExplicitClose ? 'close' : 'reverse'} (position age: ${(timeSinceOpenAI / 60000).toFixed(1)} min, min hold: ${minHoldMinutesAI} min)`);
+                
+                // Block the exit but record what AI wanted to do
+                shouldExitAI = false;
+                actionSummary = `Min hold time: AI wanted to ${isExplicitClose ? 'close' : 'reverse'} but ${remainingMinutesAI} min remaining`;
+                riskResult = { passed: false, reason: actionSummary };
+              }
+            }
+          }
+          
+          if (shouldExitAI) {
+            const exitReason = isExplicitClose 
+              ? `AI requested close (P&L: ${unrealizedPnlPct >= 0 ? '+' : ''}${unrealizedPnlPct.toFixed(2)}%)`
+              : `AI reversal signal: ${aiIntent} (was ${positionSide})`;
+            
+            console.log(`[Tick] 🤖 AI-driven exit: ${exitReason} for ${market}`);
+            console.log(`[Tick] 📊 Position details: ${positionSide} ${posSize} @ $${entryPrice.toFixed(2)}, Current: $${currentPrice.toFixed(2)}, Unrealized: $${unrealizedPnl.toFixed(2)} (${unrealizedPnlPct.toFixed(2)}%)`);
+            
             const exitSide = positionSide === "long" ? "sell" : "buy";
-            const positionValue = Number(marketPosition.avg_entry) * Number(marketPosition.size);
+            
+            // For LIVE mode: Use a large notional to ensure we close the full position
+            // Hyperliquid will cap the order at the actual position size
+            // For VIRTUAL mode: Calculate exact notional
+            const exitNotional = sessionMode === "live"
+              ? posSize * currentPrice * 1.01  // Add 1% buffer to ensure full close
+              : currentPrice * posSize;
+            
+            console.log(`[Tick] 🚪 Exit order: ${sessionMode} mode, position=${posSize}, notional=$${exitNotional.toFixed(2)}`);
             
             const exitResult = await placeMarketOrder({
               sessionMode,
+              venue: liveVenue,
               livePrivateKey: livePrivateKey || undefined,
+              liveApiKey: liveApiKey || undefined,
+              liveApiSecret: liveApiSecret || undefined,
               account_id: account.id,
               strategy_id: strategy.id,
               session_id: sessionId,
               market: market,
               side: exitSide,
-              notionalUsd: positionValue, // Close entire position
-              slippageBps: 5,
+              notionalUsd: exitNotional, // Close entire position
+              slippageBps: 50, // 0.5% slippage for exits (must fill to protect capital)
               feeBps: 5,
+              isExit: true,
+              exitPosition: { side: positionSide as "long" | "short", avgEntry: entryPrice },
             });
 
             if (exitResult.success) {
               executed = true;
-              actionSummary = `AI-driven exit: Closed ${positionSide} position (AI intent: ${aiIntent})`;
+              actionSummary = isExplicitClose
+                ? `AI closed ${positionSide} position to ${unrealizedPnl >= 0 ? 'lock in profit' : 'cut loss'} (${unrealizedPnlPct >= 0 ? '+' : ''}${unrealizedPnlPct.toFixed(2)}%)`
+                : `AI reversal: Closed ${positionSide} position (new bias: ${aiIntent})`;
               riskResult = { passed: true, executed: true };
-              console.log(`[Tick] ✅ AI-driven exit executed for ${market}`);
+              console.log(`[Tick] ✅ AI-driven exit executed for ${market}: ${actionSummary}`);
               
               // IMPORTANT: Preserve the original intent for the decision log
               // But prevent entry logic from running by setting passed to false
@@ -890,27 +1305,98 @@ export async function POST(
               riskResult = { passed: false, reason: actionSummary };
               console.error(`[Tick] ❌ AI-driven exit failed: ${exitResult.error}`);
             }
+          } else if (aiIntent === "hold") {
+            // AI explicitly chose to hold the position
+            actionSummary = `Hold: keeping ${positionSide} position (P&L: ${unrealizedPnlPct >= 0 ? '+' : ''}${unrealizedPnlPct.toFixed(2)}%)`;
+            riskResult = { passed: false, reason: actionSummary };
+            console.log(`[Tick] 🤖 AI decision: hold ${positionSide} on ${market} (P&L: ${unrealizedPnlPct >= 0 ? '+' : ''}${unrealizedPnlPct.toFixed(2)}%)`);
           } else if (aiIntent === "neutral") {
-            // AI says "neutral" - do nothing, keep position
-            console.log(`[Tick] 🤖 AI decision is "neutral" for ${market} with ${positionSide} position - keeping position`);
+            // AI says "neutral" while in a position - treat as hold
+            actionSummary = `Hold: AI neutral, keeping ${positionSide} position (P&L: ${unrealizedPnlPct >= 0 ? '+' : ''}${unrealizedPnlPct.toFixed(2)}%)`;
+            riskResult = { passed: false, reason: actionSummary };
+            console.log(`[Tick] 🤖 AI decision: neutral with ${positionSide} position on ${market} - holding (P&L: ${unrealizedPnlPct >= 0 ? '+' : ''}${unrealizedPnlPct.toFixed(2)}%)`);
+          } else if (aiIntent === positionSide) {
+            // AI confirms current position direction - hold
+            actionSummary = `Hold: AI confirms ${positionSide} position (P&L: ${unrealizedPnlPct >= 0 ? '+' : ''}${unrealizedPnlPct.toFixed(2)}%)`;
+            riskResult = { passed: false, reason: actionSummary };
+            console.log(`[Tick] 🤖 AI confirms ${positionSide} on ${market} - holding (P&L: ${unrealizedPnlPct >= 0 ? '+' : ''}${unrealizedPnlPct.toFixed(2)}%)`);
           }
+        }
+        
+        // Handle "close" when no position exists - treat as "neutral"
+        if (currentExitRules.mode === "signal" && !marketPosition && intent.bias === "close") {
+          console.log(`[Tick] ⚠️ AI said "close" but no position exists on ${market} - treating as neutral`);
+          // Don't modify intent.bias here as it's used for logging, just skip entry
+          actionSummary = "AI said 'close' but no position to close";
+          riskResult = { passed: false, reason: actionSummary };
+        }
+        
+        // Handle "close" when exit mode is NOT "signal" - AI recommends exit but we're using automated exit rules
+        // This prevents the confusing "stacking disabled" message when AI says "close"
+        if (currentExitRules.mode !== "signal" && marketPosition && intent.bias === "close") {
+          const positionSideForClose = marketPosition.side;
+          const entryPriceForClose = Number(marketPosition.avg_entry);
+          const posSizeForClose = Number(marketPosition.size);
+          const unrealizedPnlForClose = positionSideForClose === "long" 
+            ? (currentPrice - entryPriceForClose) * posSizeForClose
+            : (entryPriceForClose - currentPrice) * posSizeForClose;
+          const unrealizedPnlPctForClose = entryPriceForClose > 0 ? (unrealizedPnlForClose / (entryPriceForClose * posSizeForClose)) * 100 : 0;
+          
+          // Map exit mode to user-friendly description
+          const trailingLabel = positionSideForClose === "long" ? "peak" : "trough";
+          const exitModeDescription =
+            currentExitRules.mode === "trailing" ? `trailing stop (${currentExitRules.trailingStopPct || 2}% from ${trailingLabel})` :
+            currentExitRules.mode === "tp_sl" ? `TP/SL rules` :
+            currentExitRules.mode === "time" ? `time-based exit` :
+            currentExitRules.mode || "automated rules";
+          
+          console.log(`[Tick] 💡 AI recommends closing ${positionSideForClose} position (P&L: ${unrealizedPnlPctForClose >= 0 ? '+' : ''}${unrealizedPnlPctForClose.toFixed(2)}%) but exit mode is "${currentExitRules.mode}" - waiting for ${exitModeDescription} to trigger`);
+          actionSummary = `AI recommends closing (P&L: ${unrealizedPnlPctForClose >= 0 ? '+' : ''}${unrealizedPnlPctForClose.toFixed(2)}%) but using ${exitModeDescription}`;
+          riskResult = { passed: false, reason: actionSummary };
         }
 
         // STRICTLY ENFORCE ALL STRATEGY FEATURES
         const now = new Date();
 
+        // 0. POSITION STACKING CHECK: Block entries if already in position, UNLESS stacking is allowed
+        // - If allowReentrySameDirection=true: Allow adding to position in SAME direction only
+        // - If allowReentrySameDirection=false: Block ALL entries when position exists
+        // PRODUCTION SAFETY: This prevents uncontrolled position growth
+        const allowReentrySameDirection = entryExit.tradeControl?.allowReentrySameDirection ?? false;
+        
+        if (marketPosition && riskResult.passed !== false) {
+          const positionValue = Number(marketPosition.avg_entry) * Number(marketPosition.size);
+          const desiredSide = intent.bias === "long" ? "long" : "short";
+          const existingSide = marketPosition.side;
+          
+          if (allowReentrySameDirection && desiredSide === existingSide) {
+            // Stacking allowed AND same direction - let it through (other limits like maxPositionUsd will still apply)
+            console.log(`[Tick] ✅ STACKING ALLOWED: Adding to ${existingSide} position on ${market} (allowReentrySameDirection=true)`);
+          } else if (allowReentrySameDirection && desiredSide !== existingSide) {
+            // Stacking allowed but OPPOSITE direction - this would flip position, block it
+            actionSummary = `Cannot enter ${desiredSide} while in ${existingSide} position - would flip position`;
+            riskResult = { passed: false, reason: actionSummary };
+            console.log(`[Tick] ⛔ BLOCKED: Cannot flip from ${existingSide} to ${desiredSide} (close position first)`);
+          } else {
+            // Stacking NOT allowed - block any entry when position exists
+            actionSummary = `Already in ${existingSide} position on ${market} ($${positionValue.toFixed(2)}) - stacking disabled`;
+            riskResult = { passed: false, reason: actionSummary };
+            console.log(`[Tick] ⛔ BLOCKED: Already have ${existingSide} position (allowReentrySameDirection=false)`);
+          }
+        }
+
         // 1. CONFIDENCE CONTROL - Strictly enforce minimum confidence
         const confidenceControl = entryExit.confidenceControl || {};
         const minConfidence = confidenceControl.minConfidence ?? guardrails.minConfidence ?? 0.65;
         
-        if (confidence < minConfidence) {
+        if (riskResult.passed !== false && confidence < minConfidence) {
           actionSummary = `Confidence ${(confidence * 100).toFixed(0)}% below minimum ${(minConfidence * 100).toFixed(0)}%`;
           riskResult = { passed: false, reason: actionSummary };
         }
         // Confidence scaling (if enabled, adjust position size based on confidence)
         // This will be applied later when calculating position size
 
-        // 2. GUARDRAILS - Strictly enforce long/short permissions
+        // 2. GUARDRAILS - Strictly enforce long/short permissions and non-entry biases
         if (riskResult.passed !== false) {
           if (intent.bias === "long" && !guardrails.allowLong) {
             actionSummary = "Long positions not allowed by strategy settings";
@@ -918,8 +1404,16 @@ export async function POST(
           } else if (intent.bias === "short" && !guardrails.allowShort) {
             actionSummary = "Short positions not allowed by strategy settings";
             riskResult = { passed: false, reason: actionSummary };
+          } else if (intent.bias === "hold") {
+            actionSummary = "AI decision: hold (no position to hold)";
+            riskResult = { passed: false, reason: actionSummary };
           } else if (intent.bias === "neutral") {
             actionSummary = "AI decision: neutral (no trade)";
+            riskResult = { passed: false, reason: actionSummary };
+          } else if (intent.bias === "close") {
+            // "close" bias means exit only, not enter - this is already handled above
+            // If we reach here, either there was no position to close or exit already happened
+            actionSummary = "AI decision: close (exit only, no new entry)";
             riskResult = { passed: false, reason: actionSummary };
           }
         }
@@ -1003,16 +1497,28 @@ export async function POST(
           const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
           const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
+          // Fetch last trade for this market (used by multiple checks below)
+          const { data: lastTrade } = await serviceClient
+            .from(tables.trades)
+            .select("created_at, side, action")
+            .eq("account_id", account.id)
+            .eq("market", market)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          // CRITICAL FIX: Filter by session_id, not just account_id.
+          // Multiple sessions on the same account should have independent trade limits.
           const { count: tradesLastHour } = await serviceClient
             .from(tables.trades)
             .select("*", { count: "exact", head: true })
-            .eq("account_id", account.id)
+            .eq("session_id", sessionId)
             .gte("created_at", oneHourAgo.toISOString());
 
           const { count: tradesLastDay } = await serviceClient
             .from(tables.trades)
             .select("*", { count: "exact", head: true })
-            .eq("account_id", account.id)
+            .eq("session_id", sessionId)
             .gte("created_at", oneDayAgo.toISOString());
 
           const tradesLastHourCount = tradesLastHour || 0;
@@ -1020,67 +1526,65 @@ export async function POST(
           const maxTradesPerHour = tradeControl.maxTradesPerHour ?? 2;
           const maxTradesPerDay = tradeControl.maxTradesPerDay ?? 10;
 
+          // STRICT ENFORCEMENT: Block if count >= limit (not > limit)
+          // This ensures limit is never exceeded, preventing user confusion
           if (tradesLastHourCount >= maxTradesPerHour) {
-            actionSummary = `Trade frequency limit: ${tradesLastHourCount}/${maxTradesPerHour} trades in last hour`;
+            actionSummary = `Trade frequency limit reached: ${tradesLastHourCount}/${maxTradesPerHour} trades in last hour`;
             riskResult = { passed: false, reason: actionSummary };
+            console.log(`[Tick] ⛔ Trade frequency limit: ${tradesLastHourCount} >= ${maxTradesPerHour} (hourly)`);
           } else if (tradesLastDayCount >= maxTradesPerDay) {
-            actionSummary = `Trade frequency limit: ${tradesLastDayCount}/${maxTradesPerDay} trades in last day`;
+            actionSummary = `Trade frequency limit reached: ${tradesLastDayCount}/${maxTradesPerDay} trades in last day`;
             riskResult = { passed: false, reason: actionSummary };
+            console.log(`[Tick] ⛔ Trade frequency limit: ${tradesLastDayCount} >= ${maxTradesPerDay} (daily)`);
           }
 
-          // Check cooldown and min hold time
-          if (riskResult.passed !== false) {
-            const { data: lastTrade } = await serviceClient
+          // Check cooldown
+          if (riskResult.passed !== false && lastTrade) {
+            const timeSinceLastTrade = now.getTime() - new Date(lastTrade.created_at).getTime();
+            const cooldownMs = (tradeControl.cooldownMinutes ?? 15) * 60 * 1000;
+
+            if (timeSinceLastTrade < cooldownMs) {
+              actionSummary = `Cooldown: ${Math.ceil((cooldownMs - timeSinceLastTrade) / 1000 / 60)} minutes remaining`;
+              riskResult = { passed: false, reason: actionSummary };
+            }
+          }
+          
+          // Check min hold time for STACKING: Only applies when there's an existing position AND stacking is enabled
+          // This prevents adding to position too quickly after opening (stacking during volatile initial period)
+          // NOTE: Min hold time for EXITS is checked separately in the exit logic sections above
+          if (riskResult.passed !== false && marketPosition && allowReentrySameDirection) {
+            const { data: positionOpenTrade } = await serviceClient
               .from(tables.trades)
-              .select("created_at, side, action")
+              .select("created_at")
               .eq("account_id", account.id)
               .eq("market", market)
-              .order("created_at", { ascending: false })
+              .eq("action", "open")
+              .order("created_at", { ascending: true })
               .limit(1)
               .maybeSingle();
-
-            if (lastTrade) {
-              const timeSinceLastTrade = now.getTime() - new Date(lastTrade.created_at).getTime();
-              const cooldownMs = (tradeControl.cooldownMinutes ?? 15) * 60 * 1000;
-
-              if (timeSinceLastTrade < cooldownMs) {
-                actionSummary = `Cooldown: ${Math.ceil((cooldownMs - timeSinceLastTrade) / 1000 / 60)} minutes remaining`;
-                riskResult = { passed: false, reason: actionSummary };
-              }
-            }
             
-            // Min hold time: Check time since position was opened (not last trade)
-            if (riskResult.passed !== false && marketPosition) {
-              const { data: positionOpenTrade } = await serviceClient
-                .from(tables.trades)
-                .select("created_at")
-                .eq("account_id", account.id)
-                .eq("market", market)
-                .eq("action", "open")
-                .order("created_at", { ascending: true })
-                .limit(1)
-                .maybeSingle();
+            if (positionOpenTrade) {
+              const timeSincePositionOpened = now.getTime() - new Date(positionOpenTrade.created_at).getTime();
+              const minHoldMs = (tradeControl.minHoldMinutes ?? 5) * 60 * 1000;
               
-              if (positionOpenTrade) {
-                const timeSincePositionOpened = now.getTime() - new Date(positionOpenTrade.created_at).getTime();
-                const minHoldMs = (tradeControl.minHoldMinutes ?? 5) * 60 * 1000;
-                
-                if (timeSincePositionOpened < minHoldMs) {
-                  actionSummary = `Min hold time: ${Math.ceil((minHoldMs - timeSincePositionOpened) / 1000 / 60)} minutes remaining (position opened ${Math.ceil(timeSincePositionOpened / 1000 / 60)} min ago)`;
-                  riskResult = { passed: false, reason: actionSummary };
-                }
-              }
-            }
-
-            // Check allowReentrySameDirection
-            if (riskResult.passed !== false && marketPosition && lastTrade && !tradeControl.allowReentrySameDirection) {
-              const lastTradeSide = lastTrade.side === "buy" ? "long" : "short";
-              const desiredSide = intent.bias === "long" ? "long" : "short";
-              if (lastTradeSide === desiredSide && lastTrade.action !== "close" && lastTrade.action !== "reduce") {
-                actionSummary = "Re-entry in same direction not allowed by strategy settings";
+              if (timeSincePositionOpened < minHoldMs) {
+                actionSummary = `Min hold time (stacking): ${Math.ceil((minHoldMs - timeSincePositionOpened) / 1000 / 60)} min remaining before adding to position`;
                 riskResult = { passed: false, reason: actionSummary };
               }
             }
+          }
+
+          // NOTE: allowReentrySameDirection is about STACKING (adding to existing position)
+          // This is now handled at the top of the entry logic (section 0. POSITION STACKING CHECK)
+          // If there's an existing position and stacking is disabled, entry is blocked there.
+          // If there's no position, the user is free to enter any direction - that's not "re-entry"
+          // in the stacking sense, it's a fresh entry.
+          console.log(`[Tick] 🔍 Position state: marketPosition=${!!marketPosition}, lastTrade=${!!lastTrade}, allowStacking=${tradeControl.allowReentrySameDirection}`);
+          if (marketPosition) {
+            console.log(`[Tick] 🔍 Existing position on ${market}: ${marketPosition.side} ${marketPosition.size}`);
+          }
+          if (lastTrade) {
+            console.log(`[Tick] 🔍 Last trade on ${market}: ${lastTrade.action} ${lastTrade.side} at ${lastTrade.created_at}`);
           }
         }
 
@@ -1091,32 +1595,125 @@ export async function POST(
             const maxDailyLossPct = risk.maxDailyLossPct ?? 5;
 
           // Check max daily loss
-          const dailyLossPct = ((Number(account.starting_equity) - Number(account.equity)) / Number(account.starting_equity)) * 100;
+          // CRITICAL FIX: Use today's starting equity (first equity point after midnight UTC),
+          // not the account's lifetime starting_equity. The old code was broken for any account
+          // that grew over time - the daily loss % would be meaningless.
+          let dailyStartEquity = Number(account.equity); // Fallback: no loss yet today
+          try {
+            const todayMidnightUTC = new Date();
+            todayMidnightUTC.setUTCHours(0, 0, 0, 0);
+            const { data: todayFirstPoint } = await serviceClient
+              .from("equity_points")
+              .select("equity")
+              .eq("account_id", account.id)
+              .gte("t", todayMidnightUTC.toISOString())
+              .order("t", { ascending: true })
+              .limit(1)
+              .maybeSingle();
+
+            if (todayFirstPoint) {
+              dailyStartEquity = Number(todayFirstPoint.equity);
+            } else {
+              // No equity points today yet - use account's current equity (no loss today)
+              dailyStartEquity = Number(account.equity);
+            }
+          } catch (err: any) {
+            console.error("[Tick] Failed to fetch daily start equity:", err.message);
+            // Fallback to lifetime starting equity (better than nothing)
+            dailyStartEquity = Number(account.starting_equity);
+          }
+
+          const dailyLossPct = dailyStartEquity > 0
+            ? ((dailyStartEquity - Number(account.equity)) / dailyStartEquity) * 100
+            : 0;
           if (dailyLossPct >= maxDailyLossPct) {
-            actionSummary = `Max daily loss limit reached: ${dailyLossPct.toFixed(2)}% >= ${maxDailyLossPct}%`;
+            actionSummary = `Max daily loss limit reached: ${dailyLossPct.toFixed(2)}% >= ${maxDailyLossPct}% (today's start: $${dailyStartEquity.toFixed(2)}, current: $${Number(account.equity).toFixed(2)})`;
             riskResult = { passed: false, reason: actionSummary };
           }
 
-          // Check total position exposure (leverage check)
-          if (riskResult.passed !== false) {
-            const totalPositionValue = allPositions.reduce((sum, p) => {
-              return sum + (Number(p.avg_entry) * Number(p.size));
-            }, 0);
-            const currentLeverage = totalPositionValue / Number(account.equity);
-            if (currentLeverage >= maxLeverage) {
-              actionSummary = `Max leverage limit reached: ${currentLeverage.toFixed(2)}x >= ${maxLeverage}x`;
-              riskResult = { passed: false, reason: actionSummary };
-            }
-          }
-
-          // Calculate position sizing with confidence scaling if enabled
-          let positionNotional = Math.min(maxPositionUsd, account.equity * 0.1);
+          // Calculate position sizing FIRST so we can check limits properly
+          // FIXED: Position sizing now respects maxLeverage setting instead of hardcoded 10% cap
+          // The user's maxPositionUsd and maxLeverage settings work together:
+          // - maxPositionUsd caps individual position size
+          // - maxLeverage caps total portfolio exposure (checked later)
+          const MIN_ORDER_USD = 10;
+          
+          // Calculate max position based on leverage allowance
+          // Example: $10k equity with 2x maxLeverage = up to $20k total exposure
+          // But we also need to consider existing positions
+          const totalCurrentExposure = allPositions.reduce((sum, p) => {
+            return sum + (Number(p.avg_entry) * Number(p.size));
+          }, 0);
+          const maxExposureAllowed = Number(account.equity) * maxLeverage * 0.99; // 1% safety margin
+          const remainingLeverageRoom = Math.max(0, maxExposureAllowed - totalCurrentExposure);
+          
+          // Position size is the minimum of: user's maxPositionUsd OR remaining leverage room
+          let positionNotional = Math.min(maxPositionUsd, remainingLeverageRoom);
+          
+          console.log(`[Tick] 📊 Position sizing: equity=$${Number(account.equity).toFixed(2)}, maxLeverage=${maxLeverage}x, maxExposure=$${maxExposureAllowed.toFixed(2)}, currentExposure=$${totalCurrentExposure.toFixed(2)}, remainingRoom=$${remainingLeverageRoom.toFixed(2)}, maxPositionUsd=$${maxPositionUsd}, result=$${positionNotional.toFixed(2)}`);
+          
           if (confidenceControl.confidenceScaling && confidence > minConfidence) {
             // Scale position size based on confidence (higher confidence = larger position, up to max)
             const confidenceMultiplier = Math.min(1.0, (confidence - minConfidence) / (1.0 - minConfidence));
             positionNotional = positionNotional * (0.5 + 0.5 * confidenceMultiplier); // Scale from 50% to 100% of max
           }
           positionNotional = Math.min(positionNotional, maxPositionUsd); // Ensure we don't exceed max
+          
+          // Ensure minimum order size ($10 for Hyperliquid)
+          if (positionNotional < MIN_ORDER_USD) {
+            positionNotional = MIN_ORDER_USD;
+          }
+
+          // PRODUCTION SAFETY: Check if this trade would cause total position to exceed maxPositionUsd
+          // This prevents position sizing from exceeding user's configured max
+          if (riskResult.passed !== false) {
+            const existingPositionValue = marketPosition 
+              ? Number(marketPosition.avg_entry) * Number(marketPosition.size)
+              : 0;
+            const totalPositionAfterTrade = existingPositionValue + positionNotional;
+            
+            if (totalPositionAfterTrade > maxPositionUsd) {
+              // Try to reduce order size to fit within max
+              const allowedAdditional = Math.max(0, maxPositionUsd - existingPositionValue);
+              if (allowedAdditional < MIN_ORDER_USD) {
+                actionSummary = `Position would exceed max: existing $${existingPositionValue.toFixed(2)} + new $${positionNotional.toFixed(2)} = $${totalPositionAfterTrade.toFixed(2)} > max $${maxPositionUsd}`;
+                riskResult = { passed: false, reason: actionSummary };
+                console.log(`[Tick] ⛔ BLOCKED: Total position would exceed maxPositionUsd`);
+              } else {
+                // Reduce order size to stay within max
+                console.log(`[Tick] ⚠️ Reducing order size from $${positionNotional.toFixed(2)} to $${allowedAdditional.toFixed(2)} to stay within maxPositionUsd`);
+                positionNotional = allowedAdditional;
+              }
+            }
+          }
+
+          // PRODUCTION SAFETY: Check PROJECTED leverage (after this trade), not just current
+          // This prevents taking trades that would cause excessive leverage
+          if (riskResult.passed !== false) {
+            const totalCurrentPositionValue = allPositions.reduce((sum, p) => {
+              return sum + (Number(p.avg_entry) * Number(p.size));
+            }, 0);
+            const projectedPositionValue = totalCurrentPositionValue + positionNotional;
+            const projectedLeverage = Number(account.equity) > 0 
+              ? projectedPositionValue / Number(account.equity)
+              : Infinity;
+            
+            if (projectedLeverage >= maxLeverage) {
+              // Try to reduce order size to stay within leverage limit
+              const maxAllowedExposure = maxLeverage * Number(account.equity) * 0.99; // 1% safety margin
+              const allowedAdditional = Math.max(0, maxAllowedExposure - totalCurrentPositionValue);
+              
+              if (allowedAdditional < MIN_ORDER_USD) {
+                actionSummary = `Projected leverage ${projectedLeverage.toFixed(2)}x would exceed max ${maxLeverage}x (current exposure: $${totalCurrentPositionValue.toFixed(2)}, proposed: $${positionNotional.toFixed(2)})`;
+                riskResult = { passed: false, reason: actionSummary };
+                console.log(`[Tick] ⛔ BLOCKED: Projected leverage would exceed maxLeverage`);
+              } else {
+                // Reduce order size to stay within leverage limit
+                console.log(`[Tick] ⚠️ Reducing order size from $${positionNotional.toFixed(2)} to $${allowedAdditional.toFixed(2)} to stay within maxLeverage`);
+                positionNotional = Math.min(positionNotional, allowedAdditional);
+              }
+            }
+          }
 
           // 5. ENTRY CONFIRMATION - Check entry confirmation requirements
           if (riskResult.passed !== false) {
@@ -1171,8 +1768,8 @@ export async function POST(
             }
             
             // Check maxSlippage - Calculate expected slippage and reject if too high
-            // For MVP, we use a simple estimate. In production, this would use orderbook depth
-            const estimatedSlippagePct = 0.05; // Assume 0.05% slippage for market orders
+            // For MVP, we use a simple estimate based on typical crypto market conditions
+            const estimatedSlippagePct = 0.0005; // Assume 0.05% slippage for market orders (5bps)
             const maxSlippagePct = entryTiming.maxSlippagePct ?? 0.15;
             
             if (estimatedSlippagePct > maxSlippagePct) {
@@ -1186,13 +1783,25 @@ export async function POST(
             const side: "buy" | "sell" = intent.bias === "long" ? "buy" : "sell";
 
             // Apply entry timing settings (maxSlippage as hard limit)
+            // CRITICAL FIX: Default of 5bps (0.05%) was too tight for crypto IOC orders, causing
+            // many entries to fail. Increased default to 30bps (0.3%) which balances fill rate vs cost.
             const entryTiming = entryExit.entry?.timing || {};
-            const slippageBps = entryTiming.maxSlippagePct ? Math.min(entryTiming.maxSlippagePct * 100, 50) : 5; // Cap at 50bps (0.5%)
+            const slippageBps = entryTiming.maxSlippagePct ? Math.min(entryTiming.maxSlippagePct * 100, 100) : 30; // Default 30bps, cap at 100bps (1%)
+
+            // Calculate actual leverage based on AI's decision (scaled by maxLeverage)
+            // AI outputs leverage as 0.1-1.0 multiplier, we scale it to actual leverage
+            const aiLeverageMultiplier = intent.leverage ?? 0.5; // Default to 0.5 (50% of max) if AI doesn't specify
+            const actualLeverage = Math.max(1, Math.round(aiLeverageMultiplier * maxLeverage));
+
+            console.log(`[Tick] 💰 Placing order: ${side} ${market} for $${positionNotional.toFixed(2)} (confidence: ${confidence.toFixed(2)}, leverage: ${actualLeverage}x from AI=${aiLeverageMultiplier.toFixed(2)}*max=${maxLeverage})`);
 
             // Execute order (real for live, virtual for virtual)
             const orderResult = await placeMarketOrder({
               sessionMode,
+              venue: liveVenue,
               livePrivateKey: livePrivateKey || undefined,
+              liveApiKey: liveApiKey || undefined,
+              liveApiSecret: liveApiSecret || undefined,
               account_id: account.id,
               strategy_id: strategy.id,
               session_id: sessionId,
@@ -1201,15 +1810,21 @@ export async function POST(
               notionalUsd: positionNotional,
               slippageBps: slippageBps,
               feeBps: 5, // 0.05% fee
+              isExit: false,
+              leverage: actualLeverage, // AI decides leverage (scaled by maxLeverage cap)
             });
 
             if (orderResult.success) {
               executed = true;
               actionSummary = `Executed ${intent.bias} order: $${positionNotional.toFixed(2)} @ $${currentPrice.toFixed(2)}`;
               riskResult = { passed: true, executed: true };
+              const tradeId = (orderResult as any).trade_id || orderResult.trade?.order_id || 'N/A';
+              const realizedPnl = (orderResult as any).realized_pnl || 0;
+              console.log(`[Tick] ✅ Order executed successfully. Trade ID: ${tradeId}, Realized PnL: ${realizedPnl}`);
             } else {
               actionSummary = `Order failed: ${orderResult.error || "Unknown error"}`;
               riskResult = { passed: false, reason: actionSummary };
+              console.error(`[Tick] ❌ Order execution failed:`, orderResult.error);
             }
           }
         }
@@ -1231,10 +1846,14 @@ export async function POST(
         notionalUsd: 0,
       };
 
-      if (intent?.bias && intent.bias !== "neutral" && !riskResult.passed) {
+      if (intent?.bias && intent.bias !== "neutral" && intent.bias !== "hold" && !riskResult.passed) {
         const risk = filters.risk || {};
         const maxPositionUsd = risk.maxPositionUsd || 10000;
-        proposedOrder.notionalUsd = Math.min(maxPositionUsd, account.equity * 0.1);
+        const maxLeverageForProposed = risk.maxLeverage || 2;
+        const maxExposureForProposed = Number(account.equity) * maxLeverageForProposed * 0.99;
+        const currentExposureForProposed = allPositions.reduce((sum, p) => sum + (Number(p.avg_entry) * Number(p.size)), 0);
+        const remainingRoomForProposed = Math.max(0, maxExposureForProposed - currentExposureForProposed);
+        proposedOrder.notionalUsd = Math.min(maxPositionUsd, remainingRoomForProposed);
       }
 
       // Save decision
@@ -1268,7 +1887,10 @@ export async function POST(
     // So we recalculate equity here using the same formula: cash + sum(unrealizedPnl)
     // IMPORTANT: Reuse pricesByMarket from earlier in the tick (line 398) to avoid fetching prices twice
     // Fetching prices twice can cause equity oscillations if prices change between the two fetches
-    const allPositionsNow = await getPositions(account.id);
+    // CRITICAL: Use correct position function based on mode
+    const allPositionsNow = sessionMode === "live"
+      ? await getLivePositions(account.id)
+      : await getPositions(account.id);
     
     let totalUnrealizedPnlNow = 0;
     for (const pos of allPositionsNow) {
@@ -1292,9 +1914,15 @@ export async function POST(
       .single();
     
     const freshCash = freshAccount?.cash_balance || 0;
-    const calculatedEquity = freshCash + totalUnrealizedPnlNow;
+    const dbEquity = freshAccount?.equity || 0;
     
-    console.log(`[Tick] 💰 Equity snapshot: cash=${freshCash.toFixed(2)} + unrealizedPnl=${totalUnrealizedPnlNow.toFixed(2)} = ${calculatedEquity.toFixed(2)} (DB equity: ${freshAccount?.equity.toFixed(2)})`);
+    // For LIVE mode, use the equity synced from Hyperliquid (source of truth)
+    // For VIRTUAL/ARENA mode, calculate from cash + unrealized PnL
+    const calculatedEquity = sessionMode === "live" 
+      ? dbEquity  // Live: Use synced value from Hyperliquid
+      : freshCash + totalUnrealizedPnlNow;  // Virtual: Calculate from cash + unrealized
+    
+    console.log(`[Tick] 💰 Equity snapshot (${sessionMode}): ${sessionMode === 'live' ? `DB equity=${dbEquity.toFixed(2)}` : `cash=${freshCash.toFixed(2)} + unrealizedPnl=${totalUnrealizedPnlNow.toFixed(2)}`} = ${calculatedEquity.toFixed(2)}`);
 
     // Store the CALCULATED equity (not the stale DB value)
     // INVARIANT: Equity snapshots MUST be written for ALL modes (virtual, arena, live)

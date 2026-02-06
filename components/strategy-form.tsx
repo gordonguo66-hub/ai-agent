@@ -156,7 +156,10 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
   const [cadenceHours, setCadenceHours] = useState<number | "">(0);
   const [cadenceMinutes, setCadenceMinutes] = useState<number | "">(0);
   const [cadenceSeconds, setCadenceSeconds] = useState<number | "">(60); // Default to 60 seconds minimum
-  
+
+  // Market processing mode: "all" = check all markets per tick, "round-robin" = one market per tick
+  const [marketProcessingMode, setMarketProcessingMode] = useState<"all" | "round-robin">("all");
+
   // Force 60 seconds when hours=0 and minutes=0 on mount
   useEffect(() => {
     if (cadenceHours === 0 && cadenceMinutes === 0) {
@@ -369,6 +372,13 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
       // Markets
       if (filters.markets) {
         setSelectedMarkets(filters.markets);
+      }
+
+      // Market Processing Mode
+      if (filters.marketProcessingMode === "round-robin") {
+        setMarketProcessingMode("round-robin");
+      } else {
+        setMarketProcessingMode("all"); // Default to "all" for backward compatibility
       }
 
       // Cadence
@@ -867,6 +877,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
       venue,
       cadenceSeconds: calculatedCadence,
       markets: finalMarkets,
+      marketProcessingMode: finalMarkets.length > 1 ? marketProcessingMode : "all", // Only relevant for multiple markets
       aiInputs: aiInputsToSave,
       entryExit: {
         entry: entryExitToSave.entry,
@@ -1587,6 +1598,73 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                         </p>
                       )}
                     </div>
+
+                    {/* Market Processing Mode - only show when multiple markets selected */}
+                    {selectedMarkets.length > 1 && (
+                      <div className="space-y-3 p-4 border rounded-md bg-muted/30">
+                        <label className="text-sm font-semibold">
+                          Market Processing Mode
+                        </label>
+                        <div className="space-y-3">
+                          <label
+                            className={`flex items-start gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
+                              marketProcessingMode === "all"
+                                ? "border-primary bg-primary/5"
+                                : "border-border hover:border-muted-foreground/50"
+                            }`}
+                          >
+                            <input
+                              type="radio"
+                              name="marketProcessingMode"
+                              value="all"
+                              checked={marketProcessingMode === "all"}
+                              onChange={() => setMarketProcessingMode("all")}
+                              className="mt-1"
+                            />
+                            <div>
+                              <div className="font-medium">All Markets Per Tick</div>
+                              <p className="text-xs text-muted-foreground mt-1">
+                                Analyze all {selectedMarkets.length} markets every {formatCadenceDisplay() || "tick"}.
+                                <span className="text-amber-600 dark:text-amber-400 ml-1">
+                                  ({selectedMarkets.length} AI calls per tick)
+                                </span>
+                              </p>
+                            </div>
+                          </label>
+                          <label
+                            className={`flex items-start gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
+                              marketProcessingMode === "round-robin"
+                                ? "border-primary bg-primary/5"
+                                : "border-border hover:border-muted-foreground/50"
+                            }`}
+                          >
+                            <input
+                              type="radio"
+                              name="marketProcessingMode"
+                              value="round-robin"
+                              checked={marketProcessingMode === "round-robin"}
+                              onChange={() => setMarketProcessingMode("round-robin")}
+                              className="mt-1"
+                            />
+                            <div>
+                              <div className="font-medium">Round-Robin (Cost Saver)</div>
+                              <p className="text-xs text-muted-foreground mt-1">
+                                Analyze one market per tick, cycling through all {selectedMarkets.length}.
+                                <span className="text-emerald-600 dark:text-emerald-400 ml-1">
+                                  (1 AI call per tick, each market every {(() => {
+                                    const cadenceSec = getTotalCadenceSeconds();
+                                    const totalSec = cadenceSec * selectedMarkets.length;
+                                    if (totalSec >= 3600) return `${Math.round(totalSec / 3600 * 10) / 10}h`;
+                                    if (totalSec >= 60) return `${Math.round(totalSec / 60)}m`;
+                                    return `${totalSec}s`;
+                                  })()})
+                                </span>
+                              </p>
+                            </div>
+                          </label>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </TabsContent>
 
