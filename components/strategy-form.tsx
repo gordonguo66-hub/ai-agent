@@ -2934,7 +2934,9 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                         className="h-11"
                       />
                       <p className="text-xs text-muted-foreground">
-                        Hyperliquid minimum: $10 per order
+                        {venue === "coinbase"
+                          ? "Coinbase minimum: ~$1 per order (varies by asset)"
+                          : "Hyperliquid minimum: $10 per order"}
                       </p>
                     </div>
 
