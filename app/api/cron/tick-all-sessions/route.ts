@@ -11,9 +11,9 @@ import { createServiceRoleClient } from "@/lib/supabase/server";
  * - Supabase pg_cron: Schedule via SQL
  */
 export async function GET(request: NextRequest) {
-  // Security: Verify this is called by external cron service with proper auth
-  // External cron services (like cron-job.org) MUST send Authorization header
-  const cronSecret = process.env.INTERNAL_API_KEY || process.env.CRON_SECRET;
+  // Security: Verify this is called by cron service with proper auth
+  // Vercel crons send CRON_SECRET, external crons may use INTERNAL_API_KEY
+  const cronSecret = process.env.CRON_SECRET || process.env.INTERNAL_API_KEY;
   const authHeader = request.headers.get("authorization") || request.headers.get("Authorization");
   
   // Log for debugging

@@ -15,7 +15,8 @@ import { getMidPrices as getCBPrices } from "@/lib/coinbase/prices";
  */
 export async function GET(request: NextRequest) {
   // Security: Verify this is called with proper auth
-  const cronSecret = process.env.INTERNAL_API_KEY || process.env.CRON_SECRET;
+  // Vercel crons send CRON_SECRET, external crons may use INTERNAL_API_KEY
+  const cronSecret = process.env.CRON_SECRET || process.env.INTERNAL_API_KEY;
   const authHeader = request.headers.get("authorization") || request.headers.get("Authorization");
 
   if (!cronSecret) {
