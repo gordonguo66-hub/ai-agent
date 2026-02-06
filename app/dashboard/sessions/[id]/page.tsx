@@ -630,8 +630,11 @@ function SessionDetailContent({ sessionId }: { sessionId: string }) {
       setArenaEntry(arenaEntryData || null);
 
       // Load trades, positions, and equity for both virtual and live modes
-      const accountId = sessionData?.account_id;
       const sessionMode = sessionData?.mode || "virtual";
+      // Use correct account ID field based on mode
+      const accountId = sessionMode === "live"
+        ? sessionData?.live_account_id
+        : sessionData?.account_id;
       
       // Determine which tables to query based on mode
       const tradesTable = sessionMode === "live" ? "live_trades" : "virtual_trades";
@@ -1702,6 +1705,7 @@ function SessionDetailContent({ sessionId }: { sessionId: string }) {
                         <TableRow>
                           <TableHead>Market</TableHead>
                           <TableHead>Side</TableHead>
+                          <TableHead className="text-right">Leverage</TableHead>
                           <TableHead className="text-right">Size</TableHead>
                           <TableHead className="text-right">Avg Entry</TableHead>
                           <TableHead className="text-right">Current Price</TableHead>
@@ -1744,6 +1748,15 @@ function SessionDetailContent({ sessionId }: { sessionId: string }) {
                                 >
                                   {position.side.toUpperCase()}
                                 </Badge>
+                              </TableCell>
+                              <TableCell className="text-right font-mono">
+                                {position.leverage && position.leverage > 1 ? (
+                                  <Badge variant="outline" className="font-mono">
+                                    {position.leverage}x
+                                  </Badge>
+                                ) : (
+                                  <span className="text-muted-foreground">1x</span>
+                                )}
                               </TableCell>
                               <TableCell className="text-right font-mono">
                                 {Number(position.size).toFixed(6)}
@@ -1796,6 +1809,7 @@ function SessionDetailContent({ sessionId }: { sessionId: string }) {
                           <TableHead>Time</TableHead>
                           <TableHead>Market</TableHead>
                           <TableHead>Action</TableHead>
+                          <TableHead className="text-right">Leverage</TableHead>
                           <TableHead className="text-right">Size</TableHead>
                           <TableHead className="text-right">Price</TableHead>
                           <TableHead className="text-right">Fee</TableHead>
@@ -1849,6 +1863,15 @@ function SessionDetailContent({ sessionId }: { sessionId: string }) {
                                 <Badge variant={actionVariant} className="capitalize">
                                   {actionLabel}
                                 </Badge>
+                              </TableCell>
+                              <TableCell className="text-right font-mono">
+                                {trade.leverage && trade.leverage > 1 ? (
+                                  <Badge variant="outline" className="font-mono">
+                                    {trade.leverage}x
+                                  </Badge>
+                                ) : (
+                                  <span className="text-muted-foreground">1x</span>
+                                )}
                               </TableCell>
                               <TableCell className="text-right font-mono">
                                 {trade.size != null ? Number(trade.size).toFixed(6) : "0.000000"}
