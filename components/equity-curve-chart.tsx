@@ -256,6 +256,20 @@ export function EquityCurveChart({
     }
   };
 
+  // Format large numbers with K/M suffix
+  const formatYAxisValue = (value: number): string => {
+    const absValue = Math.abs(value);
+    if (absValue >= 1_000_000) {
+      return `$${(value / 1_000_000).toFixed(1)}M`;
+    } else if (absValue >= 10_000) {
+      return `$${(value / 1_000).toFixed(0)}K`;
+    } else if (absValue >= 1_000) {
+      return `$${(value / 1_000).toFixed(1)}K`;
+    } else {
+      return `$${value.toFixed(0)}`;
+    }
+  };
+
   // Calculate Y-axis domain
   const yAxisDomain = useMemo(() => {
     if (chartData.length === 0) return ["auto", "auto"];
@@ -501,8 +515,8 @@ export function EquityCurveChart({
               />
               <YAxis
                 domain={yAxisDomain}
-                tickFormatter={(v) => `$${Number(v).toFixed(0)}`}
-                width={80}
+                tickFormatter={(v) => formatYAxisValue(Number(v))}
+                width={70}
                 label={{
                   value: chartMode === "equity" ? "Equity (USD)" : "PnL (USD)",
                   angle: -90,
