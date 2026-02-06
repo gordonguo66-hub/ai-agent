@@ -1531,12 +1531,12 @@ function SessionDetailContent({ sessionId }: { sessionId: string }) {
                     <h3 className="font-semibold mb-2">
                       Strategy: {debugContext.strategyName}
                       {debugContext.sessionMode && (
-                        <span className={`ml-2 text-xs px-2 py-1 rounded ${
-                          debugContext.sessionMode === 'live' 
-                            ? 'bg-red-900/30 text-red-300 border border-red-800' 
+                        <span className={`ml-2 text-xs font-semibold px-2 py-1 rounded ${
+                          debugContext.sessionMode === 'live'
+                            ? 'bg-red-100 text-red-700 border border-red-300 dark:bg-red-900/50 dark:text-red-200 dark:border-red-700'
                             : debugContext.sessionMode === 'arena'
-                            ? 'bg-yellow-900/30 text-yellow-300 border border-yellow-800'
-                            : 'bg-blue-900/30 text-blue-300 border border-blue-800'
+                            ? 'bg-yellow-100 text-yellow-700 border border-yellow-300 dark:bg-yellow-900/50 dark:text-yellow-200 dark:border-yellow-700'
+                            : 'bg-blue-100 text-blue-700 border border-blue-300 dark:bg-blue-900/50 dark:text-blue-200 dark:border-blue-700'
                         }`}>
                           {debugContext.sessionMode.toUpperCase()} MODE
                         </span>
