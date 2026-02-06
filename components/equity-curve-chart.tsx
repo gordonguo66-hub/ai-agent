@@ -304,6 +304,9 @@ export function EquityCurveChart({
       dateOptions.timeZone = timezone;
     }
 
+    // Calculate return percentage from starting equity
+    const returnPct = startingEquity > 0 ? (data.pnl / startingEquity) * 100 : 0;
+
     return (
       <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-3 shadow-lg">
         <p className="text-sm font-semibold mb-2">
@@ -312,12 +315,20 @@ export function EquityCurveChart({
         <div className="space-y-1">
           <p className="text-sm">
             <span className="text-gray-600 dark:text-gray-400">Equity:</span>{" "}
-            <span className="font-semibold">${data.equity.toFixed(2)}</span>
+            <span className={`font-semibold ${data.pnl >= 0 ? "text-green-600" : "text-red-600"}`}>
+              ${data.equity.toFixed(2)}
+            </span>
           </p>
           <p className="text-sm">
             <span className="text-gray-600 dark:text-gray-400">PnL:</span>{" "}
             <span className={`font-semibold ${data.pnl >= 0 ? "text-green-600" : "text-red-600"}`}>
               {data.pnl >= 0 ? "+" : ""}${data.pnl.toFixed(2)}
+            </span>
+          </p>
+          <p className="text-sm">
+            <span className="text-gray-600 dark:text-gray-400">Return:</span>{" "}
+            <span className={`font-semibold ${returnPct >= 0 ? "text-green-600" : "text-red-600"}`}>
+              {returnPct >= 0 ? "+" : ""}{returnPct.toFixed(2)}%
             </span>
           </p>
         </div>
