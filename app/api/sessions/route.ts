@@ -187,7 +187,8 @@ export async function POST(request: NextRequest) {
     // Create account based on mode
     let accountId = null;
     let liveAccountId = null;
-    
+    let sessionStartingEquity: number | null = null; // Track starting equity at session creation
+
     if (mode === "virtual" || mode === "arena") {
       // Arena mode uses virtual account with standardized starting equity (100k)
       const accountName = mode === "arena" 
@@ -212,6 +213,7 @@ export async function POST(request: NextRequest) {
       }
 
       accountId = account.id;
+      sessionStartingEquity = 100000; // Capture starting equity for session
       console.log(`[Session Creation] ✅ ${mode} account created: ${accountId} with $100,000 starting equity`);
     } else if (mode === "live") {
       // For live mode, fetch or create live account with REAL Hyperliquid data
@@ -220,7 +222,9 @@ export async function POST(request: NextRequest) {
       try {
         const liveAccount = await getOrCreateLiveAccount(user.id, serviceClient);
         liveAccountId = liveAccount.id;
+        sessionStartingEquity = liveAccount.equity; // Capture current equity as session starting point
         console.log(`[Session Creation] ✅ Live account created/fetched: ${liveAccountId}, Real equity: $${liveAccount.equity.toFixed(2)}`);
+        console.log(`[Session Creation] 📊 Session starting_equity set to: $${sessionStartingEquity.toFixed(2)}`);
       } catch (error: any) {
         console.error(`[Session Creation] ❌ Failed to create live account:`, error);
         return NextResponse.json({ 
@@ -237,6 +241,7 @@ export async function POST(request: NextRequest) {
       status: "stopped",
       markets: markets,
       cadence_seconds: cadenceSeconds,
+      starting_equity: sessionStartingEquity, // Per-session starting equity
     };
 
     // Set account_id based on mode

@@ -996,7 +996,10 @@ function SessionDetailContent({ sessionId }: { sessionId: string }) {
   
   // CRITICAL FIX: Extract primitive values directly - these are stable
   const accountEquity = account?.equity != null ? Number(account.equity) : null;
-  const startBal = account?.starting_equity != null ? Number(account.starting_equity) : null;
+  // Use session-level starting_equity if available (per-session tracking), fallback to account-level for older sessions
+  const startBal = session?.starting_equity != null
+    ? Number(session.starting_equity)
+    : (account?.starting_equity != null ? Number(account.starting_equity) : null);
   const cashBalance = account?.cash_balance != null ? Number(account.cash_balance) : null;
   
   // CRITICAL: Create stable hash using useMemo with primitive dependencies only
