@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -79,11 +79,39 @@ const CADENCE_OPTIONS = [
   { value: 300, label: "5 minutes" },
 ];
 
-const MAJOR_MARKETS = ["BTC-PERP", "ETH-PERP", "SOL-PERP"];
+const MAJOR_MARKETS_HL = ["BTC-PERP", "ETH-PERP", "SOL-PERP"];
+const MAJOR_MARKETS_CB = ["BTC-USD", "ETH-USD", "SOL-USD"];
+
+const VENUES = [
+  { id: "hyperliquid", name: "Hyperliquid", description: "Perpetuals (up to 50x leverage, shorts allowed)" },
+  { id: "coinbase", name: "Coinbase", description: "Spot trading (1x only, no shorts - US compliant)" },
+];
 
 interface StrategyFormProps {
   strategyId?: string;
   initialData?: any;
+}
+
+// Helper function to get default volatility min based on candle timeframe
+function getDefaultVolatilityMin(timeframe: string): number {
+  switch (timeframe) {
+    case "1m": return 0.2;
+    case "3m": return 0.25;
+    case "5m": return 0.3;
+    case "15m": return 0.5;
+    case "30m": return 0.7;
+    case "1h": return 1.0;
+    case "2h": return 1.3;
+    case "4h": return 1.8;
+    case "8h":
+    case "12h":
+    case "1d":
+    case "3d":
+    case "1w":
+    case "1M":
+      return 2.5;
+    default: return 0.3; // fallback to 5m default
+  }
 }
 
 export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
@@ -92,7 +120,13 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("basics");
   const isEditMode = !!strategyId;
-  
+
+  // Track initial loading phase to prevent race conditions
+  const initialLoadRef = useRef(true);
+
+  // Venue selection
+  const [venue, setVenue] = useState<"hyperliquid" | "coinbase">("hyperliquid");
+
   // Basic fields
   const [name, setName] = useState("");
   const [modelProvider, setModelProvider] = useState("deepseek");
@@ -164,6 +198,8 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
     includePositionState: boolean;
     includeRecentDecisions: boolean;
     recentDecisionsCount: number | "";
+    includeRecentTrades: boolean;
+    recentTradesCount: number | "";
   }>({
     candles: { enabled: true, count: 200, timeframe: "5m" },
     orderbook: { enabled: false, depth: 20 },
@@ -176,6 +212,8 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
     includePositionState: true,
     includeRecentDecisions: true,
     recentDecisionsCount: 5,
+    includeRecentTrades: true,
+    recentTradesCount: 10,
   });
   
   // Entry/Exit - Comprehensive structure
@@ -230,7 +268,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
       confirmation: {
         minSignals: 2,
         requireVolatilityCondition: false,
-        volatilityMin: null as number | null,
+        volatilityMin: getDefaultVolatilityMin("5m"),
         volatilityMax: null as number | null,
       },
       timing: {
@@ -290,6 +328,26 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
     }
   }, [modelProvider, modelName]);
 
+  // Auto-update volatilityMin when candle timeframe changes (only if user is using the default)
+  useEffect(() => {
+    const currentDefault = getDefaultVolatilityMin(aiInputs.candles.timeframe);
+    // Only update if volatilityMin is null or matches a default from another timeframe
+    if (entryExit.entry.confirmation.volatilityMin === null || 
+        Object.values({ "1m": 0.2, "3m": 0.25, "5m": 0.3, "15m": 0.5, "30m": 0.7, "1h": 1.0, "2h": 1.3, "4h": 1.8, "8h+": 2.5 })
+          .some(defaultVal => Math.abs((entryExit.entry.confirmation.volatilityMin ?? 0) - defaultVal) < 0.01)) {
+      setEntryExit(prev => ({
+        ...prev,
+        entry: {
+          ...prev.entry,
+          confirmation: {
+            ...prev.entry.confirmation,
+            volatilityMin: currentDefault,
+          },
+        },
+      }));
+    }
+  }, [aiInputs.candles.timeframe, entryExit.entry.confirmation.volatilityMin]);
+
   // Load initial data if in edit mode
   useEffect(() => {
     if (isEditMode && initialData) {
@@ -302,7 +360,12 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
 
       // Load filters
       const filters = initialData.filters || {};
-      
+
+      // Venue
+      if (filters.venue && (filters.venue === "hyperliquid" || filters.venue === "coinbase")) {
+        setVenue(filters.venue);
+      }
+
       // Markets
       if (filters.markets) {
         setSelectedMarkets(filters.markets);
@@ -344,9 +407,32 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
         }
       }
 
-      // AI Inputs
+      // AI Inputs - with migration for new fields
       if (filters.aiInputs) {
-        setAiInputs(filters.aiInputs);
+        const loadedAiInputs = { ...filters.aiInputs };
+
+        // Migration: Add includeRecentTrades if missing (new field)
+        if (!loadedAiInputs.hasOwnProperty('includeRecentTrades')) {
+          loadedAiInputs.includeRecentTrades = true;
+        }
+        if (!loadedAiInputs.hasOwnProperty('recentTradesCount')) {
+          loadedAiInputs.recentTradesCount = 10;
+        }
+
+        // Migration: Add includeRecentDecisions if missing (ensure consistency)
+        if (!loadedAiInputs.hasOwnProperty('includeRecentDecisions')) {
+          loadedAiInputs.includeRecentDecisions = true;
+        }
+        if (!loadedAiInputs.hasOwnProperty('recentDecisionsCount')) {
+          loadedAiInputs.recentDecisionsCount = 5;
+        }
+
+        // Migration: Add includePositionState if missing
+        if (!loadedAiInputs.hasOwnProperty('includePositionState')) {
+          loadedAiInputs.includePositionState = true;
+        }
+
+        setAiInputs(loadedAiInputs);
       }
 
       // Entry/Exit
@@ -388,7 +474,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
               confirmation: {
                 minSignals: 2,
                 requireVolatilityCondition: false,
-                volatilityMin: null,
+                volatilityMin: getDefaultVolatilityMin(filters.candleTimeframe || "5m"),
                 volatilityMax: null,
               },
               timing: {
@@ -440,16 +526,25 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
     }
   }, [isEditMode, initialData]);
 
-  // Fetch markets on mount
+  // Fetch markets based on venue
   useEffect(() => {
     const fetchMarkets = async () => {
       setMarketsLoading(true);
       setMarketsError(false);
       try {
-        const response = await fetch("/api/hyperliquid/markets");
+        const endpoint = venue === "coinbase"
+          ? "/api/coinbase/markets"
+          : "/api/hyperliquid/markets";
+        const response = await fetch(endpoint);
         if (response.ok) {
           const data = await response.json();
           setAvailableMarkets(data.markets || []);
+          // Only clear markets when user manually changes venue, not during initial load
+          if (initialLoadRef.current) {
+            initialLoadRef.current = false;
+          } else {
+            setSelectedMarkets([]);
+          }
         } else {
           setMarketsError(true);
         }
@@ -462,7 +557,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
     };
 
     fetchMarkets();
-  }, []);
+  }, [venue]);
 
   // Load saved API keys when provider changes
   useEffect(() => {
@@ -661,6 +756,12 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
       return;
     }
 
+    if (typeof risk.maxPositionUsd === "number" && risk.maxPositionUsd < 10) {
+      setError("Max Position Size must be at least $10 (Hyperliquid minimum order size)");
+      setLoading(false);
+      return;
+    }
+
     if (typeof risk.maxPositionUsd === "number" && risk.maxPositionUsd > 100000) {
       setError("Max Position Size must be $100,000 or less");
       setLoading(false);
@@ -721,6 +822,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
         },
       },
       recentDecisionsCount: typeof aiInputs.recentDecisionsCount === "number" ? aiInputs.recentDecisionsCount : 5,
+      recentTradesCount: typeof aiInputs.recentTradesCount === "number" ? aiInputs.recentTradesCount : 10,
     };
     
     // Ensure numeric fields are numbers before saving
@@ -756,7 +858,13 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
       },
     };
     
+    // For Coinbase: force restrictions
+    const isCoinbase = venue === "coinbase";
+    const effectiveLeverage = isCoinbase ? 1 : (typeof risk.maxLeverage === "number" ? risk.maxLeverage : 2);
+    const effectiveAllowShort = isCoinbase ? false : guardrails.allowShort;
+
     const filters: any = {
+      venue,
       cadenceSeconds: calculatedCadence,
       markets: finalMarkets,
       aiInputs: aiInputsToSave,
@@ -769,12 +877,12 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
       guardrails: {
         minConfidence: entryExit.confidenceControl.minConfidence,
         allowLong: guardrails.allowLong,
-        allowShort: guardrails.allowShort,
+        allowShort: effectiveAllowShort,
       },
       risk: {
         maxDailyLossPct: typeof risk.maxDailyLossPct === "number" ? risk.maxDailyLossPct : 5,
         maxPositionUsd: typeof risk.maxPositionUsd === "number" ? risk.maxPositionUsd : 10000,
-        maxLeverage: typeof risk.maxLeverage === "number" ? risk.maxLeverage : 2,
+        maxLeverage: effectiveLeverage,
       },
     };
 
@@ -850,8 +958,9 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
   };
 
   const handleSelectMajors = () => {
+    const majorMarkets = venue === "coinbase" ? MAJOR_MARKETS_CB : MAJOR_MARKETS_HL;
     setSelectedMarkets(prev => {
-      const newSet = new Set([...prev, ...MAJOR_MARKETS]);
+      const newSet = new Set([...prev, ...majorMarkets]);
       return Array.from(newSet);
     });
   };
@@ -936,6 +1045,42 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                 </TabsList>
 
                 <TabsContent value="basics" className="space-y-6 mt-6">
+                  {/* Venue Selection */}
+                  <div className="space-y-3 p-4 border rounded-md bg-muted/30">
+                    <label className="text-sm font-semibold">
+                      Exchange Venue *
+                    </label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {VENUES.map((v) => (
+                        <button
+                          key={v.id}
+                          type="button"
+                          onClick={() => {
+                            setVenue(v.id as "hyperliquid" | "coinbase");
+                            // Reset markets when changing venue
+                            setSelectedMarkets([]);
+                          }}
+                          className={`p-4 border rounded-lg text-left transition-colors ${
+                            venue === v.id
+                              ? "border-primary bg-primary/5 ring-2 ring-primary/20"
+                              : "border-border hover:border-muted-foreground/50"
+                          }`}
+                        >
+                          <div className="font-semibold">{v.name}</div>
+                          <div className="text-xs text-muted-foreground mt-1">{v.description}</div>
+                        </button>
+                      ))}
+                    </div>
+                    {venue === "coinbase" && (
+                      <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-md mt-2">
+                        <p className="text-sm text-blue-700 dark:text-blue-400">
+                          <strong>Coinbase (US Compliant):</strong> Spot trading only - leverage is fixed at 1x and short selling is not available.
+                          This is due to US regulatory requirements for retail crypto trading.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
                   <div className="space-y-2">
                     <label htmlFor="name" className="text-sm font-semibold">
                       Strategy Name *
@@ -1863,6 +2008,47 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                       </div>
                     )}
                   </div>
+
+                  {/* Recent Trades */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="space-y-0.5">
+                        <label className="text-sm font-semibold">Include Recent Trades</label>
+                        <p className="text-xs text-muted-foreground">Past trade executions with PnL</p>
+                      </div>
+                      <Switch
+                        checked={aiInputs.includeRecentTrades}
+                        onCheckedChange={(checked) =>
+                          setAiInputs(prev => ({ ...prev, includeRecentTrades: checked }))
+                        }
+                      />
+                    </div>
+                    {aiInputs.includeRecentTrades && (
+                      <div className="pl-4 space-y-2 border-l-2">
+                        <label className="text-sm font-medium">Recent Trades Count</label>
+                        <Input
+                          type="number"
+                          min="1"
+                          max="50"
+                          value={aiInputs.recentTradesCount}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            setAiInputs(prev => ({
+                              ...prev,
+                              recentTradesCount: value === "" ? "" : parseInt(value),
+                            }));
+                          }}
+                          onBlur={(e) => {
+                            if (e.target.value === "" || parseInt(e.target.value) < 1) {
+                              setAiInputs(prev => ({ ...prev, recentTradesCount: 10 }));
+                            }
+                          }}
+                          className="h-9"
+                        />
+                        <p className="text-xs text-muted-foreground">How many past trades to include (shows market, side, price, PnL)</p>
+                      </div>
+                    )}
+                  </div>
                 </TabsContent>
 
                 <TabsContent value="entry" className="space-y-6 mt-6">
@@ -2019,28 +2205,35 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                           <div className="space-y-4">
                             <div className="space-y-2">
                               <label className="text-sm font-medium">Min Volatility %</label>
-                              <Input
-                                type="number"
-                                step="0.1"
-                                min="0"
-                                value={entryExit.entry.confirmation.volatilityMin ?? ""}
-                                onChange={(e) =>
-                                  setEntryExit(prev => ({
-                                    ...prev,
-                                    entry: {
-                                      ...prev.entry,
-                                      confirmation: {
-                                        ...prev.entry.confirmation,
-                                        volatilityMin: e.target.value ? parseFloat(e.target.value) : null,
+                              <div className="relative">
+                                <Input
+                                  type="number"
+                                  step="0.1"
+                                  min="0"
+                                  value={entryExit.entry.confirmation.volatilityMin ?? ""}
+                                  onChange={(e) =>
+                                    setEntryExit(prev => ({
+                                      ...prev,
+                                      entry: {
+                                        ...prev.entry,
+                                        confirmation: {
+                                          ...prev.entry.confirmation,
+                                          volatilityMin: e.target.value ? parseFloat(e.target.value) : null,
+                                        },
                                       },
-                                    },
-                                  }))
-                                }
-                                className="h-11"
-                                placeholder="0"
-                              />
+                                    }))
+                                  }
+                                  className="h-11"
+                                  placeholder={getDefaultVolatilityMin(aiInputs.candles.timeframe).toString()}
+                                />
+                                {entryExit.entry.confirmation.volatilityMin === getDefaultVolatilityMin(aiInputs.candles.timeframe) && (
+                                  <span className="absolute left-[3rem] top-1/2 -translate-y-1/2 text-sm text-muted-foreground pointer-events-none">
+                                    (default)
+                                  </span>
+                                )}
+                              </div>
                               <p className="text-xs text-muted-foreground">
-                                Minimum volatility required to enter
+                                Minimum volatility required to enter (default: {getDefaultVolatilityMin(aiInputs.candles.timeframe)}% for {aiInputs.candles.timeframe})
                               </p>
                             </div>
                             
@@ -2516,7 +2709,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                         <div className="space-y-0.5">
                           <label className="text-sm font-medium">Allow Re-entry Same Direction</label>
                           <p className="text-xs text-muted-foreground">
-                            Allow opening new position in same direction after closing
+                            Allow opening additional position in same direction while one is already open (stacking)
                           </p>
                         </div>
                         <Switch
@@ -2643,7 +2836,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                       <Input
                         type="number"
                         step="0.01"
-                        min="0"
+                        min="10"
                         value={risk.maxPositionUsd}
                         onChange={(e) => {
                           const value = e.target.value;
@@ -2653,7 +2846,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                           }));
                         }}
                         onBlur={(e) => {
-                          if (e.target.value === "" || parseFloat(e.target.value) < 0) {
+                          if (e.target.value === "" || parseFloat(e.target.value) < 10) {
                             setRisk(prev => ({
                               ...prev,
                               maxPositionUsd: 10000,
@@ -2662,37 +2855,52 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                         }}
                         className="h-11"
                       />
+                      <p className="text-xs text-muted-foreground">
+                        Hyperliquid minimum: $10 per order
+                      </p>
                     </div>
 
                     <div className="space-y-2">
                       <label className="text-sm font-semibold">Max Leverage</label>
-                      <div className="relative">
-                        <Input
-                          type="number"
-                          step="0.1"
-                          min="1"
-                          value={risk.maxLeverage}
-                          onChange={(e) => {
-                            const value = e.target.value;
-                            setRisk(prev => ({
-                              ...prev,
-                              maxLeverage: value === "" ? "" : parseFloat(value),
-                            }));
-                          }}
-                          onBlur={(e) => {
-                            if (e.target.value === "" || parseFloat(e.target.value) < 1) {
+                      {venue === "coinbase" ? (
+                        <div className="p-3 bg-muted border rounded-md">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-lg">1x</span>
+                            <span className="text-xs text-muted-foreground">(fixed for Coinbase)</span>
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Leverage trading is not available for US users on Coinbase.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="relative">
+                          <Input
+                            type="number"
+                            step="0.1"
+                            min="1"
+                            value={risk.maxLeverage}
+                            onChange={(e) => {
+                              const value = e.target.value;
                               setRisk(prev => ({
                                 ...prev,
-                                maxLeverage: 2,
+                                maxLeverage: value === "" ? "" : parseFloat(value),
                               }));
-                            }
-                          }}
-                          className="h-11 pr-8"
-                        />
-                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none">
-                          x
-                        </span>
-                      </div>
+                            }}
+                            onBlur={(e) => {
+                              if (e.target.value === "" || parseFloat(e.target.value) < 1) {
+                                setRisk(prev => ({
+                                  ...prev,
+                                  maxLeverage: 2,
+                                }));
+                              }
+                            }}
+                            className="h-11 pr-8"
+                          />
+                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none">
+                            x
+                          </span>
+                        </div>
+                      )}
                     </div>
 
                     <div className="flex items-center justify-between">
@@ -2711,13 +2919,18 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                     <div className="flex items-center justify-between">
                       <div>
                         <label className="text-sm font-semibold">Allow Short Positions</label>
-                        <p className="text-xs text-muted-foreground">Sell/Go short</p>
+                        <p className="text-xs text-muted-foreground">
+                          {venue === "coinbase"
+                            ? "Not available on Coinbase (spot trading only)"
+                            : "Sell/Go short"}
+                        </p>
                       </div>
                       <Switch
-                        checked={guardrails.allowShort}
+                        checked={venue === "coinbase" ? false : guardrails.allowShort}
                         onCheckedChange={(checked) =>
                           setGuardrails(prev => ({ ...prev, allowShort: checked }))
                         }
+                        disabled={venue === "coinbase"}
                       />
                     </div>
 
@@ -2754,6 +2967,17 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
             <CardTitle className="text-lg">Summary</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4 text-sm">
+            <div>
+              <div className="text-muted-foreground">Exchange</div>
+              <div className="font-medium">
+                {venue === "coinbase" ? "Coinbase (Spot)" : "Hyperliquid (Perps)"}
+              </div>
+              {venue === "coinbase" && (
+                <div className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                  US Compliant
+                </div>
+              )}
+            </div>
             <div>
               <div className="text-muted-foreground">Markets</div>
               <div className="font-medium">
@@ -2819,7 +3043,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
             <div>
               <div className="text-muted-foreground">Max Leverage</div>
               <div className="font-medium">
-                {typeof risk.maxLeverage === "number" ? risk.maxLeverage : 2}x
+                {venue === "coinbase" ? "1x (spot)" : `${typeof risk.maxLeverage === "number" ? risk.maxLeverage : 2}x`}
               </div>
             </div>
             <div>
