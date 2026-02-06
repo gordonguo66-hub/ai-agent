@@ -278,7 +278,15 @@ export async function placeMarketOrder(params: PlaceOrderParams): Promise<{
         // CRITICAL FIX: Clamp size to existingSize to prevent accidental flips
         // When a CLOSE trade is slightly larger than the open position, it should
         // just close the position (set size to 0), not create a new position in the opposite direction.
-        const closeSize = Math.min(size, existingSize);
+        let closeSize = Math.min(size, existingSize);
+        
+        // PRECISION FIX: If close size is within 5% of existing size OR exceeds it, use exact size
+        // This prevents partial closes and tiny leftovers from rounding/slippage/fees
+        const sizeDiffPct = Math.abs((closeSize - existingSize) / existingSize);
+        if (sizeDiffPct < 0.05 || closeSize >= existingSize * 0.95) {  // Within 5% or close enough
+          closeSize = existingSize;  // ALWAYS use exact size to ensure clean close
+          console.log(`[virtualBroker] 🎯 Using exact position size ${existingSize.toFixed(6)} for clean close (calculated: ${size.toFixed(6)}, diff: ${(sizeDiffPct * 100).toFixed(2)}%)`);
+        }
         
         // ASSERTION: closeSize should never exceed existingSize
         if (closeSize > existingSize) {
@@ -377,6 +385,7 @@ export async function placeMarketOrder(params: PlaceOrderParams): Promise<{
         size,
         avg_entry: fillPrice,
         unrealized_pnl: 0,
+        peak_price: fillPrice, // Initialize for trailing stop tracking
       });
 
       // CASH-SETTLED PERP MODEL: Opening a position does NOT move notional in/out of cash
@@ -424,6 +433,7 @@ export async function placeMarketOrder(params: PlaceOrderParams): Promise<{
       tradeData.session_id = session_id;
     }
 
+    console.log(`[virtualBroker] 💾 Inserting trade into database:`, tradeData);
     const { data: trade, error: tradeError } = await serviceClient
       .from("virtual_trades")
       .insert(tradeData)
@@ -431,14 +441,16 @@ export async function placeMarketOrder(params: PlaceOrderParams): Promise<{
       .single();
 
     if (tradeError || !trade) {
-      console.error("Error recording trade:", tradeError);
-      console.error("Trade data attempted:", tradeData);
-      console.error("Full error details:", JSON.stringify(tradeError, null, 2));
+      console.error("[virtualBroker] ❌ Error recording trade:", tradeError);
+      console.error("[virtualBroker] Trade data attempted:", tradeData);
+      console.error("[virtualBroker] Full error details:", JSON.stringify(tradeError, null, 2));
       return { 
         success: false, 
         error: `Failed to record trade: ${tradeError?.message || tradeError?.code || JSON.stringify(tradeError) || "Unknown error"}` 
       };
     }
+
+    console.log(`[virtualBroker] ✅ Trade recorded successfully. ID: ${trade.id}, Action: ${action}, Market: ${market}, Size: ${executedSize}, Price: ${fillPrice}`);
 
     // BUGFIX VERIFICATION: For fully closed positions, ensure close size matches position size
     // and does NOT equal abs(realized_pnl)/price (which would indicate PnL-inflated size bug)
@@ -465,10 +477,17 @@ export async function placeMarketOrder(params: PlaceOrderParams): Promise<{
     }
 
     // Update account cash balance
-    await serviceClient
+    console.log(`[virtualBroker] 💰 Updating account ${account_id} cash balance: ${account.cash_balance.toFixed(2)} → ${newCashBalance.toFixed(2)}`);
+    const { error: cashUpdateError } = await serviceClient
       .from("virtual_accounts")
       .update({ cash_balance: newCashBalance })
       .eq("id", account_id);
+    
+    if (cashUpdateError) {
+      console.error(`[virtualBroker] ❌ Failed to update cash balance:`, cashUpdateError);
+    } else {
+      console.log(`[virtualBroker] ✅ Cash balance updated successfully`);
+    }
 
     // REMOVED: markToMarket and equity point recording
     // The tick endpoint already handles this correctly at the end of each tick

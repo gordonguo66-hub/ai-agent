@@ -70,8 +70,10 @@ export async function POST(request: NextRequest) {
 
     // Call the AI model with the trading prompt
     let aiDecision;
+    let tokenUsage;
+    let modelUsed;
     try {
-      aiDecision = await openAICompatibleIntentCall({
+      const aiResponse = await openAICompatibleIntentCall({
         baseUrl: normalizeBaseUrl(baseUrl),
         apiKey,
         model: strategy.model_name,
@@ -87,6 +89,9 @@ export async function POST(request: NextRequest) {
           positions: [],
         },
       });
+      aiDecision = aiResponse.intent;
+      tokenUsage = aiResponse.usage;
+      modelUsed = aiResponse.model;
     } catch (error: any) {
       return NextResponse.json(
         { error: `AI model call failed: ${error.message}` },

@@ -131,7 +131,7 @@ export async function tickSession(sessionId: string): Promise<{
     positions = await hyperliquidClient.getAccountState(exConn.wallet_address);
   }
 
-  const intent = await realModelCall({
+  const intentResult = await realModelCall({
     provider: st.model_provider,
     baseUrl: (aiConn as any).base_url,
     apiKey,
@@ -143,6 +143,7 @@ export async function tickSession(sessionId: string): Promise<{
       positions,
     },
   });
+  const intent = intentResult.intent;
 
   // 5) Proposed order (shared logic)
   const clientOrderIdBase = `sess-${s.id}`;

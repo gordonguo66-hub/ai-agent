@@ -10,6 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
+import { FormattedDate } from "@/components/formatted-date";
 
 function StrategyDetailContent() {
   const params = useParams();
@@ -17,6 +18,7 @@ function StrategyDetailContent() {
   const strategyId = params.id as string;
 
   const [strategy, setStrategy] = useState<any>(null);
+  const [sessions, setSessions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -32,6 +34,7 @@ function StrategyDetailContent() {
       } = await supabase.auth.getUser();
       if (!user) return;
 
+      // Fetch strategy
       const { data, error } = await supabase
         .from("strategies")
         .select("id, user_id, name, model_provider, model_name, prompt, filters, api_key_ciphertext, saved_api_key_id, created_at")
@@ -44,6 +47,26 @@ function StrategyDetailContent() {
       } else {
         setStrategy(data);
       }
+
+      // Fetch sessions via API (uses service role, avoids RLS issues)
+      try {
+        const bearer = await getBearerToken();
+        const sessionsResponse = await fetch("/api/sessions", {
+          headers: bearer ? { Authorization: bearer } : {},
+        });
+        if (sessionsResponse.ok) {
+          const sessionsJson = await sessionsResponse.json();
+          // Filter to only sessions for this strategy
+          const strategySessions = (sessionsJson.sessions || [])
+            .filter((s: any) => s.strategy_id === strategyId)
+            .slice(0, 10);
+          console.log(`[Strategy Page] Found ${strategySessions.length} sessions for strategy ${strategyId}`);
+          setSessions(strategySessions);
+        }
+      } catch (err) {
+        console.error("[Strategy Page] Failed to load sessions", err);
+      }
+
       setLoading(false);
     };
 
@@ -111,7 +134,7 @@ function StrategyDetailContent() {
 
   if (loading) {
     return (
-      <div className="min-h-[calc(100vh-4rem)] bg-[#030712] container mx-auto px-4 py-16 flex items-center justify-center">
+      <div className="min-h-[calc(100vh-4rem)] bg-[#070d1a] container mx-auto px-4 py-16 flex items-center justify-center">
         <p className="text-gray-400">Loading...</p>
       </div>
     );
@@ -119,14 +142,14 @@ function StrategyDetailContent() {
 
   if (!strategy) {
     return (
-      <div className="min-h-[calc(100vh-4rem)] bg-[#030712] container mx-auto px-4 py-16 flex items-center justify-center">
+      <div className="min-h-[calc(100vh-4rem)] bg-[#070d1a] container mx-auto px-4 py-16 flex items-center justify-center">
         <p className="text-gray-400">{error || "Strategy not found"}</p>
       </div>
     );
   }
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] bg-[#030712]">
+    <div className="min-h-[calc(100vh-4rem)] bg-[#070d1a]">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
         <div className="max-w-3xl mx-auto">
           <div className="mb-8">
@@ -145,9 +168,9 @@ function StrategyDetailContent() {
             <CardHeader>
               <CardTitle className="text-white">Start a Session</CardTitle>
               <CardDescription className="text-gray-300">
-                VIRTUAL uses real Hyperliquid prices with simulated execution and a $100,000 starting balance. 
-                ARENA creates a competitive session visible on the leaderboard (starts with $100k, virtual execution). 
-                LIVE places real orders on Hyperliquid.
+                VIRTUAL uses real Hyperliquid prices with simulated execution and a $100,000 starting balance.
+                ARENA creates a competitive session visible on the leaderboard (starts with $100k, virtual execution).
+                LIVE places real orders on Hyperliquid or Coinbase.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -201,7 +224,7 @@ function StrategyDetailContent() {
             </CardContent>
           </Card>
 
-          <Card className="bg-[#0A0E1A] border-blue-900/50">
+          <Card className="mb-6 bg-[#0A0E1A] border-blue-900/50">
             <CardHeader>
               <CardTitle className="text-white">Risk Filters</CardTitle>
               <CardDescription className="text-gray-300">Used by both Virtual and Live modes</CardDescription>
@@ -221,12 +244,82 @@ function StrategyDetailContent() {
             </CardContent>
           </Card>
 
+          {/* Sessions List */}
+          <Card className="bg-[#0A0E1A] border-blue-900/50">
+            <CardHeader>
+              <CardTitle className="text-white">Sessions</CardTitle>
+              <CardDescription className="text-gray-300">
+                {sessions.length === 0
+                  ? "No sessions yet. Start one above!"
+                  : `${sessions.length} session${sessions.length === 1 ? "" : "s"} for this strategy`}
+              </CardDescription>
+            </CardHeader>
+            {sessions.length > 0 && (
+              <CardContent>
+                <div className="space-y-3">
+                  {sessions.map((session) => (
+                    <div
+                      key={session.id}
+                      className="flex items-center justify-between p-3 rounded-lg border border-blue-900/30 bg-blue-950/20 hover:bg-blue-950/40 transition-colors cursor-pointer"
+                      onClick={() => router.push(`/dashboard/sessions/${session.id}`)}
+                    >
+                      <div className="flex items-center gap-3">
+                        <Badge
+                          variant={session.status === "running" ? "default" : "secondary"}
+                          className={
+                            session.status === "running"
+                              ? "bg-green-600 text-white"
+                              : session.status === "stopped"
+                              ? "bg-gray-600 text-white"
+                              : "bg-yellow-600 text-white"
+                          }
+                        >
+                          {session.status}
+                        </Badge>
+                        <Badge
+                          variant="outline"
+                          className={
+                            session.mode === "live"
+                              ? "border-red-500 text-red-400"
+                              : session.mode === "arena"
+                              ? "border-purple-500 text-purple-400"
+                              : "border-blue-500 text-blue-400"
+                          }
+                        >
+                          {session.mode}
+                        </Badge>
+                        <span className="text-sm text-gray-400">
+                          {session.markets?.join(", ") || "No markets"}
+                        </span>
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        <FormattedDate date={session.created_at} format="full" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {sessions.length >= 10 && (
+                  <div className="mt-4 text-center">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => router.push("/dashboard")}
+                      className="border-blue-900 text-gray-300 hover:text-white hover:border-blue-800"
+                    >
+                      View all sessions
+                    </Button>
+                  </div>
+                )}
+              </CardContent>
+            )}
+          </Card>
+
           <Dialog open={liveDialogOpen} onOpenChange={setLiveDialogOpen}>
             <DialogContent className="bg-[#0A0E1A] border-blue-900">
               <DialogHeader>
                 <DialogTitle className="text-white">⚠️ Live trading confirmation</DialogTitle>
                 <DialogDescription className="text-gray-300">
-                  LIVE mode will place real orders on Hyperliquid. Type <strong className="text-white">CONFIRM</strong> to proceed.
+                  LIVE mode will place real orders on Hyperliquid or Coinbase. Type <strong className="text-white">CONFIRM</strong> to proceed.
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-3">

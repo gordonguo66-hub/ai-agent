@@ -18,12 +18,12 @@ export async function sendConfirmationEmail(
       </head>
       <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
         <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
-          <h1 style="color: white; margin: 0;">AI Arena Trade</h1>
+          <h1 style="color: white; margin: 0;">Corebound</h1>
         </div>
         <div style="background: #f9fafb; padding: 40px; border-radius: 0 0 10px 10px; border: 1px solid #e5e7eb;">
           <h2 style="color: #111827; margin-top: 0;">Welcome, ${username}!</h2>
           <p style="color: #4b5563; font-size: 16px;">
-            Thank you for signing up for AI Arena Trade. To complete your registration and start trading, please confirm your email address by clicking the button below.
+            Thank you for signing up for Corebound. To complete your registration and start trading, please confirm your email address by clicking the button below.
           </p>
           <div style="text-align: center; margin: 40px 0;">
             <a href="${confirmationUrl}" 
@@ -42,7 +42,7 @@ export async function sendConfirmationEmail(
           </p>
         </div>
         <div style="text-align: center; margin-top: 20px; color: #9ca3af; font-size: 12px;">
-          <p>© ${new Date().getFullYear()} AI Arena Trade. All rights reserved.</p>
+          <p>© ${new Date().getFullYear()} Corebound. All rights reserved.</p>
         </div>
       </body>
     </html>
@@ -50,7 +50,7 @@ export async function sendConfirmationEmail(
 
   return sendEmail({
     to: email,
-    subject: "Confirm your email address - AI Arena Trade",
+    subject: "Confirm your email address - Corebound",
     html,
   });
 }

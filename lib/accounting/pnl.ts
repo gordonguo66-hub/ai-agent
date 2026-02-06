@@ -78,12 +78,14 @@ export function calcTotals(
   accountData: AccountData,
   positions: Position[],
   trades: Trade[],
-  pricesByMarket: PricesByMarket
+  pricesByMarket: PricesByMarket,
+  mode?: string  // Add mode parameter
 ): PnLTotals {
   console.log("[calcTotals] 🔍 Calculating totals:");
+  console.log(`[calcTotals]   Mode: ${mode || 'virtual'}`);
   console.log(`[calcTotals]   Starting equity: ${accountData.starting_equity}`);
   console.log(`[calcTotals]   Cash balance: ${accountData.cash_balance}`);
-  console.log(`[calcTotals]   DB equity (ignored): ${accountData.equity}`);
+  console.log(`[calcTotals]   DB equity (synced from Hyperliquid): ${accountData.equity}`);
   console.log(`[calcTotals]   Positions: ${positions.length}`);
   console.log(`[calcTotals]   Position prices:`, pricesByMarket);
   
@@ -93,17 +95,27 @@ export function calcTotals(
 
   for (const position of positions) {
     const currentPrice = pricesByMarket[position.market] || 0;
-    console.log(`[calcTotals]   Position ${position.market} (${position.side}): entry=${position.avg_entry}, current=${currentPrice}, size=${position.size}`);
+    console.log(`[calcTotals]   Position ${position.market} (${position.side}): entry=${position.avg_entry}, current=${currentPrice}, size=${position.size}, stored_pnl=${position.unrealized_pnl}`);
+
     if (currentPrice > 0) {
+      // Have live price - calculate PnL from price difference
       const positionValue = calcPositionValue(position.size, currentPrice);
-      positionValueTotal += positionValue; // For display only
+      positionValueTotal += positionValue;
       const posUnrealizedPnl = calcUnrealizedPnl(position, currentPrice);
       unrealizedPnl += posUnrealizedPnl;
-      console.log(`[calcTotals]     → Unrealized PnL: ${posUnrealizedPnl.toFixed(2)}`);
+      console.log(`[calcTotals]     → Unrealized PnL (calculated): ${posUnrealizedPnl.toFixed(4)}`);
+    } else if (position.unrealized_pnl != null && position.unrealized_pnl !== 0) {
+      // No live price but have stored unrealized PnL (e.g., Coinbase positions synced with PnL)
+      unrealizedPnl += Number(position.unrealized_pnl);
+      // Estimate position value from entry price
+      positionValueTotal += position.avg_entry * position.size;
+      console.log(`[calcTotals]     → Unrealized PnL (stored): ${Number(position.unrealized_pnl).toFixed(4)}`);
+    } else {
+      console.log(`[calcTotals]     → No price available and no stored PnL, skipping`);
     }
   }
-  
-  console.log(`[calcTotals]   Total unrealized PnL: ${unrealizedPnl.toFixed(2)}`);
+
+  console.log(`[calcTotals]   Total unrealized PnL: ${unrealizedPnl.toFixed(4)}`);
 
   // Calculate realized PnL from closed/reduced/flip trades
   const realizedPnl = trades
@@ -113,25 +125,30 @@ export function calcTotals(
   // Calculate total fees paid
   const feesPaid = trades.reduce((sum, t) => sum + Number(t.fee || 0), 0);
 
-  // Use the ACTUAL cash_balance from the database
-  // Don't recalculate - the database is the source of truth
-  // Recalculating causes phantom equity that doesn't match reality
-  const correctCashBalance = accountData.cash_balance;
-
-  // Calculate equity using Option A model: equity = cash_balance + sum(unrealizedPnl)
-  const equity = correctCashBalance + unrealizedPnl;
+  // For LIVE mode: use DB equity synced from Hyperliquid (source of truth)
+  // For VIRTUAL mode: calculate from cash_balance + unrealizedPnl
+  const equity = mode === 'live'
+    ? (accountData.equity ?? 0)  // Live: Use synced value from Hyperliquid
+    : accountData.cash_balance + unrealizedPnl;  // Virtual: Calculate
   
-  console.log(`[calcTotals] ✅ Final equity: ${correctCashBalance.toFixed(2)} + ${unrealizedPnl.toFixed(2)} = ${equity.toFixed(2)}`);
+  console.log(`[calcTotals] ✅ Final equity (${mode || 'virtual'}): ${mode === 'live' ? `DB=${(accountData.equity ?? 0).toFixed(2)}` : `${accountData.cash_balance.toFixed(2)} + ${unrealizedPnl.toFixed(2)}`} = ${equity.toFixed(2)}`);
 
-  // Calculate total PnL using reconciliation identity: totalPnL = realized + unrealized - fees
-  // This ensures consistency and matches the reconciliation check
-  const totalPnl = realizedPnl + unrealizedPnl - feesPaid;
-  
-  // Verify: totalPnL should equal equity - starting_equity
-  const expectedEquity = accountData.starting_equity + totalPnl;
-  if (Math.abs(equity - expectedEquity) > 0.01) {
-    console.warn(`[calcTotals] Equity mismatch: calculated=${equity.toFixed(2)}, expected=${expectedEquity.toFixed(2)} (from totalPnL)`);
-    console.warn(`[calcTotals] cash_balance: stored=${accountData.cash_balance.toFixed(2)}, recalculated=${correctCashBalance.toFixed(2)}`);
+  // Calculate total PnL:
+  // For LIVE mode: use equity - starting_equity (we can't track unrealized PNL without cost basis for Coinbase spot)
+  // For VIRTUAL mode: use reconciliation identity realized + unrealized - fees
+  const totalPnl = mode === 'live'
+    ? equity - accountData.starting_equity  // Live: Direct equity change (works for both Hyperliquid and Coinbase)
+    : realizedPnl + unrealizedPnl - feesPaid;  // Virtual: Reconciliation identity
+
+  console.log(`[calcTotals]   Total PnL (${mode || 'virtual'}): ${totalPnl.toFixed(2)} (${mode === 'live' ? `equity ${equity.toFixed(2)} - starting ${accountData.starting_equity.toFixed(2)}` : `realized ${realizedPnl.toFixed(2)} + unrealized ${unrealizedPnl.toFixed(2)} - fees ${feesPaid.toFixed(2)}`})`);
+
+  // Verify: totalPnL should equal equity - starting_equity (only for virtual mode)
+  // For live mode, we use this formula directly so no verification needed
+  if (mode !== 'live') {
+    const expectedEquity = accountData.starting_equity + totalPnl;
+    if (Math.abs(equity - expectedEquity) > 0.01) {
+      console.warn(`[calcTotals] Equity mismatch: calculated=${equity.toFixed(2)}, expected=${expectedEquity.toFixed(2)} (from totalPnL)`);
+    }
   }
 
   // Calculate return percentage using ONLY: (current_equity - starting_equity) / starting_equity
@@ -143,7 +160,8 @@ export function calcTotals(
       : 0;
   
   // Sanity assertion: If total_pnl > 0, return % must be > 0
-  if (totalPnl > 0 && returnPct <= 0) {
+  // Skip for live mode since totalPnl = equity - starting by definition (always consistent with returnPct)
+  if (mode !== 'live' && totalPnl > 0 && returnPct <= 0) {
     console.error(`[calcTotals] SANITY CHECK FAILED: totalPnl=${totalPnl.toFixed(2)} > 0 but returnPct=${returnPct.toFixed(2)} <= 0`);
     console.error(`[calcTotals] equity=${equity.toFixed(2)}, starting_equity=${accountData.starting_equity.toFixed(2)}`);
   }

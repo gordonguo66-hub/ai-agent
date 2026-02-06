@@ -3,17 +3,21 @@ import { NextRequest, NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 import { createServiceRoleClient } from "@/lib/supabase/server";
+import { computeReturnSeries } from "@/lib/arena/computeReturn";
 
 /**
  * Arena Chart API
  *
- * Returns time-series data for all arena participants.
- * Uses equity_points table for data (more granular than arena_snapshots).
+ * Returns time-series data for top arena participants by equity.
+ * Both equity and return chart data are computed from the same snapshot
+ * series so switching views is always consistent.
+ *
+ * X-axis uses absolute timestamps (epoch ms). Late joiners' lines start
+ * at their actual join date, not at the beginning of the chart.
  *
  * Query params:
  *   ?mode=arena (only arena mode supported now)
- *   ?hours=24|48|72|168|all
- *   ?view=equity|return
+ *   ?topN=10|20 (server-enforced limit, default 10)
  *   ?showEnded=true (include ended/left sessions)
  */
 
@@ -30,58 +34,110 @@ interface ParticipantData {
   avatarUrl: string | null;
   joinTime: number;
   startingEquity: number;
-  baselineEquity: number;
-  baselineTime: number;
-  data: ChartPoint[];
-  latestValue: number;
+  data: ChartPoint[]; // always equity values
+  latestEquity: number;
+  baselineEquity: number; // session starting equity (for Arena, always = startingEquity)
   returnPct: number;
 }
 
-// Bucket sizes based on time range
-function getBucketSizeMs(hours: number | "all"): number {
-  if (hours === "all" || hours > 168) return 60 * 60 * 1000; // 1 hour buckets for > 7d
-  if (hours > 72) return 30 * 60 * 1000; // 30 min buckets for 72h-7d
-  if (hours > 24) return 15 * 60 * 1000; // 15 min buckets for 24h-72h
-  return 5 * 60 * 1000; // 5 min buckets for < 24h
+// Bucket sizes based on elapsed time range (in ms)
+// For "since join" mode, we bucket based on the max elapsed time across participants
+function getBucketSizeMs(maxElapsedMs: number): number {
+  const oneHour = 60 * 60 * 1000;
+  const oneDay = 24 * oneHour;
+  
+  // > 90 days: 4-hour buckets
+  if (maxElapsedMs > 90 * oneDay) return 4 * oneHour;
+  // > 30 days: 2-hour buckets
+  if (maxElapsedMs > 30 * oneDay) return 2 * oneHour;
+  // > 7 days: 1-hour buckets
+  if (maxElapsedMs > 7 * oneDay) return oneHour;
+  // > 3 days: 30-min buckets
+  if (maxElapsedMs > 3 * oneDay) return 30 * 60 * 1000;
+  // > 1 day: 15-min buckets
+  if (maxElapsedMs > oneDay) return 15 * 60 * 1000;
+  // <= 1 day: 5-min buckets
+  return 5 * 60 * 1000;
 }
 
 // Bucket data points - take last value per bucket
 function bucketData(data: ChartPoint[], bucketSizeMs: number): ChartPoint[] {
   if (data.length === 0) return [];
-
   const buckets = new Map<number, ChartPoint>();
-
   for (const point of data) {
     const bucketTime = Math.floor(point.time / bucketSizeMs) * bucketSizeMs;
     buckets.set(bucketTime, { time: bucketTime, value: point.value });
   }
-
   return Array.from(buckets.values()).sort((a, b) => a.time - b.time);
+}
+
+// Compute nice y-axis domain for return % — symmetrical around 0%
+function computeReturnYAxis(minValue: number, maxValue: number) {
+  // Find the max absolute deviation from 0%
+  const maxAbsDeviation = Math.max(Math.abs(minValue), Math.abs(maxValue));
+
+  // Add some padding (20% of the max deviation, minimum 0.5%)
+  const padding = Math.max(maxAbsDeviation * 0.2, 0.5);
+  const extent = maxAbsDeviation + padding;
+
+  // Find a nice step size
+  const desiredTicks = 6;
+  const halfTicks = Math.floor(desiredTicks / 2);
+  const rawStep = extent / halfTicks;
+  const niceSteps = [0.1, 0.2, 0.25, 0.5, 1.0, 2.0, 2.5, 5.0, 10.0, 20.0, 25.0, 50.0];
+  const step = niceSteps.find(s => s >= rawStep) || Math.ceil(rawStep);
+
+  // Symmetrical around 0%
+  const yExtent = Math.ceil(extent / step) * step;
+
+  return { min: -yExtent, max: yExtent };
+}
+
+// Compute nice y-axis domain for equity $ — symmetrical around $100k baseline
+function computeEquityYAxis(minValue: number, maxValue: number) {
+  const baseline = 100000;
+
+  // Find the max absolute deviation from $100k
+  const maxAbsDeviation = Math.max(
+    Math.abs(minValue - baseline),
+    Math.abs(maxValue - baseline)
+  );
+
+  // Add some padding (20% of the max deviation, minimum $500)
+  const padding = Math.max(maxAbsDeviation * 0.2, 500);
+  const extent = maxAbsDeviation + padding;
+
+  // Find a nice step size
+  const desiredTicks = 6;
+  const halfTicks = Math.floor(desiredTicks / 2);
+  const rawStep = extent / halfTicks;
+  const niceSteps = [500, 1000, 2000, 2500, 5000, 10000, 20000, 25000, 50000, 100000];
+  const step = niceSteps.find(s => s >= rawStep) || Math.ceil(rawStep / 1000) * 1000;
+
+  // Symmetrical around $100k
+  const yExtent = Math.ceil(extent / step) * step;
+
+  return { min: baseline - yExtent, max: baseline + yExtent };
 }
 
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const hoursParam = searchParams.get("hours") || "72";
-    let hours: number | "all" = hoursParam === "all" ? "all" : parseInt(hoursParam, 10);
-    if (hours !== "all") {
-      if (!Number.isFinite(hours) || hours <= 0) {
-        hours = 72;
-      }
-    }
-    const view = searchParams.get("view") || "return";
+    
+    // Parse topN (only allow 10 or 20, default 10)
+    const topNParam = parseInt(searchParams.get("topN") || "10", 10);
+    const topN = topNParam === 20 ? 20 : 10;
+    
     const showEnded = searchParams.get("showEnded") === "true";
 
     const serviceClient = createServiceRoleClient();
 
-    // Calculate time range
+    // Calculate time range - fetch up to 1 year of data
     const now = new Date();
-    const startTime = hours === "all"
-      ? null
-      : new Date(now.getTime() - (hours as number) * 60 * 60 * 1000);
+    const oneYearAgo = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+    const startTime = oneYearAgo;
 
-    // Build query for arena entries
-    // Note: We fetch profiles separately since there may not be a direct FK relationship
+    // Fetch arena entries
     let query = serviceClient
       .from("arena_entries")
       .select(`
@@ -99,9 +155,9 @@ export async function GET(request: NextRequest) {
       `)
       .eq("mode", "arena");
 
-    // Filter by status unless showEnded is true
+    // By default show active + stopped; when showEnded is true also include "left"
     if (!showEnded) {
-      query = query.eq("active", true).eq("arena_status", "active");
+      query = query.in("arena_status", ["active", "ended"]);
     }
 
     const { data: arenaEntries, error: entriesError } = await query.order("opted_in_at", { ascending: true });
@@ -113,24 +169,25 @@ export async function GET(request: NextRequest) {
 
     if (!arenaEntries || arenaEntries.length === 0) {
       return NextResponse.json({
-        chartData: [],
+        equityChartData: [],
+        returnChartData: [],
         participants: [],
-        hours,
-        view,
+        topN,
+        maxElapsedMs: 0,
         message: "No active arena participants"
       });
     }
 
-    // Fetch profiles separately for avatar URLs
+    // Fetch profiles for avatar URLs
     const userIds = [...new Set(arenaEntries.map((e: any) => e.user_id).filter(Boolean))];
     const userToProfile = new Map<string, { avatar_url: string | null; username: string | null }>();
-    
+
     if (userIds.length > 0) {
       const { data: profiles } = await serviceClient
         .from("profiles")
         .select("id, avatar_url, username")
         .in("id", userIds);
-      
+
       if (profiles) {
         for (const p of profiles) {
           userToProfile.set(p.id, { avatar_url: p.avatar_url, username: p.username });
@@ -164,15 +221,14 @@ export async function GET(request: NextRequest) {
         avatarUrl: profile?.avatar_url || null,
         joinTime,
         startingEquity,
-        baselineEquity: startingEquity,
-        baselineTime: joinTime,
         data: [],
-        latestValue: currentEquity,
-        returnPct: ((currentEquity - startingEquity) / startingEquity) * 100,
+        latestEquity: currentEquity,
+        baselineEquity: startingEquity,
+        returnPct: 0,
       });
     }
 
-    // Fetch equity points for all sessions (paginated to avoid default 1000-row limit)
+    // Fetch equity points (paginated to avoid 1000-row limit)
     const PAGE_SIZE = 1000;
     let equityPoints: { session_id: string; equity: number; t: string }[] = [];
     let eqError: any = null;
@@ -227,73 +283,86 @@ export async function GET(request: NextRequest) {
         });
       }
 
-      // Assign to participants
+      // Assign to participants (no view-dependent mutations)
       for (const p of participants) {
         const points = sessionToPoints.get(p.sessionId) || [];
+        // Sort ascending by time (should already be, but ensure it)
+        points.sort((a, b) => a.time - b.time);
         p.data = points;
 
-        // Ensure the series starts at 0% for the selected time window
-        // If the first recorded equity point is within a short window of join time, snap it to starting equity.
-        const joinWindowMs = 10 * 60 * 1000; // 10 minutes
-        if (p.data.length > 0) {
-          const first = p.data[0];
-          if (Math.abs(first.time - p.joinTime) <= joinWindowMs) {
-            first.value = p.startingEquity;
-          } else if (first.time > p.joinTime) {
-            // If we're missing early points, prepend a baseline at join time (only if within range).
-            if (!startTime || p.joinTime >= startTime.getTime()) {
-              p.data.unshift({ time: p.joinTime, value: p.startingEquity });
-            }
-          }
-        } else {
-          // No points at all - still show baseline (within requested time range)
+        // If no data points in range but join time is within range, add a single baseline point
+        if (p.data.length === 0) {
           if (!startTime || p.joinTime >= startTime.getTime()) {
             p.data = [{ time: p.joinTime, value: p.startingEquity }];
           }
         }
 
         if (p.data.length > 0) {
-          p.latestValue = p.data[p.data.length - 1].value;
+          p.latestEquity = p.data[p.data.length - 1].value;
         }
       }
     }
 
-    // Capture baseline before bucketing (first point in range)
-    if (view === "return") {
-      for (const p of participants) {
-        const firstVal = p.data[0]?.value;
-        const baseline = Number.isFinite(firstVal) && Number(firstVal) > 0 ? Number(firstVal) : p.startingEquity;
-        p.baselineEquity = baseline;
-      }
-    }
-
-    // Apply bucketing to reduce data density
-    const bucketSize = getBucketSizeMs(hours);
+    // Compute returnPct for all participants first (needed for sorting)
     for (const p of participants) {
-      p.data = bucketData(p.data, bucketSize);
-      // Force first bucket to baseline for return view so the line starts at 0.0%
-      if (view === "return" && p.data.length > 0) {
-        p.data[0].value = p.baselineEquity;
-        p.baselineTime = p.data[0].time;
+      if (p.data.length > 0) {
+        const series = computeReturnSeries(
+          p.data.map(d => ({ time: d.time, equity: d.value })),
+          p.startingEquity,
+        );
+        const last = series[series.length - 1];
+        p.returnPct = last.returnPct;
       }
+      // Arena baseline is always the session's starting equity
+      p.baselineEquity = p.startingEquity;
     }
 
-    // Filter out participants with no data points
-    const activeParticipants = participants.filter(p => p.data.length > 0);
+    // Filter out participants with no data
+    const participantsWithData = participants.filter(p => p.data.length > 0);
 
-    // IMPORTANT: Normalize return series to the selected time window:
-    // The first point in the returned range is always 0.0%.
-    // This matches the UI expectation that the Return % line "starts at 0".
-    if (view === "return") {
-      for (const p of activeParticipants) {
-        // ReturnPct used for ranking/labels should match the displayed time window
-        p.returnPct = ((p.latestValue - p.baselineEquity) / p.baselineEquity) * 100;
+    // Sort by latestEquity descending and take top N (server-enforced)
+    participantsWithData.sort((a, b) => b.latestEquity - a.latestEquity);
+    const activeParticipants = participantsWithData.slice(0, topN);
+
+    // Keep absolute timestamps so late joiners' lines start later on the x-axis.
+    // Inject a baseline point at each participant's actual joinTime if needed.
+    let minTime = Infinity;
+    let maxTime = -Infinity;
+    for (const p of activeParticipants) {
+      // Ensure baseline point at the participant's actual join time
+      if (p.data.length === 0 || p.data[0].time > p.joinTime) {
+        p.data.unshift({ time: p.joinTime, value: p.startingEquity });
       }
-    } else {
-      // Equity view: keep returnPct as total return since starting equity (for ranking)
-      for (const p of activeParticipants) {
-        p.baselineEquity = p.startingEquity;
-        p.returnPct = ((p.latestValue - p.startingEquity) / p.startingEquity) * 100;
+      if (p.data.length > 0) {
+        minTime = Math.min(minTime, p.data[0].time);
+        maxTime = Math.max(maxTime, p.data[p.data.length - 1].time);
+      }
+    }
+    const maxElapsedMs = maxTime > minTime ? maxTime - minTime : 0;
+
+    // Apply bucketing based on max elapsed time
+    const bucketSize = getBucketSizeMs(maxElapsedMs);
+    for (const p of activeParticipants) {
+      p.data = bucketData(p.data, bucketSize);
+
+      // After bucketing, ensure exact joinTime baseline point exists.
+      // Bucketing may move joinTime to an earlier bucket, causing the line to appear
+      // to start late (since we skip times < joinTime in forward-fill).
+      // Re-insert exact { time: joinTime, value: startingEquity } if missing or bucketed away.
+      const hasExactJoinPoint = p.data.some(d => d.time === p.joinTime);
+      if (!hasExactJoinPoint) {
+        // Insert at correct sorted position
+        const insertIdx = p.data.findIndex(d => d.time > p.joinTime);
+        const baselinePoint = { time: p.joinTime, value: p.startingEquity };
+        if (insertIdx === -1) {
+          p.data.push(baselinePoint);
+        } else {
+          p.data.splice(insertIdx, 0, baselinePoint);
+        }
+      }
+
+      if (p.data.length > 0) {
+        p.latestEquity = p.data[p.data.length - 1].value;
       }
     }
 
@@ -315,155 +384,84 @@ export async function GET(request: NextRequest) {
     }
 
     // Collect all unique times for unified x-axis
+    // Include each participant's joinTime to ensure their first point is visible at the exact join timestamp
     const allTimes = new Set<number>();
     for (const p of activeParticipants) {
+      allTimes.add(p.joinTime); // Ensure joinTime is in the x-axis
       for (const point of p.data) {
         allTimes.add(point.time);
       }
     }
     const sortedTimes = Array.from(allTimes).sort((a, b) => a - b);
 
-    // Build chart data array
-    const chartData = sortedTimes.map(time => {
-      const point: Record<string, any> = { time };
+    // Build BOTH chart data arrays from the same equity series
+    let eqMin = Infinity, eqMax = -Infinity;
+    let retMin = Infinity, retMax = -Infinity;
+
+    const equityChartData: Record<string, any>[] = [];
+    const returnChartData: Record<string, any>[] = [];
+
+    for (const time of sortedTimes) {
+      const eqPoint: Record<string, any> = { time };
+      const retPoint: Record<string, any> = { time };
 
       for (const p of activeParticipants) {
-        // Find the closest point at or before this time
-        let value: number | null = null;
+        // Skip times before this participant joined — no line before their join
+        if (time < p.joinTime) continue;
+
+        // Find closest equity point at or before this time
+        let eqValue: number | null = null;
         for (let i = p.data.length - 1; i >= 0; i--) {
           if (p.data[i].time <= time) {
-            value = p.data[i].value;
+            eqValue = p.data[i].value;
             break;
           }
         }
 
-        if (value !== null) {
-          if (view === "return") {
-            const base = p.baselineEquity && p.baselineEquity > 0 ? p.baselineEquity : p.startingEquity;
-            point[p.entryId] = ((value - base) / base) * 100;
-          } else {
-            point[p.entryId] = value;
-          }
+        if (eqValue !== null) {
+          eqPoint[p.entryId] = eqValue;
+          eqMin = Math.min(eqMin, eqValue);
+          eqMax = Math.max(eqMax, eqValue);
+
+          // Return is always computed vs the session's starting equity
+          const base = p.startingEquity > 0 ? p.startingEquity : 100000;
+          const ret = ((eqValue / base) - 1) * 100;
+          retPoint[p.entryId] = ret;
+          retMin = Math.min(retMin, ret);
+          retMax = Math.max(retMax, ret);
         }
       }
 
-      return point;
-    });
-
-    // CRITICAL: Force each participant's FIRST point to be exactly 0.0% in Return view
-    // IMPORTANT: Do this BEFORE calculating yAxis domain so minValue sees the zeros
-    if (view === "return" && chartData.length > 0) {
-      for (const p of activeParticipants) {
-        for (let i = 0; i < chartData.length; i++) {
-          if (chartData[i][p.entryId] !== undefined && chartData[i][p.entryId] !== null) {
-            chartData[i][p.entryId] = 0;
-            break; // Only set the first point
-          }
-        }
-      }
+      equityChartData.push(eqPoint);
+      returnChartData.push(retPoint);
     }
 
-    // Calculate stats for y-axis domain hints (AFTER forcing first points to 0)
-    let minValue = Infinity;
-    let maxValue = -Infinity;
-
-    for (const point of chartData) {
-      for (const p of activeParticipants) {
-        const val = point[p.entryId];
-        if (val !== undefined && val !== null) {
-          minValue = Math.min(minValue, val);
-          maxValue = Math.max(maxValue, val);
-        }
-      }
-    }
-
-    const range = maxValue - minValue;
-    
-    // Calculate appropriate padding based on view type
-    let padding: number;
-    let yMin: number;
-    let yMax: number;
-    
-    if (view === "return") {
-      // For return %, use generous padding like equity chart (zoomed out, smooth)
-      const minPadding = 0.5; // At least 0.5% padding
-      padding = Math.max(range * 3, minPadding); // Large padding (3x range, like equity)
-      
-      // If all data is >= 0, don't show negative Y-axis space
-      if (minValue >= 0) {
-        yMin = 0;
-        yMax = maxValue + padding;
-      } 
-      // If all data is <= 0, don't show positive Y-axis space
-      else if (maxValue <= 0) {
-        yMin = minValue - padding;
-        yMax = 0;
-      }
-      // Mixed (both positive and negative returns)
-      else {
-        yMin = minValue - padding * 0.3; // Minimal padding below
-        yMax = maxValue + padding * 0.3; // Minimal padding above
-      }
-      
-      // Round to nice tick intervals that include 0 as a tick
-      // With 6 ticks, we want 0 to be one of them
-      const desiredTicks = 6;
-      const rawStep = (yMax - yMin) / (desiredTicks - 1);
-      // Round step to nice values: 0.05, 0.1, 0.2, 0.25, 0.5, 1.0, etc.
-      const niceSteps = [0.05, 0.1, 0.2, 0.25, 0.5, 1.0, 2.0, 5.0];
-      const step = niceSteps.find(s => s >= rawStep) || Math.ceil(rawStep * 10) / 10;
-      
-      // Adjust domain so 0 is a tick: expand outward in steps from 0
-      yMin = -Math.ceil(Math.abs(yMin) / step) * step;
-      yMax = Math.ceil(yMax / step) * step;
-      
-    } else {
-      // For equity, always include $100k starting point
-      const avgValue = (minValue + maxValue) / 2;
-      const minPadding = avgValue * 0.01; // 1% of avg value
-      padding = Math.max(range * 0.15, minPadding, 500); // At least $500 padding
-      
-      yMin = minValue === Infinity ? 99000 : minValue - padding;
-      yMax = maxValue === -Infinity ? 101000 : maxValue + padding;
-      
-      // Always ensure $100k is visible on the Y-axis
-      if (yMin > 100000) yMin = 99500;
-      if (yMax < 100000) yMax = 100500;
-      
-      // Round to nice tick intervals that include 100k as a tick
-      const desiredTicks = 6;
-      const rawStep = (yMax - yMin) / (desiredTicks - 1);
-      // Round step to nice values for currency: 500, 1000, 2000, 5000, 10000, etc.
-      const niceSteps = [200, 500, 1000, 2000, 5000, 10000, 20000, 50000];
-      const step = niceSteps.find(s => s >= rawStep) || Math.ceil(rawStep / 1000) * 1000;
-      
-      // Adjust domain so 100000 is a tick
-      const stepsBelow = Math.ceil((100000 - yMin) / step);
-      const stepsAbove = Math.ceil((yMax - 100000) / step);
-      yMin = 100000 - (stepsBelow * step);
-      yMax = 100000 + (stepsAbove * step);
-    }
+    // Compute y-axis domains for both views
+    const equityYAxis = computeEquityYAxis(eqMin, eqMax);
+    const returnYAxis = computeReturnYAxis(retMin, retMax);
 
     return NextResponse.json({
-      chartData,
+      equityChartData,
+      returnChartData,
       participants: activeParticipants.map(p => ({
         displayName: p.displayName,
         entryId: p.entryId,
         userId: p.userId,
         avatarUrl: p.avatarUrl,
-        latestValue: p.latestValue,
+        latestEquity: p.latestEquity,
         returnPct: p.returnPct,
+        baselineEquity: p.baselineEquity,
         dataPoints: p.data.length,
       })),
-      hours,
-      view,
-      yAxisDomain: {
-        min: yMin,
-        max: yMax,
-      },
+      topN,
+      maxElapsedMs,
+      minTime: Number.isFinite(minTime) ? minTime : 0,
+      maxTime: Number.isFinite(maxTime) ? maxTime : 0,
+      equityYAxis,
+      returnYAxis,
       bucketSizeMinutes: bucketSize / 60000,
       dataQualityWarning,
-      totalDataPoints: chartData.length,
+      totalDataPoints: equityChartData.length,
     });
   } catch (error: any) {
     console.error("Arena chart error:", error);

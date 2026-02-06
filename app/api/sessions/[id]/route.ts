@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import { getUserFromRequest } from "@/lib/api/serverAuth";
+import { syncLiveAccountData } from "@/lib/brokers/liveBroker";
 
 export async function GET(
   request: NextRequest,
@@ -44,9 +45,31 @@ export async function GET(
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
+    // For live sessions, sync positions and equity from exchange
+    // This ensures fresh data on page load (no lag waiting for next tick)
+    if (session.mode === "live" && session.live_account_id && session.live_accounts) {
+      const venue = session.venue || "hyperliquid";
+      console.log(`[Sessions API] [${requestId}] 🔄 Syncing live account data from ${venue}...`);
+
+      if (venue === "hyperliquid") {
+        const freshData = await syncLiveAccountData(session.live_account_id);
+        if (freshData) {
+          session.live_accounts.equity = freshData.equity;
+          session.live_accounts.cash_balance = freshData.cashBalance;
+          console.log(`[Sessions API] [${requestId}] ✅ Fresh data: equity=$${freshData.equity.toFixed(2)}, positions=${freshData.positions.length}`);
+        } else {
+          console.log(`[Sessions API] [${requestId}] ⚠️ Could not sync fresh data, using DB values`);
+        }
+      } else if (venue === "coinbase") {
+        // For Coinbase, positions are reconstructed from trades during tick
+        // Equity sync also happens during tick (requires credentials)
+        console.log(`[Sessions API] [${requestId}] ℹ️ Coinbase session - data loaded from DB`);
+      }
+    }
+
     // Determine which account to use based on mode
-    const accountData = session.mode === "live" 
-      ? session.live_accounts 
+    const accountData = session.mode === "live"
+      ? session.live_accounts
       : session.virtual_accounts;
 
     return NextResponse.json({

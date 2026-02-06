@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -81,8 +81,10 @@ const CADENCE_OPTIONS = [
 
 const MAJOR_MARKETS_HL = ["BTC-PERP", "ETH-PERP", "SOL-PERP"];
 const MAJOR_MARKETS_CB = ["BTC-USD", "ETH-USD", "SOL-USD"];
+const MAJOR_MARKETS_CB_INTX = ["BTC-PERP-INTX", "ETH-PERP-INTX", "SOL-PERP-INTX"];
 
-const VENUES = [
+// Base venues - Coinbase description will be updated based on INTX status in component
+const BASE_VENUES = [
   { id: "hyperliquid", name: "Hyperliquid", description: "Perpetuals (up to 50x leverage, shorts allowed)" },
   { id: "coinbase", name: "Coinbase", description: "Spot trading (1x only, no shorts - US compliant)" },
 ];
@@ -121,11 +123,23 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
   const [activeTab, setActiveTab] = useState("basics");
   const isEditMode = !!strategyId;
 
-  // Track initial loading phase to prevent race conditions
-  const initialLoadRef = useRef(true);
-
   // Venue selection
   const [venue, setVenue] = useState<"hyperliquid" | "coinbase">("hyperliquid");
+
+  // INTX (Coinbase International) access status
+  const [coinbaseIntxEnabled, setCoinbaseIntxEnabled] = useState(false);
+
+  // Dynamic VENUES based on INTX status
+  const VENUES = BASE_VENUES.map((v) => {
+    if (v.id === "coinbase" && coinbaseIntxEnabled) {
+      return {
+        ...v,
+        name: "Coinbase INTX",
+        description: "Spot + Perpetuals (up to 10x leverage, shorts allowed)",
+      };
+    }
+    return v;
+  });
 
   // Basic fields
   const [name, setName] = useState("");
@@ -319,7 +333,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
     maxLeverage: number | "";
   }>({
     maxDailyLossPct: 5,
-    maxPositionUsd: 10000,
+    maxPositionUsd: 1000, // Default to $1000 (safer for live trading)
     maxLeverage: 2,
   });
 
@@ -529,12 +543,65 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
       if (filters.risk) {
         setRisk({
           maxDailyLossPct: filters.risk.maxDailyLossPct || 5,
-          maxPositionUsd: filters.risk.maxPositionUsd || 10000,
+          maxPositionUsd: filters.risk.maxPositionUsd || 1000,
           maxLeverage: filters.risk.maxLeverage || 2,
         });
       }
     }
   }, [isEditMode, initialData]);
+
+  // Fetch exchange connections to check INTX status
+  useEffect(() => {
+    const fetchExchangeConnections = async () => {
+      try {
+        const supabase = createClient();
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) return;
+
+        const response = await fetch("/api/exchange-connections", {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          const coinbaseConn = (data.connections || []).find(
+            (c: any) => c.venue === "coinbase"
+          );
+          if (coinbaseConn) {
+            setCoinbaseIntxEnabled(coinbaseConn.intx_enabled || false);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to fetch exchange connections:", err);
+      }
+    };
+
+    fetchExchangeConnections();
+  }, []);
+
+  // Auto-convert spot markets to INTX markets when Coinbase INTX is enabled
+  // This handles loading an existing strategy with spot markets when user now has INTX access
+  // Only runs when coinbaseIntxEnabled changes (not on every selectedMarkets change to avoid loops)
+  useEffect(() => {
+    if (venue === "coinbase" && coinbaseIntxEnabled && selectedMarkets.length > 0) {
+      const hasSpotMarkets = selectedMarkets.some(m =>
+        (m.endsWith("-USD") || m.endsWith("-USDC") || m.endsWith("-USDT")) && !m.endsWith("-PERP-INTX")
+      );
+      if (hasSpotMarkets) {
+        console.log("[Strategy Form] Converting spot markets to INTX perpetual markets");
+        const convertedMarkets = selectedMarkets.map(market => {
+          // Convert BTC-USD -> BTC-PERP-INTX, ETH-USD -> ETH-PERP-INTX, etc.
+          if ((market.endsWith("-USD") || market.endsWith("-USDC") || market.endsWith("-USDT")) && !market.endsWith("-PERP-INTX")) {
+            const base = market.split("-")[0]; // Get base currency (BTC, ETH, etc.)
+            return `${base}-PERP-INTX`;
+          }
+          return market;
+        });
+        setSelectedMarkets(convertedMarkets);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [venue, coinbaseIntxEnabled]); // Only trigger on venue or INTX status change, not selectedMarkets
 
   // Fetch markets based on venue
   useEffect(() => {
@@ -549,12 +616,8 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
         if (response.ok) {
           const data = await response.json();
           setAvailableMarkets(data.markets || []);
-          // Only clear markets when user manually changes venue, not during initial load
-          if (initialLoadRef.current) {
-            initialLoadRef.current = false;
-          } else {
-            setSelectedMarkets([]);
-          }
+          // Note: Markets are cleared in the venue onClick handler (line ~1153),
+          // not here, to avoid race conditions during initial data loading
         } else {
           setMarketsError(true);
         }
@@ -766,8 +829,11 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
       return;
     }
 
-    if (typeof risk.maxPositionUsd === "number" && risk.maxPositionUsd < 10) {
-      setError("Max Position Size must be at least $10 (Hyperliquid minimum order size)");
+    // Coinbase INTX minimum: ~$8-15 (varies by coin), Coinbase Spot minimum: $1, Hyperliquid minimum: $10
+    const minPositionSize = venue === "coinbase" ? (coinbaseIntxEnabled ? 10 : 1) : 10;
+    const exchangeLabel = venue === "coinbase" ? (coinbaseIntxEnabled ? "Coinbase INTX" : "Coinbase") : "Hyperliquid";
+    if (typeof risk.maxPositionUsd === "number" && risk.maxPositionUsd < minPositionSize) {
+      setError(`Max Position Size must be at least $${minPositionSize} (${exchangeLabel} minimum order size)`);
       setLoading(false);
       return;
     }
@@ -868,10 +934,10 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
       },
     };
     
-    // For Coinbase: force restrictions
-    const isCoinbase = venue === "coinbase";
-    const effectiveLeverage = isCoinbase ? 1 : (typeof risk.maxLeverage === "number" ? risk.maxLeverage : 2);
-    const effectiveAllowShort = isCoinbase ? false : guardrails.allowShort;
+    // For Coinbase Spot: force restrictions (INTX allows leverage/shorts)
+    const isCoinbaseSpot = venue === "coinbase" && !coinbaseIntxEnabled;
+    const effectiveLeverage = isCoinbaseSpot ? 1 : (typeof risk.maxLeverage === "number" ? risk.maxLeverage : 2);
+    const effectiveAllowShort = isCoinbaseSpot ? false : guardrails.allowShort;
 
     const filters: any = {
       venue,
@@ -892,7 +958,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
       },
       risk: {
         maxDailyLossPct: typeof risk.maxDailyLossPct === "number" ? risk.maxDailyLossPct : 5,
-        maxPositionUsd: typeof risk.maxPositionUsd === "number" ? risk.maxPositionUsd : 10000,
+        maxPositionUsd: typeof risk.maxPositionUsd === "number" ? risk.maxPositionUsd : 1000,
         maxLeverage: effectiveLeverage,
       },
     };
@@ -969,7 +1035,12 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
   };
 
   const handleSelectMajors = () => {
-    const majorMarkets = venue === "coinbase" ? MAJOR_MARKETS_CB : MAJOR_MARKETS_HL;
+    let majorMarkets: string[];
+    if (venue === "coinbase") {
+      majorMarkets = coinbaseIntxEnabled ? MAJOR_MARKETS_CB_INTX : MAJOR_MARKETS_CB;
+    } else {
+      majorMarkets = MAJOR_MARKETS_HL;
+    }
     setSelectedMarkets(prev => {
       const newSet = new Set([...prev, ...majorMarkets]);
       return Array.from(newSet);
@@ -1083,12 +1154,21 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                       ))}
                     </div>
                     {venue === "coinbase" && (
-                      <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-md mt-2">
-                        <p className="text-sm text-blue-700 dark:text-blue-400">
-                          <strong>Coinbase (US Compliant):</strong> Spot trading only - leverage is fixed at 1x and short selling is not available.
-                          This is due to US regulatory requirements for retail crypto trading.
-                        </p>
-                      </div>
+                      coinbaseIntxEnabled ? (
+                        <div className="p-3 bg-green-500/10 border border-green-500/20 rounded-md mt-2">
+                          <p className="text-sm text-green-700 dark:text-green-400">
+                            <strong>Coinbase International (INTX):</strong> Perpetuals trading enabled with up to 10x leverage and short selling.
+                            Available for non-US users who passed Coinbase&apos;s derivatives verification.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-md mt-2">
+                          <p className="text-sm text-blue-700 dark:text-blue-400">
+                            <strong>Coinbase (Spot Only):</strong> Leverage is fixed at 1x and short selling is not available.
+                            Enable INTX in Settings → Exchange if you have Coinbase International access.
+                          </p>
+                        </div>
+                      )
                     )}
                   </div>
 
@@ -2914,7 +2994,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                       <Input
                         type="number"
                         step="0.01"
-                        min="10"
+                        min={venue === "coinbase" ? (coinbaseIntxEnabled ? "10" : "1") : "10"}
                         value={risk.maxPositionUsd}
                         onChange={(e) => {
                           const value = e.target.value;
@@ -2924,10 +3004,11 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                           }));
                         }}
                         onBlur={(e) => {
-                          if (e.target.value === "" || parseFloat(e.target.value) < 10) {
+                          const minValue = venue === "coinbase" ? (coinbaseIntxEnabled ? 15 : 1) : 10;
+                          if (e.target.value === "" || parseFloat(e.target.value) < minValue) {
                             setRisk(prev => ({
                               ...prev,
-                              maxPositionUsd: 10000,
+                              maxPositionUsd: 1000, // Default to $1000 (safer for live trading)
                             }));
                           }
                         }}
@@ -2935,21 +3016,23 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                       />
                       <p className="text-xs text-muted-foreground">
                         {venue === "coinbase"
-                          ? "Coinbase minimum: ~$1 per order (varies by asset)"
+                          ? (coinbaseIntxEnabled
+                              ? "Most Coinbase INTX coins minimum: ~$8-15 per order"
+                              : "Coinbase minimum: ~$1 per order (varies by asset)")
                           : "Hyperliquid minimum: $10 per order"}
                       </p>
                     </div>
 
                     <div className="space-y-2">
                       <label className="text-sm font-semibold">Max Leverage</label>
-                      {venue === "coinbase" ? (
+                      {venue === "coinbase" && !coinbaseIntxEnabled ? (
                         <div className="p-3 bg-muted border rounded-md">
                           <div className="flex items-center gap-2">
                             <span className="font-mono text-lg">1x</span>
-                            <span className="text-xs text-muted-foreground">(fixed for Coinbase)</span>
+                            <span className="text-xs text-muted-foreground">(fixed for Coinbase Spot)</span>
                           </div>
                           <p className="text-xs text-muted-foreground mt-1">
-                            Leverage trading is not available for US users on Coinbase.
+                            Enable INTX access in Settings for leverage trading.
                           </p>
                         </div>
                       ) : (
@@ -3000,17 +3083,17 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                       <div>
                         <label className="text-sm font-semibold">Allow Short Positions</label>
                         <p className="text-xs text-muted-foreground">
-                          {venue === "coinbase"
-                            ? "Not available on Coinbase (spot trading only)"
+                          {venue === "coinbase" && !coinbaseIntxEnabled
+                            ? "Not available on Coinbase Spot (enable INTX for shorts)"
                             : "Sell/Go short"}
                         </p>
                       </div>
                       <Switch
-                        checked={venue === "coinbase" ? false : guardrails.allowShort}
+                        checked={venue === "coinbase" && !coinbaseIntxEnabled ? false : guardrails.allowShort}
                         onCheckedChange={(checked) =>
                           setGuardrails(prev => ({ ...prev, allowShort: checked }))
                         }
-                        disabled={venue === "coinbase"}
+                        disabled={venue === "coinbase" && !coinbaseIntxEnabled}
                       />
                     </div>
 
@@ -3050,11 +3133,13 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
             <div>
               <div className="text-muted-foreground">Exchange</div>
               <div className="font-medium">
-                {venue === "coinbase" ? "Coinbase (Spot)" : "Hyperliquid (Perps)"}
+                {venue === "coinbase"
+                  ? (coinbaseIntxEnabled ? "Coinbase INTX (Spot + Perps)" : "Coinbase (Spot)")
+                  : "Hyperliquid (Perps)"}
               </div>
-              {venue === "coinbase" && (
+              {venue === "coinbase" && !coinbaseIntxEnabled && (
                 <div className="text-xs text-blue-600 dark:text-blue-400 mt-1">
-                  US Compliant
+                  Spot Only
                 </div>
               )}
             </div>
@@ -3117,13 +3202,15 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
             <div>
               <div className="text-muted-foreground">Max Position</div>
               <div className="font-medium">
-                ${typeof risk.maxPositionUsd === "number" ? risk.maxPositionUsd.toLocaleString() : "10,000"}
+                ${typeof risk.maxPositionUsd === "number" ? risk.maxPositionUsd.toLocaleString() : "1,000"}
               </div>
             </div>
             <div>
               <div className="text-muted-foreground">Max Leverage</div>
               <div className="font-medium">
-                {venue === "coinbase" ? "1x (spot)" : `${typeof risk.maxLeverage === "number" ? risk.maxLeverage : 2}x`}
+                {venue === "coinbase" && !coinbaseIntxEnabled
+                  ? "1x (spot)"
+                  : `${typeof risk.maxLeverage === "number" ? risk.maxLeverage : 2}x`}
               </div>
             </div>
             <div>

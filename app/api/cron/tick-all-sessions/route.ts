@@ -19,17 +19,20 @@ export async function GET(request: NextRequest) {
   // Log for debugging
   console.log(`[Cron] Request received - Has Secret: ${!!cronSecret}, Auth Header: ${authHeader ? `${authHeader.substring(0, 20)}...` : 'MISSING'}`);
   
-  // If secret is configured, require Authorization header (for external cron services)
-  if (cronSecret) {
-    const expectedAuth = `Bearer ${cronSecret}`;
-    if (!authHeader || authHeader !== expectedAuth) {
-      console.error(`[Cron] ❌ Unauthorized - Expected: Bearer ${cronSecret.substring(0, 8)}..., Got: ${authHeader ? `${authHeader.substring(0, 20)}...` : 'MISSING'}`);
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    console.log(`[Cron] ✅ Authentication successful`);
-  } else {
-    console.warn(`[Cron] ⚠️ No INTERNAL_API_KEY or CRON_SECRET set - allowing unauthenticated access (not recommended for production)`);
+  // CRITICAL FIX: Always require authentication. If no secret is configured,
+  // reject the request rather than allowing unauthenticated access.
+  // This prevents anyone from triggering all session ticks in production.
+  if (!cronSecret) {
+    console.error(`[Cron] ❌ REJECTED: No INTERNAL_API_KEY or CRON_SECRET configured. Set one of these environment variables to enable the cron endpoint.`);
+    return NextResponse.json({ error: "Cron endpoint not configured - INTERNAL_API_KEY or CRON_SECRET required" }, { status: 503 });
   }
+
+  const expectedAuth = `Bearer ${cronSecret}`;
+  if (!authHeader || authHeader !== expectedAuth) {
+    console.error(`[Cron] ❌ Unauthorized - Expected: Bearer ${cronSecret.substring(0, 8)}..., Got: ${authHeader ? `${authHeader.substring(0, 20)}...` : 'MISSING'}`);
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  console.log(`[Cron] ✅ Authentication successful`);
   
   console.log(`[Cron] ✅ Tick-all-sessions endpoint called at ${new Date().toISOString()}`);
 

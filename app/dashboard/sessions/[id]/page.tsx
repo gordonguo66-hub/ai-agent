@@ -128,14 +128,22 @@ function SessionDetailContent({ sessionId }: { sessionId: string }) {
   const positionsHash = useMemo(() => JSON.stringify(positions || []), [positions]);
   const positionsRef = useRef<any[]>([]);
   const lastPositionsHashRef = useRef<string>("");
-  
+  const sessionVenueRef = useRef<string>("hyperliquid"); // Default to hyperliquid
+
+  // Update venue ref when session changes
+  useEffect(() => {
+    if (session?.venue) {
+      sessionVenueRef.current = session.venue;
+    }
+  }, [session?.venue]);
+
   useEffect(() => {
     // Only update ref if positions actually changed
     if (positionsHash !== lastPositionsHashRef.current) {
       positionsRef.current = positions || [];
       lastPositionsHashRef.current = positionsHash;
     }
-    
+
     // Only set up interval if we have positions
     if (positionsRef.current.length === 0) return;
 
@@ -143,7 +151,14 @@ function SessionDetailContent({ sessionId }: { sessionId: string }) {
       try {
         // Use ref to get current positions (stable reference)
         const markets = positionsRef.current.map((p: any) => p.market);
-        const response = await fetch("/api/hyperliquid/prices", {
+
+        // Use correct prices API based on venue
+        const venue = sessionVenueRef.current;
+        const pricesEndpoint = venue === "coinbase"
+          ? "/api/coinbase/prices"
+          : "/api/hyperliquid/prices";
+
+        const response = await fetch(pricesEndpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ markets }),
@@ -1041,12 +1056,12 @@ function SessionDetailContent({ sessionId }: { sessionId: string }) {
   
   // Always use calculated equity from accounting helper (not stored equity which may be stale)
   const equity = pnlTotals?.equity ?? accountEquity;
-  
-  // Total PnL MUST equal realized + unrealized - fees (reconciliation identity)
-  // Use this formula instead of equity - starting_equity to ensure consistency
-  const pnl = pnlTotals 
-    ? pnlTotals.realizedPnl + pnlTotals.unrealizedPnl - pnlTotals.feesPaid
-    : (equity != null && startBal != null ? equity - startBal : null);
+
+  // Use totalPnl from accounting helper (handles both live and virtual modes correctly)
+  // For live mode: totalPnl = equity - starting_equity (direct equity change)
+  // For virtual mode: totalPnl = realized + unrealized - fees (reconciliation identity)
+  const pnl = pnlTotals?.totalPnl
+    ?? (equity != null && startBal != null ? equity - startBal : null);
   
   // Return % MUST be calculated from equity and starting_equity (same source of truth)
   // Formula: (current_equity - starting_equity) / starting_equity
@@ -1054,7 +1069,8 @@ function SessionDetailContent({ sessionId }: { sessionId: string }) {
   const returnPct = pnlTotals?.returnPct ?? (equity != null && startBal != null && startBal > 0 ? ((equity - startBal) / startBal) * 100 : null);
   
   // Sanity assertion: If total_pnl > 0, return % must be > 0
-  if (pnl != null && returnPct != null && pnl > 0 && returnPct <= 0) {
+  // Skip for live mode since pnl = equity - starting by definition (always consistent with returnPct)
+  if (session?.mode !== 'live' && pnl != null && returnPct != null && pnl > 0 && returnPct <= 0) {
     console.error(`[UI] SANITY CHECK FAILED: pnl=${pnl.toFixed(2)} > 0 but returnPct=${returnPct.toFixed(2)} <= 0`);
     console.error(`[UI] equity=${equity?.toFixed(2)}, startBal=${startBal?.toFixed(2)}`);
   }
@@ -1417,13 +1433,24 @@ function SessionDetailContent({ sessionId }: { sessionId: string }) {
                       </span>
                     </div>
                     <div className="text-xs opacity-75">
-                      Reconciliation: {pnlTotals.realizedPnl.toFixed(2)} + {pnlTotals.unrealizedPnl.toFixed(2)} - {pnlTotals.feesPaid.toFixed(2)} = ${(pnlTotals.realizedPnl + pnlTotals.unrealizedPnl - pnlTotals.feesPaid).toFixed(2)}{" "}
-                      {verifyReconciliation(pnlTotals) ? (
-                        <span className="text-green-600 dark:text-green-400">✓</span>
+                      {session?.mode === 'live' ? (
+                        // Live mode: PnL = equity - starting (can't reconcile without cost basis)
+                        <>
+                          PnL = Equity ${equity?.toFixed(2)} - Starting ${startBal?.toFixed(2)} = ${pnlTotals.totalPnl.toFixed(2)}{" "}
+                          <span className="text-green-600 dark:text-green-400">✓</span>
+                        </>
                       ) : (
-                        <span className="text-red-600 dark:text-red-400">
-                          (Expected: ${pnlTotals.totalPnl.toFixed(2)})
-                        </span>
+                        // Virtual mode: PnL = realized + unrealized - fees (reconciliation identity)
+                        <>
+                          Reconciliation: {pnlTotals.realizedPnl.toFixed(2)} + {pnlTotals.unrealizedPnl.toFixed(2)} - {pnlTotals.feesPaid.toFixed(2)} = ${(pnlTotals.realizedPnl + pnlTotals.unrealizedPnl - pnlTotals.feesPaid).toFixed(2)}{" "}
+                          {verifyReconciliation(pnlTotals) ? (
+                            <span className="text-green-600 dark:text-green-400">✓</span>
+                          ) : (
+                            <span className="text-red-600 dark:text-red-400">
+                              (Expected: ${pnlTotals.totalPnl.toFixed(2)})
+                            </span>
+                          )}
+                        </>
                       )}
                     </div>
                   </div>
@@ -1738,6 +1765,10 @@ function SessionDetailContent({ sessionId }: { sessionId: string }) {
                           
                           // Position Value = size * currentPrice (mark-to-market)
                           const positionValue = calcPositionValue(size, currentPrice > 0 ? currentPrice : entryPrice);
+
+                          // Calculate ROI percentage based on cost basis
+                          const costBasis = size * entryPrice;
+                          const roiPercent = costBasis > 0 ? (unrealizedPnl / costBasis) * 100 : 0;
                           
                           return (
                             <TableRow key={position.id}>
@@ -1776,8 +1807,14 @@ function SessionDetailContent({ sessionId }: { sessionId: string }) {
                                     : "text-muted-foreground"
                                 }`}
                               >
-                                {unrealizedPnl >= 0 ? "+" : ""}
-                                ${unrealizedPnl.toFixed(2)}
+                                <div className="flex flex-col items-end">
+                                  <span>
+                                    {unrealizedPnl >= 0 ? "+" : ""}${unrealizedPnl.toFixed(2)}
+                                  </span>
+                                  <span className="text-xs opacity-75">
+                                    ({roiPercent >= 0 ? "+" : ""}{roiPercent.toFixed(2)}%)
+                                  </span>
+                                </div>
                               </TableCell>
                               <TableCell className="text-right font-mono">
                                 ${positionValue.toFixed(2)}
@@ -1812,6 +1849,7 @@ function SessionDetailContent({ sessionId }: { sessionId: string }) {
                           <TableHead className="text-right">Leverage</TableHead>
                           <TableHead className="text-right">Size</TableHead>
                           <TableHead className="text-right">Price</TableHead>
+                          <TableHead className="text-right">Trade Value</TableHead>
                           <TableHead className="text-right">Fee</TableHead>
                           <TableHead className="text-right">Realized PnL</TableHead>
                         </TableRow>
@@ -1878,6 +1916,9 @@ function SessionDetailContent({ sessionId }: { sessionId: string }) {
                               </TableCell>
                               <TableCell className="text-right font-mono">
                                 ${trade.price != null ? Number(trade.price).toFixed(2) : "0.00"}
+                              </TableCell>
+                              <TableCell className="text-right font-mono">
+                                ${(Number(trade.size || 0) * Number(trade.price || 0)).toFixed(2)}
                               </TableCell>
                               <TableCell className="text-right font-mono text-muted-foreground">
                                 ${trade.fee != null ? Number(trade.fee).toFixed(2) : "0.00"}

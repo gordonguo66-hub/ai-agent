@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
-import { AuthGuard } from "@/components/auth-guard";
+import { useAuthGate } from "@/components/auth-gate-provider";
 import { createClient } from "@/lib/supabase/browser";
 import { getBearerToken } from "@/lib/api/clientAuth";
 import { FormattedDate } from "@/components/formatted-date";
@@ -99,6 +99,7 @@ interface SavedPost {
 
 function ProfileContent({ userId }: { userId: string }) {
   const router = useRouter();
+  const { user, loading: authLoading, showAuthGate } = useAuthGate();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [posts, setPosts] = useState<ProfilePost[]>([]);
   const [savedPosts, setSavedPosts] = useState<SavedPost[]>([]);
@@ -129,17 +130,28 @@ function ProfileContent({ userId }: { userId: string }) {
   const [postVisibility, setPostVisibility] = useState<"public" | "profile_only">("public");
   const [postSuccess, setPostSuccess] = useState<string | null>(null);
   const [messageDialogOpen, setMessageDialogOpen] = useState(false);
+  const [followsModalType, setFollowsModalType] = useState<"followers" | "following" | null>(null);
+  const [followsList, setFollowsList] = useState<{ id: string; display_name: string; avatar_url?: string }[]>([]);
+  const [followsLoading, setFollowsLoading] = useState(false);
+  const [authGateShown, setAuthGateShown] = useState(false);
 
   const isOwner = currentUserId === userId;
 
+  // Show auth gate modal if user is not signed in
   useEffect(() => {
-    const checkAuth = async () => {
-      const supabase = createClient();
-      const { data: { session } } = await supabase.auth.getSession();
-      setCurrentUserId(session?.user?.id || null);
-    };
-    checkAuth();
-  }, []);
+    if (!authLoading && !user && !authGateShown) {
+      setAuthGateShown(true);
+      showAuthGate(`/u/${userId}`, {
+        title: "Sign in to view profiles",
+        description: "Create an account or sign in to view trader profiles, follow users, and connect with the community.",
+      });
+    }
+  }, [authLoading, user, userId, showAuthGate, authGateShown]);
+
+  // Update currentUserId from auth context
+  useEffect(() => {
+    setCurrentUserId(user?.id || null);
+  }, [user?.id]);
 
   useEffect(() => {
     loadProfile();
@@ -255,6 +267,25 @@ function ProfileContent({ userId }: { userId: string }) {
       alert("Failed to update follow status");
     } finally {
       setFollowLoading(false);
+    }
+  };
+
+  const openFollowsModal = async (type: "followers" | "following") => {
+    setFollowsModalType(type);
+    setFollowsLoading(true);
+    try {
+      const bearer = await getBearerToken();
+      const response = await fetch(`/api/profiles/${userId}/${type}`, {
+        headers: bearer ? { Authorization: bearer } : undefined,
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setFollowsList(data.users || []);
+      }
+    } catch (error) {
+      console.error(`Error loading ${type}:`, error);
+    } finally {
+      setFollowsLoading(false);
     }
   };
 
@@ -642,14 +673,14 @@ function ProfileContent({ userId }: { userId: string }) {
 
                   {/* Follower/Following counts */}
                   <div className="flex gap-4 mb-3 text-sm">
-                    <span>
+                    <button onClick={() => openFollowsModal("followers")} className="hover:opacity-70 transition-opacity text-left">
                       <span className="font-semibold">{profile.followers_count || 0}</span>{" "}
                       <span className="text-muted-foreground">Followers</span>
-                    </span>
-                    <span>
+                    </button>
+                    <button onClick={() => openFollowsModal("following")} className="hover:opacity-70 transition-opacity text-left">
                       <span className="font-semibold">{profile.following_count || 0}</span>{" "}
                       <span className="text-muted-foreground">Following</span>
-                    </span>
+                    </button>
                   </div>
 
                   {profile.bio && (
@@ -706,6 +737,41 @@ function ProfileContent({ userId }: { userId: string }) {
               currentUserId={currentUserId}
             />
           )}
+
+          {/* Followers / Following Modal */}
+          <Dialog open={!!followsModalType} onOpenChange={(open) => { if (!open) setFollowsModalType(null); }}>
+            <DialogContent onClose={() => setFollowsModalType(null)}>
+              <DialogHeader>
+                <DialogTitle>{followsModalType === "followers" ? "Followers" : "Following"}</DialogTitle>
+                <DialogDescription>
+                  {followsModalType === "followers"
+                    ? `People who follow ${profile.display_name}`
+                    : `People ${profile.display_name} is following`}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="mt-2 max-h-80 overflow-y-auto space-y-1">
+                {followsLoading ? (
+                  <p className="text-muted-foreground text-center py-6">Loading...</p>
+                ) : followsList.length === 0 ? (
+                  <p className="text-muted-foreground text-center py-6">
+                    {followsModalType === "followers" ? "No followers yet." : "Not following anyone yet."}
+                  </p>
+                ) : (
+                  followsList.map((u) => (
+                    <Link
+                      key={u.id}
+                      href={`/u/${u.id}`}
+                      onClick={() => setFollowsModalType(null)}
+                      className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted transition-colors"
+                    >
+                      <UserAvatar url={u.avatar_url} name={u.display_name} size="sm" />
+                      <span className="font-medium">{u.display_name}</span>
+                    </Link>
+                  ))
+                )}
+              </div>
+            </DialogContent>
+          </Dialog>
 
           {/* Success Notification */}
           {postSuccess && (
@@ -1146,9 +1212,5 @@ export default function UserProfilePage({
 }: {
   params: { userId: string };
 }) {
-  return (
-    <AuthGuard>
-      <ProfileContent userId={params.userId} />
-    </AuthGuard>
-  );
+  return <ProfileContent userId={params.userId} />;
 }

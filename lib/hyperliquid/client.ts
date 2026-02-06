@@ -73,9 +73,9 @@ export interface SpotBalance {
 }
 
 export interface TotalEquity {
-  perpEquity: number;      // From clearinghouseState (perp margin account)
-  spotUsdcBalance: number; // USDC in spot wallet
-  totalEquity: number;     // Combined total
+  perpEquity: number;      // Unrealized PnL from perp positions (NOT margin, to avoid double-counting)
+  spotUsdcBalance: number; // USDC in spot wallet (base equity)
+  totalEquity: number;     // spotUsdcBalance + unrealizedPnL (avoids double-counting cross-margin)
 }
 
 export class HyperliquidClient {
@@ -360,8 +360,15 @@ export class HyperliquidClient {
   }
 
   /**
-   * Get total equity across both perp margin and spot USDC
-   * This prevents showing $0 if user has funds in spot but not perps
+   * Get total equity for Hyperliquid unified margin accounts
+   *
+   * In unified margin mode (default for all Hyperliquid accounts):
+   * - spotUsdcBalance IS your total equity (margin is pledged from it, not moved)
+   * - perpAccountValue = margin pledged + unrealized PnL (a SUBSET of spot balance)
+   * - DO NOT add them together - that would double-count!
+   *
+   * The unrealized PnL from positions affects the total, but the base capital
+   * is already in spotUsdcBalance.
    */
   async getTotalEquity(walletAddress: string): Promise<TotalEquity> {
     // Fetch both in parallel
@@ -370,15 +377,32 @@ export class HyperliquidClient {
       this.getSpotBalances(walletAddress),
     ]);
 
-    const perpEquity = Number(accountState.marginSummary.accountValue || 0);
+    const perpAccountValue = Number(accountState.marginSummary.accountValue || 0);
+    const marginUsed = Number(accountState.marginSummary.totalMarginUsed || 0);
 
     // Find USDC balance in spot (this is the main stablecoin for trading)
     const usdcBalance = spotBalances.find(b => b.coin === "USDC");
     const spotUsdcBalance = usdcBalance?.total || 0;
 
-    const totalEquity = perpEquity + spotUsdcBalance;
+    // In unified margin mode, spotUsdcBalance IS the total equity
+    // The unrealized PnL is already reflected in the spot balance value
+    // perpAccountValue represents the margin + unrealized PnL which OVERLAPS with spot
+    //
+    // Correct calculation:
+    // - If no positions: total = spotUsdcBalance ✓
+    // - If positions exist: total = spotUsdcBalance (unrealized PnL is already included) ✓
+    //
+    // We calculate unrealizedPnl for display purposes only (perpAccountValue - marginUsed)
+    // but we use spotUsdcBalance as the total equity to avoid double-counting
+    const unrealizedPnl = marginUsed > 0 ? perpAccountValue - marginUsed : 0;
 
-    console.log(`[Hyperliquid API] Total equity breakdown - Perp: $${perpEquity.toFixed(2)}, Spot USDC: $${spotUsdcBalance.toFixed(2)}, Total: $${totalEquity.toFixed(2)}`);
+    // Total equity = spot USDC balance (this IS the total in unified margin mode)
+    const totalEquity = spotUsdcBalance;
+
+    // For backwards compatibility, perpEquity represents just unrealized PnL
+    const perpEquity = unrealizedPnl;
+
+    console.log(`[Hyperliquid API] Total equity (unified margin) - Spot USDC: $${spotUsdcBalance.toFixed(2)}, Perp accountValue: $${perpAccountValue.toFixed(2)}, Margin used: $${marginUsed.toFixed(2)}, Unrealized PnL: $${unrealizedPnl.toFixed(2)}, Total: $${totalEquity.toFixed(2)}`);
 
     return {
       perpEquity,

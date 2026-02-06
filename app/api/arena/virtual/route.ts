@@ -30,9 +30,9 @@ export async function GET(request: NextRequest) {
       `)
       .eq("mode", "arena");
 
-    // Filter by status unless showEnded is true
+    // By default show active + stopped; when showEnded is true also include "left"
     if (!showEnded) {
-      query = query.eq("active", true).eq("arena_status", "active");
+      query = query.in("arena_status", ["active", "ended"]);
     }
 
     const { data: arenaEntries, error: entriesError } = await query.limit(1000);
@@ -178,7 +178,7 @@ export async function GET(request: NextRequest) {
           maxDrawdownPct: snapshot?.max_drawdown_pct ? Number(snapshot.max_drawdown_pct) : null,
           optedInAt: entry.opted_in_at,
           daysSinceStarted,
-          arenaStatus: entry.arena_status || 'active',
+          arenaStatus: (entry.arena_status === 'active' && session?.status === 'stopped') ? 'ended' : (entry.arena_status || 'active'),
           sessionStatus: session?.status,
           active: entry.active,
         };

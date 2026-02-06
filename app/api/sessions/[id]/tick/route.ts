@@ -20,6 +20,8 @@ import {
   updateAccountEquity,
   updateCoinbaseAccountEquity,
   recordLiveTrade,
+  updatePositionFromTrade,
+  reconstructIntxPositionsFromTrades,
   getLivePositions,
 } from "@/lib/brokers/liveBroker";
 import { placeMarketOrder as placeHyperliquidOrder } from "@/lib/hyperliquid/orderExecution";
@@ -97,13 +99,21 @@ async function placeMarketOrder(params: {
 
       console.log(`[Order Execution] 🔴 LIVE MODE: Placing REAL order on Coinbase`);
 
+      // For exits (closing positions), use sellAll to ensure complete close
+      // This fetches actual balance and sells it all, preventing leftover dust
+      const isSellAll = isExit && orderParams.side === "sell";
+      if (isSellAll) {
+        console.log(`[Order Execution] 🔄 Exit order: Using sellAll to close entire position`);
+      }
+
       try {
         const result = await placeCoinbaseOrder(
           liveApiKey,
           liveApiSecret,
-          orderParams.market, // Already in BTC-USD format
+          orderParams.market, // Already in BTC-USD format or ETH-PERP-INTX for INTX
           orderParams.side,
-          orderParams.notionalUsd
+          orderParams.notionalUsd,
+          isSellAll // sellAll flag for complete position closes
         );
 
         if (result.success) {
@@ -128,6 +138,10 @@ async function placeMarketOrder(params: {
               console.log(`[Order Execution] 💰 Calculated realized PnL: ${exitPosition.side} entry=$${exitPosition.avgEntry.toFixed(2)}, exit=$${tradePrice.toFixed(2)}, size=${tradeSize.toFixed(8)} → PnL=$${realizedPnl.toFixed(4)}`);
             }
 
+            // Determine leverage - INTX perpetuals can use leverage, spot is always 1x
+            const isIntxMarket = orderParams.market.includes("-PERP") || orderParams.market.endsWith("-INTX");
+            const tradeLeverage = isIntxMarket ? (leverage || 1) : 1;
+
             await recordLiveTrade(
               orderParams.account_id,
               orderParams.session_id || "",
@@ -140,10 +154,26 @@ async function placeMarketOrder(params: {
                 fee: tradeFee,
                 realized_pnl: realizedPnl,
                 venue_order_id: result.orderId,
-                leverage: 1, // Coinbase spot trading has no leverage
+                leverage: tradeLeverage,
               }
             );
-            console.log(`[Order Execution] ✅ Coinbase trade recorded: ${tradeSize.toFixed(8)} @ $${tradePrice.toFixed(2)}, PnL: $${realizedPnl.toFixed(4)} (1x leverage)`);
+            console.log(`[Order Execution] ✅ Coinbase trade recorded: ${tradeSize.toFixed(8)} @ $${tradePrice.toFixed(2)}, PnL: $${realizedPnl.toFixed(4)} (${tradeLeverage}x leverage)`);
+
+            // For INTX perpetuals, update position locally since we can't sync from Coinbase API
+            // Spot positions are synced via syncPositionsFromCoinbase which reads spot balances
+            if (isIntxMarket) {
+              await updatePositionFromTrade(
+                orderParams.account_id,
+                {
+                  market: orderParams.market,
+                  action: isExit ? "close" : "open",
+                  side: orderParams.side,
+                  size: tradeSize,
+                  price: tradePrice,
+                  leverage: tradeLeverage,
+                }
+              );
+            }
           } catch (dbError: any) {
             console.error(`[Order Execution] ❌ Failed to record Coinbase trade:`, dbError);
           }
@@ -406,7 +436,7 @@ export async function POST(
       const liveVenue: Venue = (session.venue as Venue) || "hyperliquid";
       const { data: exchangeConnection } = await serviceClient
         .from("exchange_connections")
-        .select("id, wallet_address, api_key")
+        .select("id, wallet_address, api_key, intx_enabled")
         .eq("user_id", user.id)
         .eq("venue", liveVenue)
         .order("created_at", { ascending: false })
@@ -433,6 +463,7 @@ export async function POST(
     let liveApiKey: string | null = null;
     let liveApiSecret: string | null = null;
     let exchangeConnectionId: string | null = null;
+    let isIntxEnabled = false; // Coinbase International (INTX) perpetuals access
     const liveVenue: Venue = (session.venue as Venue) || "hyperliquid";
 
     // Arena mode is virtual-only, so both "virtual" and "arena" use virtual broker
@@ -455,7 +486,7 @@ export async function POST(
       // Get exchange connection with encrypted credentials based on venue
       const { data: exchangeConnection } = await serviceClient
         .from("exchange_connections")
-        .select("id, venue, wallet_address, key_material_encrypted, api_key, api_secret_encrypted")
+        .select("id, venue, wallet_address, key_material_encrypted, api_key, api_secret_encrypted, intx_enabled")
         .eq("user_id", user.id)
         .eq("venue", liveVenue)
         .order("created_at", { ascending: false })
@@ -468,6 +499,11 @@ export async function POST(
       }
 
       exchangeConnectionId = exchangeConnection.id;
+      isIntxEnabled = liveVenue === "coinbase" && Boolean(exchangeConnection.intx_enabled);
+
+      if (isIntxEnabled) {
+        console.log(`[Tick] 🌐 Coinbase INTX mode enabled - perpetuals/leverage/shorts allowed`);
+      }
 
       // Decrypt credentials based on venue
       try {
@@ -506,9 +542,37 @@ export async function POST(
 
       // Sync positions and equity from exchange based on venue
       if (liveVenue === "coinbase") {
-        await syncPositionsFromCoinbase(accountId, liveApiKey!, liveApiSecret!);
-        const { equity } = await updateCoinbaseAccountEquity(accountId, liveApiKey!, liveApiSecret!);
-        accountEquity = equity;
+        try {
+          await syncPositionsFromCoinbase(accountId, liveApiKey!, liveApiSecret!);
+
+          // For INTX perpetuals, also reconstruct positions from trade history
+          // This handles positions that weren't tracked due to earlier bugs
+          if (isIntxEnabled) {
+            await reconstructIntxPositionsFromTrades(accountId);
+          }
+
+          const { equity, cashBalance } = await updateCoinbaseAccountEquity(accountId, liveApiKey!, liveApiSecret!);
+          accountEquity = equity;
+          // For Coinbase spot, cash_balance is the available USD for buying
+          account.cash_balance = cashBalance;
+          console.log(`[Tick] 💰 Coinbase cash available: $${cashBalance.toFixed(2)}`);
+        } catch (syncError: any) {
+          console.error(`[Tick] ❌ Failed to sync Coinbase state: ${syncError.message}`);
+          // Log the error as a visible decision so the user can see what went wrong
+          await serviceClient.from("decisions").insert({
+            session_id: sessionId,
+            timestamp: new Date().toISOString(),
+            market: "SYSTEM",
+            intent: "error",
+            confidence: 0,
+            reasoning: `Coinbase sync failed: ${syncError.message}. Skipping tick to prevent data corruption.`,
+            executed: false,
+          });
+          return NextResponse.json({
+            error: `Coinbase sync failed: ${syncError.message}`,
+            skipped: true,
+          }, { status: 500 });
+        }
       } else {
         const walletAddr = liveWalletAddress!;
         await syncPositionsFromHyperliquid(accountId, walletAddr);
@@ -535,7 +599,17 @@ export async function POST(
 
     // Get cadence for round-robin calculation and logging
     const strategyFilters = strategy.filters || {};
-    const cadenceSeconds = strategyFilters.cadenceSeconds || session.cadence_seconds || 30;
+    // Use ?? instead of || to allow 0 (though 0 cadence doesn't make sense)
+    // Priority: strategy.filters > session.cadence_seconds > 30 default
+    const cadenceSeconds = strategyFilters.cadenceSeconds ?? session.cadence_seconds ?? 30;
+
+    // Validate cadence is positive
+    if (cadenceSeconds <= 0) {
+      console.error(`[Tick] ❌ Invalid cadence: ${cadenceSeconds}. Must be positive.`);
+      return NextResponse.json({
+        error: "Strategy configuration invalid: cadence must be positive"
+      }, { status: 400 });
+    }
 
     let marketsToProcess: string[];
     if (marketProcessingMode === "round-robin" && markets.length > 1) {
@@ -679,36 +753,41 @@ export async function POST(
 
       // MODE: TRAILING STOP - Track peak and exit on drawdown
       else if (exitRules.mode === "trailing" && exitRules.trailingStopPct) {
-        // Get peak price for this position (stored in position metadata or calculate from trades)
-        const { data: positionTrades } = await serviceClient
-          .from(tables.trades)
-          .select("price, created_at")
-          .eq("account_id", account.id)
-          .eq("market", position.market)
-          .order("created_at", { ascending: false });
-        
-        // Calculate peak price (highest price for long, lowest for short)
-        let peakPrice = entryPrice;
-        if (positionTrades && positionTrades.length > 0) {
-          const prices = positionTrades.map(t => Number(t.price));
-          if (position.side === "long") {
-            peakPrice = Math.max(...prices, entryPrice);
-          } else {
-            peakPrice = Math.min(...prices, entryPrice);
-          }
+        // Get stored peak price or initialize from entry price
+        let peakPrice = position.peak_price ? Number(position.peak_price) : entryPrice;
+
+        // Update peak if current price is more favorable
+        // For longs: track highest price reached
+        // For shorts: track lowest price reached
+        let peakUpdated = false;
+        if (position.side === "long" && positionPrice > peakPrice) {
+          peakPrice = positionPrice;
+          peakUpdated = true;
+        } else if (position.side === "short" && positionPrice < peakPrice) {
+          peakPrice = positionPrice;
+          peakUpdated = true;
         }
-        
+
+        // Persist updated peak to database so it survives between ticks
+        if (peakUpdated) {
+          await serviceClient
+            .from(tables.positions)
+            .update({ peak_price: peakPrice })
+            .eq("id", position.id);
+          console.log(`[Tick] Updated peak_price for ${position.market}: $${peakPrice.toFixed(2)}`);
+        }
+
         // Check if current price has dropped by trailingStopPct from peak
         const dropFromPeakPct = position.side === "long"
           ? ((peakPrice - positionPrice) / peakPrice) * 100
           : ((positionPrice - peakPrice) / peakPrice) * 100;
-        
-        if (dropFromPeakPct >= exitRules.trailingStopPct && positionPrice !== peakPrice) {
+
+        if (dropFromPeakPct >= exitRules.trailingStopPct) {
           shouldExit = true;
           const extremeLabel = position.side === "long" ? "peak" : "trough";
-          exitReason = `Trailing stop: ${dropFromPeakPct.toFixed(2)}% from ${extremeLabel} ${peakPrice.toFixed(2)} >= ${exitRules.trailingStopPct}%`;
+          exitReason = `Trailing stop: ${dropFromPeakPct.toFixed(2)}% from ${extremeLabel} $${peakPrice.toFixed(2)} >= ${exitRules.trailingStopPct}%`;
         }
-        
+
         // Check optional initial hard stop loss (NOT take profit)
         if (!shouldExit && exitRules.initialStopLossPct && unrealizedPnlPct <= -Math.abs(exitRules.initialStopLossPct)) {
           shouldExit = true;
@@ -1345,7 +1424,7 @@ export async function POST(
           // Map exit mode to user-friendly description
           const trailingLabel = positionSideForClose === "long" ? "peak" : "trough";
           const exitModeDescription =
-            currentExitRules.mode === "trailing" ? `trailing stop (${currentExitRules.trailingStopPct || 2}% from ${trailingLabel})` :
+            currentExitRules.mode === "trailing" ? `trailing stop (${currentExitRules.trailingStopPct ?? 2}% from ${trailingLabel})` :
             currentExitRules.mode === "tp_sl" ? `TP/SL rules` :
             currentExitRules.mode === "time" ? `time-based exit` :
             currentExitRules.mode || "automated rules";
@@ -1387,8 +1466,18 @@ export async function POST(
 
         // 1. CONFIDENCE CONTROL - Strictly enforce minimum confidence
         const confidenceControl = entryExit.confidenceControl || {};
+
+        // PRIORITY: Use confidenceControl first (modern), guardrails second (legacy)
+        // Add explicit logging to show which source is used
         const minConfidence = confidenceControl.minConfidence ?? guardrails.minConfidence ?? 0.65;
-        
+
+        // Log warning if both sources exist with different values
+        if (confidenceControl.minConfidence !== undefined &&
+            guardrails.minConfidence !== undefined &&
+            confidenceControl.minConfidence !== guardrails.minConfidence) {
+          console.warn(`[Tick] ⚠️ minConfidence set in both places: confidenceControl=${confidenceControl.minConfidence}, guardrails=${guardrails.minConfidence}. Using confidenceControl.`);
+        }
+
         if (riskResult.passed !== false && confidence < minConfidence) {
           actionSummary = `Confidence ${(confidence * 100).toFixed(0)}% below minimum ${(minConfidence * 100).toFixed(0)}%`;
           riskResult = { passed: false, reason: actionSummary };
@@ -1636,7 +1725,9 @@ export async function POST(
           // The user's maxPositionUsd and maxLeverage settings work together:
           // - maxPositionUsd caps individual position size
           // - maxLeverage caps total portfolio exposure (checked later)
-          const MIN_ORDER_USD = 10;
+          // Coinbase INTX minimum is ~$8-15 (varies by coin)
+          // Coinbase Spot minimum is $1, Hyperliquid minimum is $10
+          const MIN_ORDER_USD = sessionVenue === "coinbase" ? (isIntxEnabled ? 10 : 1) : 10;
           
           // Calculate max position based on leverage allowance
           // Example: $10k equity with 2x maxLeverage = up to $20k total exposure
@@ -1649,8 +1740,20 @@ export async function POST(
           
           // Position size is the minimum of: user's maxPositionUsd OR remaining leverage room
           let positionNotional = Math.min(maxPositionUsd, remainingLeverageRoom);
-          
-          console.log(`[Tick] 📊 Position sizing: equity=$${Number(account.equity).toFixed(2)}, maxLeverage=${maxLeverage}x, maxExposure=$${maxExposureAllowed.toFixed(2)}, currentExposure=$${totalCurrentExposure.toFixed(2)}, remainingRoom=$${remainingLeverageRoom.toFixed(2)}, maxPositionUsd=$${maxPositionUsd}, result=$${positionNotional.toFixed(2)}`);
+
+          // COINBASE SPOT: For buys, also limit by available cash (no leverage on spot)
+          // Cash is the USD/USDC/USDT balance available for new buys
+          // NOTE: INTX users have margin, so this cash limit doesn't apply
+          if (sessionVenue === "coinbase" && !isIntxEnabled && intent.bias === "long") {
+            const availableCash = Number(account.cash_balance || 0);
+            const cashSafetyMargin = availableCash * 0.99; // 1% buffer for fees/rounding
+            if (positionNotional > cashSafetyMargin) {
+              console.log(`[Tick] 💰 Coinbase Spot: Limiting buy from $${positionNotional.toFixed(2)} to $${cashSafetyMargin.toFixed(2)} (available cash: $${availableCash.toFixed(2)})`);
+              positionNotional = cashSafetyMargin;
+            }
+          }
+
+          console.log(`[Tick] 📊 Position sizing: equity=$${Number(account.equity).toFixed(2)}, maxLeverage=${maxLeverage}x, maxExposure=$${maxExposureAllowed.toFixed(2)}, currentExposure=$${totalCurrentExposure.toFixed(2)}, remainingRoom=$${remainingLeverageRoom.toFixed(2)}, maxPositionUsd=$${maxPositionUsd}${sessionVenue === "coinbase" ? `, cash=$${Number(account.cash_balance || 0).toFixed(2)}` : ""}, result=$${positionNotional.toFixed(2)}`);
           
           if (confidenceControl.confidenceScaling && confidence > minConfidence) {
             // Scale position size based on confidence (higher confidence = larger position, up to max)
@@ -1659,9 +1762,22 @@ export async function POST(
           }
           positionNotional = Math.min(positionNotional, maxPositionUsd); // Ensure we don't exceed max
           
-          // Ensure minimum order size ($10 for Hyperliquid)
+          // Ensure minimum order size ($1 for Coinbase, $10 for Hyperliquid)
+          // But for Coinbase Spot buys, don't force minimum if insufficient cash
+          // NOTE: INTX users have margin, so they don't have this cash restriction
           if (positionNotional < MIN_ORDER_USD) {
-            positionNotional = MIN_ORDER_USD;
+            if (sessionVenue === "coinbase" && !isIntxEnabled && intent.bias === "long") {
+              const availableCash = Number(account.cash_balance || 0);
+              if (availableCash < MIN_ORDER_USD) {
+                actionSummary = `Insufficient cash: $${availableCash.toFixed(2)} available, minimum order is $${MIN_ORDER_USD}`;
+                riskResult = { passed: false, reason: actionSummary };
+                console.log(`[Tick] ⛔ BLOCKED: Not enough cash for minimum Coinbase Spot order`);
+              } else {
+                positionNotional = MIN_ORDER_USD;
+              }
+            } else {
+              positionNotional = MIN_ORDER_USD;
+            }
           }
 
           // PRODUCTION SAFETY: Check if this trade would cause total position to exceed maxPositionUsd
@@ -1848,12 +1964,39 @@ export async function POST(
 
       if (intent?.bias && intent.bias !== "neutral" && intent.bias !== "hold" && !riskResult.passed) {
         const risk = filters.risk || {};
-        const maxPositionUsd = risk.maxPositionUsd || 10000;
-        const maxLeverageForProposed = risk.maxLeverage || 2;
-        const maxExposureForProposed = Number(account.equity) * maxLeverageForProposed * 0.99;
-        const currentExposureForProposed = allPositions.reduce((sum, p) => sum + (Number(p.avg_entry) * Number(p.size)), 0);
-        const remainingRoomForProposed = Math.max(0, maxExposureForProposed - currentExposureForProposed);
-        proposedOrder.notionalUsd = Math.min(maxPositionUsd, remainingRoomForProposed);
+
+        // Use strategy settings WITHOUT hardcoded defaults - validate they exist
+        const maxPositionUsd = risk.maxPositionUsd;
+        const maxLeverageForProposed = risk.maxLeverage;
+
+        // Validate risk limits are properly configured
+        if (!maxPositionUsd || maxPositionUsd <= 0) {
+          console.error(`[Tick] ❌ Strategy has invalid maxPositionUsd: ${maxPositionUsd}. Cannot size position. Failing risk check.`);
+          riskResult = {
+            passed: false,
+            failedChecks: [{
+              check: "risk_configuration",
+              reason: "Strategy missing valid Max Position (USD) in risk settings"
+            }]
+          };
+          proposedOrder.notionalUsd = 0;
+        } else if (!maxLeverageForProposed || maxLeverageForProposed <= 0) {
+          console.error(`[Tick] ❌ Strategy has invalid maxLeverage: ${maxLeverageForProposed}. Cannot size position. Failing risk check.`);
+          riskResult = {
+            passed: false,
+            failedChecks: [{
+              check: "risk_configuration",
+              reason: "Strategy missing valid Max Leverage in risk settings"
+            }]
+          };
+          proposedOrder.notionalUsd = 0;
+        } else {
+          // Risk limits are valid - proceed with position sizing
+          const maxExposureForProposed = Number(account.equity) * maxLeverageForProposed * 0.99;
+          const currentExposureForProposed = allPositions.reduce((sum, p) => sum + (Number(p.avg_entry) * Number(p.size)), 0);
+          const remainingRoomForProposed = Math.max(0, maxExposureForProposed - currentExposureForProposed);
+          proposedOrder.notionalUsd = Math.min(maxPositionUsd, remainingRoomForProposed);
+        }
       }
 
       // Save decision

@@ -228,21 +228,42 @@ export function PostCard({ post, commentCount, currentUserId, initialIsLiked = f
         return;
       }
 
-      const { error: deleteError } = await supabase
-        .from("posts")
-        .delete()
-        .eq("id", post.id)
-        .eq("user_id", session.user.id); // Double-check ownership
+      // Use API endpoint for profile_posts, direct supabase for regular posts
+      if (post.source === "profile_posts") {
+        // Profile posts use the API endpoint with original_id
+        const response = await fetch(`/api/profile-posts/${post.original_id}`, {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+        });
 
-      if (deleteError) {
-        console.error("Delete error:", deleteError);
-        setError(deleteError.message || "Failed to delete post");
-        setDeleting(false);
+        if (!response.ok) {
+          const data = await response.json();
+          console.error("Delete error:", data);
+          setError(data.error || "Failed to delete post");
+          setDeleting(false);
+          return;
+        }
       } else {
-        // Success - refresh the page
-        setDeleteDialogOpen(false);
-        window.location.href = "/community?t=" + Date.now();
+        // Regular posts use direct supabase delete
+        const { error: deleteError } = await supabase
+          .from("posts")
+          .delete()
+          .eq("id", post.id)
+          .eq("user_id", session.user.id);
+
+        if (deleteError) {
+          console.error("Delete error:", deleteError);
+          setError(deleteError.message || "Failed to delete post");
+          setDeleting(false);
+          return;
+        }
       }
+
+      // Success - refresh the page
+      setDeleteDialogOpen(false);
+      window.location.href = "/community?t=" + Date.now();
     } catch (err: any) {
       console.error("Delete error:", err);
       setError(err.message || "An unexpected error occurred");

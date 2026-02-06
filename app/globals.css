@@ -34,7 +34,7 @@
 
   .dark {
     /* Professional Trading Platform Dark Theme - Deep Black/Dark Blue */
-    --background: 220 40% 2%;        /* Almost pure black #030712 */
+    --background: 216 48% 7%;        /* Dark blue-black #070d1a */
     --foreground: 0 0% 98%;          /* Pure white text for readability */
     --card: 220 40% 5%;              /* Very dark blue-black #0A0E1A */
     --card-foreground: 0 0% 95%;     /* Near white text */
@@ -74,7 +74,7 @@
   }
   
   body {
-    @apply bg-[#030712] text-foreground overflow-x-hidden;
+    @apply bg-[#070d1a] text-foreground overflow-x-hidden;
     position: relative;
     min-height: 100vh;
   }

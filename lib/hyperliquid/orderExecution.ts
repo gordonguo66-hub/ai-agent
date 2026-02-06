@@ -3,19 +3,43 @@
  * Uses @nktkas/hyperliquid SDK for real order placement with proper signing
  */
 
-// Note: Hyperliquid type temporarily bypassed for deployment
-// import { Hyperliquid } from "@nktkas/hyperliquid";
-const Hyperliquid = (require("@nktkas/hyperliquid") as any).Hyperliquid || (require("@nktkas/hyperliquid") as any).default || (require("@nktkas/hyperliquid") as any);
+import { HttpTransport, InfoClient, ExchangeClient } from "@nktkas/hyperliquid";
+import { PrivateKeySigner } from "@nktkas/hyperliquid/signing";
+
+// Cache coin->assetIndex mapping
+const assetIndexCache = new Map<string, number>();
+
+async function getAssetIndex(coin: string): Promise<number> {
+  const cached = assetIndexCache.get(coin);
+  if (typeof cached === "number") return cached;
+
+  const res = await fetch("https://api.hyperliquid.xyz/info", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type: "meta" }),
+  });
+  if (!res.ok) throw new Error(`Failed to load Hyperliquid meta: ${res.statusText}`);
+  const data = await res.json();
+
+  const universe: Array<{ name: string }> = data?.universe || data?.[0]?.universe || [];
+  const idx = universe.findIndex((u) => u?.name === coin);
+  if (idx < 0) throw new Error(`Coin ${coin} not found in Hyperliquid universe`);
+
+  assetIndexCache.set(coin, idx);
+  return idx;
+}
 
 /**
  * Place a market order on Hyperliquid
  * This places REAL orders with REAL money
- * 
+ *
  * @param privateKey - User's private key (0x prefixed hex string)
- * @param market - Market symbol (e.g., "BTC")  
+ * @param market - Market symbol (e.g., "BTC")
  * @param side - "buy" or "sell"
  * @param sizeUsd - Order size in USD
  * @param slippage - Max slippage tolerance (default 0.05 = 5%)
+ * @param reduceOnly - Whether this is an exit order (reduce only)
+ * @param leverage - Leverage to use for entry orders (default 1x, ignored for exits)
  * @returns Order result with status and details
  */
 export async function placeMarketOrder(
@@ -23,7 +47,9 @@ export async function placeMarketOrder(
   market: string,
   side: "buy" | "sell",
   sizeUsd: number,
-  slippage: number = 0.05
+  slippage: number = 0.05,
+  reduceOnly: boolean = false,
+  leverage: number = 1
 ): Promise<{
   success: boolean;
   orderId?: string;
@@ -32,7 +58,8 @@ export async function placeMarketOrder(
   error?: string;
 }> {
   try {
-    console.log(`[Hyperliquid Order] Placing ${side} order for ${market}: $${sizeUsd.toFixed(2)} (slippage: ${(slippage * 100).toFixed(1)}%)`);
+    console.log(`[Hyperliquid Order] ⚠️ REAL ORDER EXECUTION: Placing ${side} order for ${market}: $${sizeUsd.toFixed(2)} (slippage: ${(slippage * 100).toFixed(1)}%, leverage: ${leverage}x)`);
+    console.log(`[Hyperliquid Order] Stack trace:`, new Error().stack);
 
     // Validate inputs
     if (!privateKey || !market || !side || sizeUsd <= 0) {
@@ -42,20 +69,48 @@ export async function placeMarketOrder(
     // Ensure private key has 0x prefix
     const formattedPrivateKey = privateKey.startsWith("0x") ? privateKey : `0x${privateKey}`;
 
-    // Initialize Hyperliquid SDK with user's private key
-    const sdk = new Hyperliquid({ privateKey: formattedPrivateKey });
+    // Initialize Hyperliquid SDK with new API structure
+    const transport = new HttpTransport();
+    const signer = new PrivateKeySigner(formattedPrivateKey);
+    const infoClient = new InfoClient({ transport });
+    const exchangeClient = new ExchangeClient({ transport, wallet: signer });
 
     // Get current market price to calculate size
-    const allMids = await sdk.info.spot.getMeta();
+    const metaData = await infoClient.meta();
     
-    // Find the market in the metadata
-    const marketInfo = allMids.universe.find((m: any) => m.name === market);
+    // Find the market in the metadata and get asset index
+    const assetIndex = metaData.universe.findIndex((m: any) => m.name === market);
+    if (assetIndex < 0) {
+      throw new Error(`Market ${market} not found in Hyperliquid universe`);
+    }
+    
+    const marketInfo = metaData.universe[assetIndex];
     if (!marketInfo) {
       throw new Error(`Market ${market} not found`);
     }
 
+    console.log(`[Hyperliquid Order] Found market ${market} at index ${assetIndex}`);
+
+    // Set leverage for entry orders (not exits)
+    // This ensures the position uses the strategy's configured leverage
+    if (!reduceOnly && leverage >= 1) {
+      const leverageToSet = Math.max(1, Math.floor(leverage)); // Must be integer >= 1
+      console.log(`[Hyperliquid Order] Setting leverage to ${leverageToSet}x for ${market} (cross margin)`);
+      try {
+        await exchangeClient.updateLeverage({
+          asset: assetIndex,
+          isCross: true, // Use cross margin by default
+          leverage: leverageToSet,
+        });
+        console.log(`[Hyperliquid Order] ✅ Leverage set to ${leverageToSet}x successfully`);
+      } catch (leverageError: any) {
+        // Log but don't fail the order - leverage may already be set correctly
+        console.warn(`[Hyperliquid Order] ⚠️ Failed to set leverage: ${leverageError.message}`);
+      }
+    }
+
     // Get current mid price
-    const midsData = await sdk.info.spot.getAllMids();
+    const midsData = await infoClient.allMids();
     const currentPrice = parseFloat(midsData[market]);
     
     if (!currentPrice || currentPrice <= 0) {
@@ -71,55 +126,95 @@ export async function placeMarketOrder(
     const sizeDecimals = marketInfo.szDecimals || 4;
     const roundedSize = parseFloat(baseSize.toFixed(sizeDecimals));
 
-    console.log(`[Hyperliquid Order] Calculated size: ${roundedSize} ${market} ($${sizeUsd.toFixed(2)} / $${currentPrice.toFixed(2)})`);
+    // Verify order value meets minimum requirement and adjust if needed
+    const MIN_ORDER_VALUE = 10;
+    let adjustedSize = roundedSize;
+    let orderValueUsd = roundedSize * currentPrice;
+    
+    if (orderValueUsd < MIN_ORDER_VALUE) {
+      // Adjust size to meet minimum order value + 1% safety margin to avoid rounding issues
+      adjustedSize = (MIN_ORDER_VALUE * 1.01) / currentPrice;
+      // Round to appropriate decimals
+      adjustedSize = parseFloat(adjustedSize.toFixed(sizeDecimals));
+      orderValueUsd = adjustedSize * currentPrice;
+      
+      // Final safety check
+      if (orderValueUsd < MIN_ORDER_VALUE) {
+        console.error(`[Hyperliquid Order] ❌ After adjustment, order value still below minimum: $${orderValueUsd.toFixed(2)}`);
+        throw new Error(`Order value $${orderValueUsd.toFixed(2)} is below Hyperliquid minimum of $${MIN_ORDER_VALUE}`);
+      }
+      
+      console.log(`[Hyperliquid Order] ⚠️ Order too small, adjusted size: ${roundedSize} → ${adjustedSize} = $${orderValueUsd.toFixed(2)}`);
+    }
+
+    console.log(`[Hyperliquid Order] Final size: ${adjustedSize} ${market} = $${orderValueUsd.toFixed(2)}`);
 
     // Calculate limit price with slippage
     // For buy: limit = current * (1 + slippage)
     // For sell: limit = current * (1 - slippage)
     const slippageMultiplier = side === "buy" ? (1 + slippage) : (1 - slippage);
     const limitPrice = currentPrice * slippageMultiplier;
-    const priceDecimals = marketInfo.szDecimals || 2;
-    const roundedLimitPrice = parseFloat(limitPrice.toFixed(priceDecimals));
+    
+    // Always use 2 decimal places - this works for all assets and matches the working broker
+    const roundedLimitPrice = limitPrice.toFixed(2);
 
-    console.log(`[Hyperliquid Order] Limit price with ${(slippage * 100).toFixed(1)}% slippage: $${roundedLimitPrice.toFixed(2)}`);
+    console.log(`[Hyperliquid Order] Limit price: $${currentPrice.toFixed(2)} + ${(slippage * 100).toFixed(1)}% = $${roundedLimitPrice}`);
 
-    // Place order using SDK
-    // The SDK handles:
-    // 1. Nonce generation
-    // 2. EIP-712 signing
-    // 3. API request to Hyperliquid
-    const orderResult = await sdk.exchange.placeOrder({
-      coin: market,
-      is_buy: side === "buy",
-      sz: roundedSize,
-      limit_px: roundedLimitPrice,
-      order_type: { limit: { tif: "Ioc" } }, // Immediate-or-Cancel for market-like execution
-      reduce_only: false,
-    });
+    // Place order using SDK with short field names (new API format)
+    // a = asset index, b = is_buy, p = price, s = size, r = reduce_only, t = order_type
+    // CRITICAL FIX: reduce_only=true for exit orders prevents accidentally opening a new
+    // position in the opposite direction if the position was already closed externally.
+    console.log(`[Hyperliquid Order] reduce_only=${reduceOnly} (${reduceOnly ? 'EXIT order' : 'ENTRY order'})`);
+    const orderResult = await exchangeClient.order({
+      orders: [{
+        a: assetIndex,
+        b: side === "buy",
+        p: roundedLimitPrice,
+        s: adjustedSize.toString(),
+        r: reduceOnly,
+        t: { limit: { tif: "Ioc" } },
+      }],
+      grouping: "na",
+    } as any);
 
     console.log(`[Hyperliquid Order] Order result:`, JSON.stringify(orderResult, null, 2));
 
-    // Check if order was successful
-    if (orderResult.status === "ok" && orderResult.response?.type === "order") {
-      const orderData = orderResult.response.data;
+    // Check if order was successful (new API structure)
+    if (orderResult.status === "ok" && orderResult.response?.data?.statuses) {
+      const statuses = orderResult.response.data.statuses;
       
       // Extract fill information
       let fillPrice = 0;
       let fillSize = 0;
       let orderId = "";
 
-      if (orderData?.statuses && orderData.statuses.length > 0) {
-        const status = orderData.statuses[0];
-        orderId = status.oid || "";
-        
-        // Check if filled
-        if (status.filled) {
-          fillPrice = parseFloat(status.filled.avgPx || "0");
-          fillSize = parseFloat(status.filled.totalSz || "0");
+      if (statuses && statuses.length > 0) {
+        const status = statuses[0];
+        // Status can be a string or object with resting/filled properties
+        if (typeof status === "object" && status !== null) {
+          if ("resting" in status && status.resting) {
+            orderId = String(status.resting.oid || "");
+          }
+          // Check if filled
+          if ("filled" in status && status.filled) {
+            fillPrice = parseFloat(status.filled.avgPx || "0");
+            fillSize = parseFloat(status.filled.totalSz || "0");
+          }
         }
       }
 
-      console.log(`[Hyperliquid Order] ✅ Order placed successfully - ID: ${orderId}, Fill: ${fillSize} @ $${fillPrice.toFixed(2)}`);
+      // CRITICAL FIX: IOC orders that get zero fills should be treated as failures.
+      // Without this check, phantom trades with size=0 and price=0 get recorded,
+      // breaking trade frequency limits, cooldown checks, and PnL tracking.
+      if (fillSize <= 0) {
+        console.error(`[Hyperliquid Order] ❌ IOC order got ZERO fills - treating as failure. Order ID: ${orderId}`);
+        return {
+          success: false,
+          error: "IOC order received zero fills - price may have moved beyond slippage tolerance",
+        };
+      }
+
+      console.log(`[Hyperliquid Order] ✅ Order filled successfully - ID: ${orderId}, Fill: ${fillSize} @ $${fillPrice.toFixed(2)}`);
 
       return {
         success: true,
@@ -129,7 +224,7 @@ export async function placeMarketOrder(
       };
     } else {
       // Order failed
-      const errorMsg = orderResult.response?.data || "Unknown error";
+      const errorMsg = orderResult.response?.data || orderResult.response || "Unknown error";
       console.error(`[Hyperliquid Order] ❌ Order failed:`, errorMsg);
 
       return {
@@ -160,9 +255,11 @@ export async function getAccountState(privateKey: string): Promise<{
 }> {
   try {
     const formattedPrivateKey = privateKey.startsWith("0x") ? privateKey : `0x${privateKey}`;
-    const sdk = new Hyperliquid({ privateKey: formattedPrivateKey });
+    const transport = new HttpTransport();
+    const signer = new PrivateKeySigner(formattedPrivateKey);
+    const infoClient = new InfoClient({ transport });
 
-    const userState = await sdk.info.perpetuals.getUserState(sdk.wallet.address);
+    const userState = await infoClient.clearinghouseState({ user: signer.address });
 
     const equity = parseFloat(userState.marginSummary.accountValue || "0");
     

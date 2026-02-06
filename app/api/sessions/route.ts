@@ -190,6 +190,26 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Strategy must have at least one market configured" }, { status: 400 });
     }
 
+    // Validate required strategy configuration before allowing session creation
+    const risk = filters.risk || {};
+    if (!risk.maxPositionUsd || risk.maxPositionUsd <= 0) {
+      return NextResponse.json({
+        error: "Strategy must have valid Max Position (USD) configured in Risk Filters. Please edit your strategy and set this value."
+      }, { status: 400 });
+    }
+
+    if (!risk.maxLeverage || risk.maxLeverage <= 0) {
+      return NextResponse.json({
+        error: "Strategy must have valid Max Leverage configured in Risk Filters. Please edit your strategy and set this value."
+      }, { status: 400 });
+    }
+
+    if (!cadenceSeconds || cadenceSeconds <= 0) {
+      return NextResponse.json({
+        error: "Strategy must have valid cadence configured. Please edit your strategy and set this value."
+      }, { status: 400 });
+    }
+
     // Create account based on mode
     let accountId = null;
     let liveAccountId = null;
@@ -222,19 +242,22 @@ export async function POST(request: NextRequest) {
       sessionStartingEquity = 100000; // Capture starting equity for session
       console.log(`[Session Creation] ✅ ${mode} account created: ${accountId} with $100,000 starting equity`);
     } else if (mode === "live") {
-      // For live mode, fetch or create live account with REAL Hyperliquid data
-      console.log(`[Session Creation] Creating LIVE account - fetching real Hyperliquid equity`);
-      
+      // For live mode, fetch or create live account with REAL exchange data
+      // Get venue from strategy filters (default to hyperliquid for backward compatibility)
+      const venue = filters.venue || "hyperliquid";
+      const venueName = venue === "coinbase" ? "Coinbase" : "Hyperliquid";
+      console.log(`[Session Creation] Creating LIVE account for ${venueName} - fetching real equity`);
+
       try {
-        const liveAccount = await getOrCreateLiveAccount(user.id, serviceClient);
+        const liveAccount = await getOrCreateLiveAccount(user.id, serviceClient, venue);
         liveAccountId = liveAccount.id;
         sessionStartingEquity = liveAccount.equity; // Capture current equity as session starting point
         console.log(`[Session Creation] ✅ Live account created/fetched: ${liveAccountId}, Real equity: $${liveAccount.equity.toFixed(2)}`);
-        console.log(`[Session Creation] 📊 Session starting_equity set to: $${sessionStartingEquity.toFixed(2)}`);
+        console.log(`[Session Creation] 📊 Session starting_equity set to: $${sessionStartingEquity?.toFixed(2) ?? 'N/A'}`);
       } catch (error: any) {
         console.error(`[Session Creation] ❌ Failed to create live account:`, error);
-        return NextResponse.json({ 
-          error: `Failed to connect to Hyperliquid: ${error.message}. Please check your exchange connection in Settings.` 
+        return NextResponse.json({
+          error: `Failed to connect to ${venueName}: ${error.message}. Please check your exchange connection in Settings.`
         }, { status: 500 });
       }
     }
@@ -248,6 +271,7 @@ export async function POST(request: NextRequest) {
       markets: markets,
       cadence_seconds: cadenceSeconds,
       starting_equity: sessionStartingEquity, // Per-session starting equity
+      venue: filters.venue || "hyperliquid", // Store venue for broker selection
     };
 
     // Set account_id based on mode

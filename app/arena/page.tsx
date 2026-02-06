@@ -6,29 +6,35 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from "recharts";
-import { AuthGuard } from "@/components/auth-guard";
 import { getBearerToken } from "@/lib/api/clientAuth";
 import { useRouter } from "next/navigation";
-import { useTimezone } from "@/components/timezone-provider";
-import { formatDateCompact } from "@/lib/utils/dateFormat";
-import Link from "next/link";
+import { TrendingUp, Trophy } from "lucide-react";
+import { useAuthGate } from "@/components/auth-gate-provider";
 
-// Deterministic color generator based on user_id
-function getUserColor(userId: string): string {
-  // Use a hash of the userId to generate a consistent color
-  let hash = 0;
-  for (let i = 0; i < userId.length; i++) {
-    hash = ((hash << 5) - hash) + userId.charCodeAt(i);
-    hash = hash & hash; // Convert to 32bit integer
-  }
-  
-  // Generate HSL color with good saturation and lightness for visibility
-  const hue = Math.abs(hash % 360);
-  const saturation = 65 + (Math.abs(hash >> 8) % 20); // 65-85%
-  const lightness = 45 + (Math.abs(hash >> 16) % 15); // 45-60%
-  
-  return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
-}
+// Curated palette of 20 visually distinct colors for dark backgrounds
+// Assigned by rank index to guarantee uniqueness within displayed set
+const CHART_COLORS = [
+  "#22c55e", // green (rank 1)
+  "#3b82f6", // blue (rank 2)
+  "#ef4444", // red (rank 3)
+  "#f59e0b", // amber
+  "#8b5cf6", // violet
+  "#ec4899", // pink
+  "#06b6d4", // cyan
+  "#f97316", // orange
+  "#a855f7", // purple
+  "#14b8a6", // teal
+  "#eab308", // yellow
+  "#6366f1", // indigo
+  "#84cc16", // lime
+  "#f43f5e", // rose
+  "#0ea5e9", // sky
+  "#d946ef", // fuchsia
+  "#10b981", // emerald
+  "#fb923c", // orange-light
+  "#a78bfa", // violet-light
+  "#2dd4bf", // teal-light
+];
 
 function roundTo(n: number, decimals: number): number {
   const factor = Math.pow(10, decimals);
@@ -93,7 +99,7 @@ function UserAvatar({ displayName, avatarUrl, size = 24 }: { displayName: string
 }
 
 // Custom Dot component for showing user avatars on chart lines (wrapped in a component with state)
-function ChartAvatarDotInner({ cx, cy, participant, isRefreshing }: { cx: number; cy: number; participant: any; isRefreshing?: boolean }) {
+function ChartAvatarDotInner({ cx, cy, participant, isRefreshing, onProfileClick }: { cx: number; cy: number; participant: any; isRefreshing?: boolean; onProfileClick?: (userId: string) => void }) {
   const [isHovered, setIsHovered] = useState(false);
   const [hoverTimeout, setHoverTimeout] = useState<NodeJS.Timeout | null>(null);
   
@@ -113,39 +119,46 @@ function ChartAvatarDotInner({ cx, cy, participant, isRefreshing }: { cx: number
     }
     setIsHovered(false);
   };
+
+  const handleClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (onProfileClick) {
+      onProfileClick(participant.userId);
+    }
+  };
   
   return (
     <div className="flex items-center justify-center w-full h-full">
-      <Link href={`/u/${participant.userId}`}>
-        <div
-          className={`rounded-full overflow-hidden border-2 transition-all duration-200 ${isRefreshing ? 'avatar-shine' : ''}`}
-          onMouseEnter={handleMouseEnter}
-          onMouseLeave={handleMouseLeave}
-          style={{
-            borderColor: isHovered ? 'hsl(var(--primary))' : 'white',
-            width: size,
-            height: size,
-            boxShadow: isHovered 
-              ? '0 4px 12px rgba(0,0,0,0.3)' 
-              : isRefreshing 
-                ? '0 0 12px rgba(59, 130, 246, 0.6), 0 2px 4px rgba(0,0,0,0.2)' 
-                : '0 2px 4px rgba(0,0,0,0.2)',
-            cursor: 'pointer',
-          }}
-        >
-          <UserAvatar 
-            displayName={participant.displayName} 
-            avatarUrl={participant.avatarUrl}
-            size={size}
-          />
-        </div>
-      </Link>
+      <div
+        onClick={handleClick}
+        className={`rounded-full overflow-hidden border-2 transition-all duration-200 ${isRefreshing ? 'avatar-shine' : ''}`}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+        style={{
+          borderColor: isHovered ? 'hsl(var(--primary))' : 'white',
+          width: size,
+          height: size,
+          boxShadow: isHovered 
+            ? '0 4px 12px rgba(0,0,0,0.3)' 
+            : isRefreshing 
+              ? '0 0 12px rgba(59, 130, 246, 0.6), 0 2px 4px rgba(0,0,0,0.2)' 
+              : '0 2px 4px rgba(0,0,0,0.2)',
+          cursor: 'pointer',
+        }}
+      >
+        <UserAvatar 
+          displayName={participant.displayName} 
+          avatarUrl={participant.avatarUrl}
+          size={size}
+        />
+      </div>
     </div>
   );
 }
 
 function ChartAvatarDot(props: any) {
-  const { cx, cy, participant, rank, chartView, isRefreshing, latestValueForDisplay } = props;
+  const { cx, cy, participant, rank, chartView, isRefreshing, latestValueForDisplay, onProfileClick } = props;
   
   if (!participant) return null;
   
@@ -153,12 +166,12 @@ function ChartAvatarDot(props: any) {
   const emoji = rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : null;
   
   // Get the value to display
-  const value = chartView === "return" 
+  const value = chartView === "return"
     ? formatReturnPct(Number(participant.returnPct ?? 0), 1)
     : Number.isFinite(latestValueForDisplay)
       ? `$${(latestValueForDisplay / 1000).toFixed(0)}k`
-      : Number.isFinite(participant.latestValue)
-        ? `$${(participant.latestValue / 1000).toFixed(0)}k`
+      : Number.isFinite(participant.latestEquity)
+        ? `$${(participant.latestEquity / 1000).toFixed(0)}k`
         : "N/A";
   
   return (
@@ -171,7 +184,7 @@ function ChartAvatarDot(props: any) {
         height={size}
         style={{ overflow: 'visible', pointerEvents: 'all' }}
       >
-        <ChartAvatarDotInner cx={cx} cy={cy} participant={participant} isRefreshing={isRefreshing} />
+        <ChartAvatarDotInner cx={cx} cy={cy} participant={participant} isRefreshing={isRefreshing} onProfileClick={onProfileClick} />
       </foreignObject>
       
       {/* Label next to avatar */}
@@ -183,11 +196,10 @@ function ChartAvatarDot(props: any) {
         style={{ overflow: 'visible', pointerEvents: 'none' }}
       >
         <div className="flex justify-start items-center h-full">
-          <div className="bg-background/95 backdrop-blur-sm border border-border rounded-md px-2 py-1 shadow-lg whitespace-nowrap">
+          <div className="whitespace-nowrap">
             <div className="flex items-center gap-1.5">
               {emoji && <span className="text-sm">{emoji}</span>}
-              <span className="font-medium text-xs">{participant.displayName}</span>
-              <span className="font-mono text-xs">{value}</span>
+              <span className="font-medium text-xs text-white">{participant.displayName}</span>
             </div>
           </div>
     </div>
@@ -198,45 +210,49 @@ function ChartAvatarDot(props: any) {
 
 function ArenaContent() {
   const router = useRouter();
-  const { timezone } = useTimezone();
+  const { gatedNavigate, user } = useAuthGate();
   const [virtualLeaderboard, setVirtualLeaderboard] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [chartData, setChartData] = useState<any[]>([]);
+  const [equityChartData, setEquityChartData] = useState<any[]>([]);
+  const [returnChartData, setReturnChartData] = useState<any[]>([]);
   const [chartParticipants, setChartParticipants] = useState<any[]>([]);
   const [loadingChart, setLoadingChart] = useState(true);
-  const [chartHours, setChartHours] = useState<number | "all">(72);
   const [chartView, setChartView] = useState<"equity" | "return">("return");
-  const [chartYAxisDomain, setChartYAxisDomain] = useState<{ min: number; max: number } | null>(null);
+  const [equityYAxis, setEquityYAxis] = useState<{ min: number; max: number } | null>(null);
+  const [returnYAxis, setReturnYAxis] = useState<{ min: number; max: number } | null>(null);
   const [chartWarning, setChartWarning] = useState<string | null>(null);
-  const [topN, setTopN] = useState<number | "me">(10);
+  const [topN, setTopN] = useState<number>(10);
+  const [maxElapsedMs, setMaxElapsedMs] = useState<number>(0);
+  const [chartMinTime, setChartMinTime] = useState<number>(0);
+  const [chartMaxTime, setChartMaxTime] = useState<number>(0);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [showEndedSessions, setShowEndedSessions] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  
+  const [hoveredLine, setHoveredLine] = useState<string | null>(null);
+  const [activePointIndex, setActivePointIndex] = useState<number | null>(null);
+
   // Refs to prevent unnecessary re-renders
   const chartRef = useRef<any>(null);
   const isInitialLoad = useRef(true);
   const chartRequestId = useRef(0);
+  const pendingLineRef = useRef<string | null>(null);
 
-  // Load current user ID
+  // Handler for gated profile navigation
+  const handleProfileClick = useCallback((userId: string) => {
+    gatedNavigate(`/u/${userId}`, {
+      title: "Sign in to view profiles",
+      description: "Create an account or sign in to view trader profiles, follow users, and connect with the community.",
+    });
+  }, [gatedNavigate]);
+
+  // Load current user ID from auth context
   useEffect(() => {
-    const loadUserId = async () => {
-      try {
-        const bearer = await getBearerToken();
-        if (bearer) {
-          // Extract user ID from JWT (base64 decode the payload)
-          const parts = bearer.replace('Bearer ', '').split('.');
-          if (parts.length === 3) {
-            const payload = JSON.parse(atob(parts[1]));
-            setCurrentUserId(payload.sub || null);
-          }
-        }
-      } catch (error) {
-        console.error("Failed to get user ID:", error);
-      }
-    };
-    loadUserId();
-  }, []);
+    if (user?.id) {
+      setCurrentUserId(user.id);
+    } else {
+      setCurrentUserId(null);
+    }
+  }, [user?.id]);
 
   const loadChartData = useCallback(async (options?: { allowEmpty?: boolean }) => {
     const requestId = ++chartRequestId.current;
@@ -251,10 +267,9 @@ function ArenaContent() {
     setChartWarning(null);
     try {
       const bearer = await getBearerToken();
-      const viewParam = `&view=${chartView}`;
       const showEndedParam = showEndedSessions ? `&showEnded=true` : '';
       const timestamp = Date.now();
-      const response = await fetch(`/api/arena/chart?mode=arena&hours=${chartHours}${viewParam}${showEndedParam}&t=${timestamp}`, {
+      const response = await fetch(`/api/arena/chart?mode=arena&topN=${topN}${showEndedParam}&t=${timestamp}`, {
         headers: bearer ? { Authorization: bearer } : undefined,
         cache: "no-store",
       });
@@ -263,14 +278,21 @@ function ArenaContent() {
         if (requestId !== chartRequestId.current) {
           return;
         }
-        const nextChartData = data.chartData || [];
+        const nextEquityData = data.equityChartData || [];
+        const nextReturnData = data.returnChartData || [];
         const nextParticipants = data.participants || [];
-        const hasNewData = Array.isArray(nextChartData) && nextChartData.length > 0;
+        const hasNewData = (Array.isArray(nextEquityData) && nextEquityData.length > 0) ||
+                           (Array.isArray(nextReturnData) && nextReturnData.length > 0);
         const hasNewParticipants = Array.isArray(nextParticipants) && nextParticipants.length > 0;
 
-        setChartData((prev) => (hasNewData || allowEmpty ? nextChartData : prev));
+        setEquityChartData((prev) => (hasNewData || allowEmpty ? nextEquityData : prev));
+        setReturnChartData((prev) => (hasNewData || allowEmpty ? nextReturnData : prev));
         setChartParticipants((prev) => (hasNewParticipants || allowEmpty ? nextParticipants : prev));
-        setChartYAxisDomain(data.yAxisDomain || null);
+        setEquityYAxis(data.equityYAxis || null);
+        setReturnYAxis(data.returnYAxis || null);
+        setMaxElapsedMs(data.maxElapsedMs || 0);
+        setChartMinTime(data.minTime || 0);
+        setChartMaxTime(data.maxTime || 0);
         if (data.dataQualityWarning) {
           setChartWarning(data.dataQualityWarning);
         }
@@ -283,7 +305,7 @@ function ArenaContent() {
       // Keep shine animation for a moment after data loads
       setTimeout(() => setIsRefreshing(false), 800);
     }
-  }, [chartHours, chartView, showEndedSessions]);
+  }, [topN, showEndedSessions]);
 
   const loadLeaderboards = useCallback(async () => {
     try {
@@ -324,8 +346,8 @@ function ArenaContent() {
     if (!chartParticipants || chartParticipants.length === 0) return [];
     return [...chartParticipants].sort((a, b) => {
       if (chartView === "equity") {
-        const aVal = Number.isFinite(a.latestValue) ? a.latestValue : -Infinity;
-        const bVal = Number.isFinite(b.latestValue) ? b.latestValue : -Infinity;
+        const aVal = Number.isFinite(a.latestEquity) ? a.latestEquity : -Infinity;
+        const bVal = Number.isFinite(b.latestEquity) ? b.latestEquity : -Infinity;
         if (bVal !== aVal) return bVal - aVal;
         return String(a.entryId).localeCompare(String(b.entryId));
       }
@@ -342,6 +364,26 @@ function ArenaContent() {
     return map;
   }, [sortedParticipants]);
 
+  // Pick the active dataset based on current view
+  const chartData = chartView === "equity" ? equityChartData : returnChartData;
+  const chartYAxisDomain = chartView === "equity" ? equityYAxis : returnYAxis;
+
+  // Total time range in hours (for X-axis formatting decisions)
+  const chartRangeHours = useMemo(() => {
+    if (chartMaxTime > chartMinTime) {
+      return (chartMaxTime - chartMinTime) / (1000 * 60 * 60);
+    }
+    return maxElapsedMs / (1000 * 60 * 60);
+  }, [chartMinTime, chartMaxTime, maxElapsedMs]);
+
+  // Displayed participants - server already enforces topN by equity
+  // Just use sortedParticipants directly (sorted by current view metric)
+  const displayedParticipants = useMemo(() => {
+    return sortedParticipants;
+  }, [sortedParticipants]);
+
+  // Map entryId -> participant for tooltip lookups
+  // Use chartParticipants (all from API) to ensure all entryIds in chart data can be resolved
   const participantByEntryId = useMemo(() => {
     const map = new Map<string, any>();
     chartParticipants.forEach((p) => {
@@ -350,45 +392,30 @@ function ArenaContent() {
     return map;
   }, [chartParticipants]);
 
-  const chartHoursRange = useMemo(() => {
-    if (!chartData || chartData.length === 0) return null;
-    const dataTimes = chartData.map(d => d.time).filter((t) => Number.isFinite(t));
-    if (dataTimes.length === 0) return null;
-    const minTime = Math.min(...dataTimes);
-    const maxTime = Math.max(...dataTimes);
-    return (maxTime - minTime) / (1000 * 60 * 60);
-  }, [chartData]);
-
-  // Compute displayed participants based on topN selection
-  const displayedParticipants = useMemo(() => {
-    if (sortedParticipants.length === 0) return [];
-    
-    if (topN === "me") {
-      // Show only current user
-      const me = sortedParticipants.find(p => p.userId === currentUserId);
-      return me ? [me] : [];
-    }
-    
-    // Get top N
-    let result = sortedParticipants.slice(0, topN);
-    
-    // Always include current user if they're participating but not in top N
-    if (currentUserId) {
-      const meIndex = sortedParticipants.findIndex(p => p.userId === currentUserId);
-      if (meIndex >= topN) {
-        result.push(sortedParticipants[meIndex]);
-      }
-    }
-    
-    return result;
-  }, [sortedParticipants, topN, currentUserId]);
-
-  // Generate colors for displayed participants
+  // Assign colors based on participant ID hash, with collision handling for uniqueness
   const participantColors = useMemo(() => {
     const colors: Record<string, string> = {};
-    displayedParticipants.forEach(p => {
-      colors[p.entryId] = getUserColor(p.userId || p.entryId);
+    const usedIndices = new Set<number>();
+
+    displayedParticipants.forEach((p) => {
+      // Hash the userId/entryId to get a preferred color index
+      const id = p.userId || p.entryId;
+      let hash = 0;
+      for (let i = 0; i < id.length; i++) {
+        hash = ((hash << 5) - hash) + id.charCodeAt(i);
+        hash = hash & hash;
+      }
+      let colorIndex = Math.abs(hash) % CHART_COLORS.length;
+
+      // If preferred color is taken, find next available
+      while (usedIndices.has(colorIndex)) {
+        colorIndex = (colorIndex + 1) % CHART_COLORS.length;
+      }
+
+      usedIndices.add(colorIndex);
+      colors[p.entryId] = CHART_COLORS[colorIndex];
     });
+
     return colors;
   }, [displayedParticipants]);
 
@@ -413,6 +440,103 @@ function ArenaContent() {
     return null;
   };
 
+  // Handle chart mouse move - update active point index for selected line
+  const handleChartMouseMove = useCallback((state: any) => {
+    if (!state || !state.activePayload || state.activePayload.length === 0) {
+      return;
+    }
+
+    const activeIndex = state.activeTooltipIndex;
+    setActivePointIndex(activeIndex);
+
+    // Track the closest line for potential click selection
+    const payload = state.activePayload;
+    let closestLine: string | null = null;
+    let closestDistance = Infinity;
+
+    // Convert mouse Y position (pixels) to data value for proper comparison
+    const chartHeight = 340;
+    const yDomain = chartYAxisDomain || { min: 0, max: 100 };
+    const mouseYRatio = Math.max(0, Math.min(1, (state.chartY || 0) / chartHeight));
+    const mouseDataY = yDomain.max - mouseYRatio * (yDomain.max - yDomain.min);
+
+    for (const item of payload) {
+      if (item.value != null && item.dataKey !== 'time') {
+        const distance = Math.abs(item.value - mouseDataY);
+        if (distance < closestDistance) {
+          closestDistance = distance;
+          closestLine = item.dataKey;
+        }
+      }
+    }
+    pendingLineRef.current = closestLine;
+  }, [chartYAxisDomain]);
+
+  // Handle chart click - select the closest line
+  const handleChartClick = useCallback((state: any) => {
+    if (!state || !state.activePayload || state.activePayload.length === 0) {
+      // Clicked on empty area - deselect
+      setHoveredLine(null);
+      return;
+    }
+
+    // Find closest line to click position
+    const payload = state.activePayload;
+    let closestLine: string | null = null;
+    let closestDistance = Infinity;
+
+    // Convert mouse Y position (pixels) to data value for proper comparison
+    // Chart height is ~400px, but actual plot area is smaller due to margins (~340px usable)
+    const chartHeight = 340;
+    const yDomain = chartYAxisDomain || { min: 0, max: 100 };
+    const mouseYRatio = Math.max(0, Math.min(1, (state.chartY || 0) / chartHeight));
+    // Y axis is inverted: top of chart = max value, bottom = min value
+    const mouseDataY = yDomain.max - mouseYRatio * (yDomain.max - yDomain.min);
+
+    for (const item of payload) {
+      if (item.value != null && item.dataKey !== 'time') {
+        // Compare in data coordinates
+        const distance = Math.abs(item.value - mouseDataY);
+        if (distance < closestDistance) {
+          closestDistance = distance;
+          closestLine = item.dataKey;
+        }
+      }
+    }
+
+    // Toggle selection: if clicking the same line, deselect; otherwise select the new line
+    if (closestLine === hoveredLine) {
+      setHoveredLine(null);
+    } else {
+      setHoveredLine(closestLine);
+    }
+  }, [hoveredLine, chartYAxisDomain]);
+
+  // Handle chart mouse leave - clear active point but keep selection
+  const handleChartMouseLeave = useCallback(() => {
+    pendingLineRef.current = null;
+    setActivePointIndex(null);
+    // Don't clear hoveredLine - keep selection until user clicks elsewhere
+  }, []);
+
+  // Get the active point data for the selected line
+  const activePointData = useMemo(() => {
+    if (!hoveredLine || activePointIndex === null || !chartData[activePointIndex]) {
+      return null;
+    }
+    const point = chartData[activePointIndex];
+    const value = point[hoveredLine];
+    if (value == null) return null;
+
+    const participant = participantByEntryId.get(hoveredLine);
+    return {
+      time: point.time,
+      value,
+      participant,
+      rank: rankByEntryId.get(hoveredLine) || 0,
+    };
+  }, [hoveredLine, activePointIndex, chartData, participantByEntryId, rankByEntryId]);
+
   return (
     <div className="min-h-[calc(100vh-4rem)] page-container white-cards">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
@@ -424,7 +548,7 @@ function ArenaContent() {
                   Arena Leaderboard
                 </h1>
                 <Badge className="mt-2 bg-blue-900/50 text-white border-blue-800">
-                  🏆 Virtual $100k Competition
+                  Virtual $100k Competition
                 </Badge>
               </div>
               <div className="flex items-center gap-2">
@@ -453,31 +577,25 @@ function ArenaContent() {
           </div>
 
           {/* Performance Chart */}
-          <Card className="mb-8 trading-card border-blue-900/50">
+          <Card className="mb-8">
             <CardHeader className="border-b border-blue-900/50 bg-[#0A0E1A]">
               <div className="flex items-center justify-between flex-wrap gap-3">
-                <div>
-                  <CardTitle className="text-xl font-bold text-white flex items-center gap-2">
-                    <span className="text-2xl">📊</span>
-                    {chartView === "return" ? "Return %" : "Total Account Value"}
-                  </CardTitle>
-                  <CardDescription className="text-gray-300 mt-1">
-                    Performance over time for arena participants
-                  </CardDescription>
+                <div className="flex items-start gap-3">
+                  <div className="w-12 h-12 rounded-lg bg-green-600 flex items-center justify-center flex-shrink-0 mt-1">
+                    <TrendingUp className="w-7 h-7 text-white" />
+                  </div>
+                  <div className="flex-1">
+                    <CardTitle className="text-xl font-bold text-white leading-tight">
+                      {chartView === "return" ? "Arena Performance - Return %" : "Arena Performance - Account Value"}
+                    </CardTitle>
+                    <CardDescription className="text-gray-300 mt-2">
+                      {chartView === "return"
+                        ? "Percentage return comparison across top competitors"
+                        : "Account equity evolution for top participants"}
+                    </CardDescription>
+                  </div>
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
-                  {/* Top N Selector */}
-                  <select
-                    value={topN}
-                    onChange={(e) => setTopN(e.target.value === "me" ? "me" : parseInt(e.target.value))}
-                    className="flex h-9 rounded-lg border border-blue-900 bg-blue-950/30 px-3 py-1 text-sm text-white hover:border-blue-800 transition-all"
-                  >
-                    <option value="10" className="bg-[#0A0E1A]">Top 10</option>
-                    <option value="25" className="bg-[#0A0E1A]">Top 25</option>
-                    <option value="50" className="bg-[#0A0E1A]">Top 50</option>
-                    <option value="me" className="bg-[#0A0E1A]">Me Only</option>
-                  </select>
-                  
                   {/* View toggle */}
                   <div className="flex items-center rounded-lg border border-blue-900 overflow-hidden bg-blue-950/30">
                     <button
@@ -501,19 +619,6 @@ function ArenaContent() {
                       Equity $
                     </button>
                   </div>
-                  
-                  {/* Time range */}
-                  <select
-                    value={chartHours}
-                    onChange={(e) => setChartHours(e.target.value === "all" ? "all" : parseInt(e.target.value))}
-                    className="flex h-9 rounded-lg border border-blue-900 bg-blue-950/30 px-3 py-1 text-sm text-white hover:border-blue-800 transition-all"
-                  >
-                    <option value="24" className="bg-[#0A0E1A]">24H</option>
-                    <option value="48" className="bg-[#0A0E1A]">48H</option>
-                    <option value="72" className="bg-[#0A0E1A]">72H</option>
-                    <option value="168" className="bg-[#0A0E1A]">7D</option>
-                    <option value="all" className="bg-[#0A0E1A]">All Time</option>
-                  </select>
                 </div>
               </div>
             </CardHeader>
@@ -525,7 +630,9 @@ function ArenaContent() {
               ) : chartData.length === 0 || displayedParticipants.length === 0 ? (
                 <div className="h-[400px] flex flex-col items-center justify-center">
                   <div className="text-center space-y-3">
-                    <div className="text-4xl mb-2">📊</div>
+                    <div className="w-12 h-12 rounded-lg bg-green-600 flex items-center justify-center mx-auto mb-2">
+                      <TrendingUp className="w-8 h-8 text-white" />
+                    </div>
                     <p className="text-lg font-medium text-muted-foreground">No equity snapshots for selected range</p>
                     <p className="text-sm text-muted-foreground max-w-md">
                       Participants need to have active sessions running. Equity is recorded each time the strategy engine runs.
@@ -542,68 +649,75 @@ function ArenaContent() {
                       {chartWarning}
                     </div>
                   )}
-                  <div className="relative bg-[#0A0E1A] rounded-lg p-4 border border-blue-900/30">
+                  <div className="relative px-2 py-4">
                     <ResponsiveContainer width="100%" height={400}>
-                      <LineChart 
+                      <LineChart
                         ref={chartRef}
-                        data={chartData} 
-                        margin={{ top: 5, right: 180, left: 20, bottom: 5 }}
+                        data={chartData}
+                        margin={{ top: 5, right: 140, left: 20, bottom: 5 }}
+                        onMouseMove={handleChartMouseMove}
+                        onMouseLeave={handleChartMouseLeave}
+                        onClick={handleChartClick}
+                        style={{ cursor: 'pointer' }}
                       >
                         <CartesianGrid strokeDasharray="3 3" stroke="rgb(59, 130, 246, 0.1)" opacity={0.5} />
                         <XAxis
                           dataKey="time"
                           type="number"
-                          scale="time"
+                          scale="linear"
                           domain={["dataMin", "dataMax"]}
                           tickFormatter={(value) => {
-                            if (!Number.isFinite(value)) return "";
+                            if (!Number.isFinite(value) || value < 0) return "";
+                            // value is absolute timestamp (epoch ms) — format as calendar date/time
                             const date = new Date(value);
-                            if (isNaN(date.getTime())) return "";
-                            const hoursRange = chartHoursRange;
-                            if (hoursRange == null) {
-                              return date.toLocaleDateString("en-US", { month: "numeric", day: "numeric" });
+
+                            // For very short ranges (< 24h), show time only
+                            if (chartRangeHours <= 24) {
+                              return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
                             }
-                            const timeOpts: Intl.DateTimeFormatOptions = { hour: "2-digit", minute: "2-digit", hour12: false };
-                            const dateOpts: Intl.DateTimeFormatOptions = { month: "numeric", day: "numeric" };
-                            if (timezone) {
-                              timeOpts.timeZone = timezone;
-                              dateOpts.timeZone = timezone;
+                            // For medium ranges (< 7 days), show date + time
+                            if (chartRangeHours <= 168) {
+                              return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ' +
+                                     date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
                             }
-                            if (hoursRange <= 24) {
-                              return date.toLocaleTimeString("en-US", timeOpts);
+                            // For longer ranges, show just date
+                            // Include year if range crosses years
+                            const minYear = chartMinTime > 0 ? new Date(chartMinTime).getFullYear() : date.getFullYear();
+                            const maxYear = chartMaxTime > 0 ? new Date(chartMaxTime).getFullYear() : date.getFullYear();
+                            if (minYear !== maxYear) {
+                              return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
                             }
-                            if (hoursRange <= 72) {
-                              return `${date.toLocaleDateString("en-US", dateOpts)} ${date.toLocaleTimeString("en-US", timeOpts)}`;
-                            }
-                            return date.toLocaleDateString("en-US", dateOpts);
+                            return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
                           }}
                           tickCount={8}
                           minTickGap={40}
-                          tick={{ fontSize: 11, fill: '#9CA3AF' }}
+                          tick={{ fontSize: 14, fill: '#9CA3AF' }}
                           stroke="#374151"
                         />
                         <YAxis
-                          domain={(() => {
-                            if (!chartYAxisDomain) return ["auto", "auto"] as any;
-                            if (chartView === "return") {
-                              // Force domain to use server-provided values exactly (no client-side adjustment)
-                              return [chartYAxisDomain.min, chartYAxisDomain.max] as any;
+                          domain={chartYAxisDomain ? [chartYAxisDomain.min, chartYAxisDomain.max] as any : ["auto", "auto"] as any}
+                          ticks={(() => {
+                            if (!chartYAxisDomain) return undefined;
+                            const { min, max } = chartYAxisDomain;
+                            const count = 6;
+                            const step = (max - min) / (count - 1);
+                            if (step <= 0) return [min];
+                            const t: number[] = [];
+                            for (let i = 0; i < count; i++) {
+                              t.push(min + step * i);
                             }
-                            return [chartYAxisDomain.min, chartYAxisDomain.max] as any;
+                            return t;
                           })()}
                           tickFormatter={(value) => {
                             if (!Number.isFinite(value)) return "";
                             if (chartView === "equity") {
-                              // Determine precision based on the Y-axis range
-                              const range = chartYAxisDomain 
-                                ? chartYAxisDomain.max - chartYAxisDomain.min 
-                                : 10000;
-                              
+                              const range = chartYAxisDomain
+                                ? chartYAxisDomain.max - chartYAxisDomain.min
+                                : 0;
+                              if (range > 0 && range < 20000) {
+                                return `$${Math.round(value).toLocaleString("en-US")}`;
+                              }
                               if (Math.abs(value) >= 1000) {
-                                // For small ranges (< $5k), show one decimal place
-                                if (range < 5000) {
-                                  return `$${(value / 1000).toFixed(1)}k`;
-                                }
                                 return `$${(value / 1000).toFixed(0)}k`;
                               }
                               return `$${value.toFixed(0)}`;
@@ -611,59 +725,103 @@ function ArenaContent() {
                               return formatReturnPct(Number(value), 1);
                             }
                           }}
-                          tick={{ fontSize: 11, fill: '#9CA3AF' }}
+                          tick={{ fontSize: 14, fill: '#9CA3AF' }}
                           stroke="#374151"
-                          width={70}
-                          tickCount={6}
+                          width={95}
                         />
-                        <Tooltip
-                          labelFormatter={(value) => formatDateCompact(new Date(value), timezone)}
-                          formatter={(value: any, name: string) => {
-                            const participant = participantByEntryId.get(name);
-                            const displayName = participant?.displayName || name;
-                            const rank = rankByEntryId.get(name) || 0;
-                            const isTop3 = rank > 0 && rank <= 3;
-                            const emoji = rank === 1 ? "🥇 " : rank === 2 ? "🥈 " : rank === 3 ? "🥉 " : "";
-                            
-                            const formattedValue = chartView === "equity" 
-                              ? `$${Number(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                              : formatReturnPct(Number(value), 2);
-                            
-                            const label = rank > 0
-                              ? (isTop3 ? `${emoji}${displayName} (#${rank})` : `${displayName} (#${rank})`)
-                              : displayName;
-                            return [formattedValue, label];
-                          }}
-                          contentStyle={{
-                            backgroundColor: "rgb(15, 20, 25, 0.98)",
-                            border: "1px solid rgb(59, 130, 246, 0.3)",
-                            borderRadius: "8px",
-                            fontSize: "12px",
-                            boxShadow: "0 0 20px rgba(59, 130, 246, 0.2)",
-                            backdropFilter: "blur(10px)",
-                            color: "#E5E7EB",
-                          }}
-                          labelStyle={{
-                            color: "#F3F4F6",
-                            fontWeight: "500",
-                          }}
-                        />
+                        {hoveredLine && (
+                          <Tooltip
+                            cursor={{
+                              stroke: 'rgba(148, 163, 184, 0.3)',
+                              strokeWidth: 1,
+                              strokeDasharray: '4 4',
+                            }}
+                            content={({ payload, label }) => {
+                              // Find the data for the hovered line only
+                              const hoveredEntry = payload?.find((p: any) => p.dataKey === hoveredLine);
+                              if (!hoveredEntry || hoveredEntry.value == null) return null;
+
+                              const participant = participantByEntryId.get(hoveredLine);
+                              const displayName = participant?.displayName || hoveredLine;
+                              const rank = rankByEntryId.get(hoveredLine) || 0;
+                              const isTop3 = rank > 0 && rank <= 3;
+                              const emoji = rank === 1 ? "🥇 " : rank === 2 ? "🥈 " : rank === 3 ? "🥉 " : "";
+                              const color = participantColors[hoveredLine] || '#3b82f6';
+
+                              // Format the timestamp
+                              const date = new Date(label);
+                              const formattedDate = date.toLocaleDateString(undefined, {
+                                month: 'short',
+                                day: 'numeric',
+                                year: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                                hour12: false
+                              });
+
+                              // Format the value
+                              const formattedValue = chartView === "equity"
+                                ? `$${Number(hoveredEntry.value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                                : formatReturnPct(Number(hoveredEntry.value), 2);
+
+                              const nameLabel = rank > 0
+                                ? (isTop3 ? `${emoji}${displayName} (#${rank})` : `${displayName} (#${rank})`)
+                                : displayName;
+
+                              return (
+                                <div
+                                  style={{
+                                    backgroundColor: "rgb(15, 20, 25, 0.98)",
+                                    border: `1px solid ${color}40`,
+                                    borderRadius: "8px",
+                                    fontSize: "13px",
+                                    boxShadow: `0 0 20px ${color}30`,
+                                    backdropFilter: "blur(10px)",
+                                    color: "#E5E7EB",
+                                    padding: "8px 12px",
+                                  }}
+                                >
+                                  <div style={{ color: "#F3F4F6", fontWeight: 600, marginBottom: "4px" }}>
+                                    {formattedDate}
+                                  </div>
+                                  <div style={{ color, fontWeight: 500 }}>
+                                    {nameLabel}: {formattedValue}
+                                  </div>
+                                </div>
+                              );
+                            }}
+                          />
+                        )}
+                        {/* Baseline reference line: 0% for return, $100k for equity */}
                         {chartView === "return" ? (
                           <ReferenceLine
                             y={0}
-                            stroke="rgb(59, 130, 246)"
-                            strokeDasharray="3 3"
-                            strokeOpacity={0.3}
-                            strokeWidth={2}
+                            stroke="rgb(148, 163, 184)"
+                            strokeDasharray="4 4"
+                            strokeOpacity={0.5}
+                            strokeWidth={1.5}
+                            label={{
+                              value: "0%",
+                              position: "left",
+                              fill: "rgb(148, 163, 184)",
+                              fontSize: 11,
+                              fontWeight: 500,
+                            }}
                           />
                         ) : (
                           <ReferenceLine
                             y={100000}
-                            stroke="rgb(59, 130, 246)"
-                            strokeDasharray="3 3"
-                            strokeOpacity={0.3}
-                            strokeWidth={2}
-                            label={{ value: "$100k", position: "left", fill: "#9CA3AF", fontSize: 11 }}
+                            stroke="rgb(148, 163, 184)"
+                            strokeDasharray="4 4"
+                            strokeOpacity={0.5}
+                            strokeWidth={1.5}
+                            label={{
+                              value: "$100k",
+                              position: "left",
+                              fill: "rgb(148, 163, 184)",
+                              fontSize: 11,
+                              fontWeight: 500,
+                            }}
                           />
                         )}
                         {displayedParticipants.map((participant) => {
@@ -671,45 +829,70 @@ function ArenaContent() {
                           const isMe = participant.userId === currentUserId;
                           const rank = rankByEntryId.get(participant.entryId) || 0;
                           const isTop3 = rank > 0 && rank <= 3;
-                          
+
                           // Find the latest data point for this participant
                           const latestDataPoint = chartData
                             .slice()
                             .reverse()
                             .find((d: any) => d[participant.entryId] != null);
                           const latestValueForDisplay = latestDataPoint?.[participant.entryId];
-                          
+
+                          const isHovered = hoveredLine === participant.entryId;
+                          const isOtherHovered = hoveredLine !== null && !isHovered;
+
                           return (
                             <Line
                               key={participant.entryId}
                               type="linear"
                               dataKey={participant.entryId}
                               stroke={color}
-                              strokeWidth={isMe ? 3 : isTop3 ? 2.5 : 2}
+                              strokeWidth={isHovered ? 4 : isMe ? 3 : isTop3 ? 2.5 : 2}
+                              strokeOpacity={isOtherHovered ? 0.15 : 1}
                               name={participant.entryId}
-                              dot={isTop3 ? ((props: any) => {
-                                // Only show avatar on the last point for top 3
+                              dot={((props: any) => {
                                 const { cx, cy, index: dotIndex, payload, ...rest } = props;
-                                if (payload !== latestDataPoint) {
-                                  // Return invisible circle for non-final points
-                                  return <circle key={`${participant.entryId}-${dotIndex}-hidden`} cx={cx} cy={cy} r={0} fill="transparent" />;
+                                const hasValue = payload?.[participant.entryId] != null;
+
+                                // Show glowing dot on selected line at active point
+                                if (isHovered && activePointIndex === dotIndex && hasValue) {
+                                  return (
+                                    <g key={`${participant.entryId}-${dotIndex}-active`}>
+                                      {/* Glow effect */}
+                                      <circle cx={cx} cy={cy} r={12} fill={color} opacity={0.2} />
+                                      <circle cx={cx} cy={cy} r={8} fill={color} opacity={0.3} />
+                                      {/* Main dot */}
+                                      <circle cx={cx} cy={cy} r={5} fill={color} stroke="white" strokeWidth={2} />
+                                    </g>
+                                  );
                                 }
-                                return (
-                                  <ChartAvatarDot
-                                    key={`${participant.entryId}-${dotIndex}`}
-                                    cx={cx}
-                                    cy={cy}
-                                    participant={participant}
-                                    rank={rank}
-                                    chartView={chartView}
-                                    isRefreshing={isRefreshing}
-                                    latestValueForDisplay={latestValueForDisplay}
-                                  />
-                                );
-                              }) : false}
-                              activeDot={{ r: isMe ? 6 : 4 }}
+
+                                // Show avatar on last point for top 3
+                                if (isTop3 && payload === latestDataPoint && hasValue) {
+                                  return (
+                                    <ChartAvatarDot
+                                      key={`${participant.entryId}-${dotIndex}`}
+                                      cx={cx}
+                                      cy={cy}
+                                      participant={participant}
+                                      rank={rank}
+                                      chartView={chartView}
+                                      isRefreshing={isRefreshing}
+                                      latestValueForDisplay={latestValueForDisplay}
+                                      onProfileClick={handleProfileClick}
+                                    />
+                                  );
+                                }
+
+                                // No dot for other points
+                                return <circle key={`${participant.entryId}-${dotIndex}-hidden`} cx={cx} cy={cy} r={0} fill="transparent" />;
+                              })}
+                              activeDot={false}
                               connectNulls={false}
                               isAnimationActive={false}
+                              style={{
+                                filter: isHovered ? `drop-shadow(0 0 6px ${color})` : undefined,
+                                transition: 'all 0.2s ease-out',
+                              }}
                             />
                           );
                         })}
@@ -725,25 +908,18 @@ function ArenaContent() {
           <Card className="trading-card border-blue-900/50">
             <CardHeader className="border-b border-blue-900/50 bg-[#0A0E1A]">
               <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="text-xl font-bold text-white flex items-center gap-2">
-                    <span className="text-2xl">🏆</span>
-                    Virtual Arena Leaderboard
-                  </CardTitle>
-                  <CardDescription className="text-gray-300 mt-1">
-                    Rankings based on equity. Everyone starts with $100,000.
-                  </CardDescription>
-                </div>
-                <div className="flex items-center gap-2">
-                  <label className="flex items-center gap-2 text-sm text-gray-300 hover:text-white transition-colors cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={showEndedSessions}
-                      onChange={(e) => setShowEndedSessions(e.target.checked)}
-                      className="rounded border-blue-900 bg-blue-950/30 text-blue-800 focus:ring-blue-800 focus:ring-offset-0"
-                    />
-                    Show ended sessions
-                  </label>
+                <div className="flex items-start gap-3">
+                  <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-yellow-500 to-orange-600 flex items-center justify-center flex-shrink-0 mt-1">
+                    <Trophy className="w-7 h-7 text-white" />
+                  </div>
+                  <div className="flex-1">
+                    <CardTitle className="text-xl font-bold text-white leading-tight">
+                      Virtual Arena Leaderboard
+                    </CardTitle>
+                    <CardDescription className="text-gray-300 mt-2">
+                      Rankings based on equity. Everyone starts with $100,000
+                    </CardDescription>
+                  </div>
                 </div>
               </div>
             </CardHeader>
@@ -776,6 +952,7 @@ function ArenaContent() {
                         <TableHead className="text-right text-gray-300 font-semibold">Win Rate</TableHead>
                         <TableHead className="text-right text-gray-300 font-semibold">Max DD</TableHead>
                         <TableHead className="text-right text-gray-300 font-semibold">Days</TableHead>
+                        <TableHead className="text-right text-gray-300 font-semibold">Joined</TableHead>
                         <TableHead className="w-20 text-gray-300 font-semibold">Status</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -783,15 +960,16 @@ function ArenaContent() {
                       {virtualLeaderboard.map((entry) => {
                         const emoji = getRankEmoji(entry.rank);
                         const isMe = entry.userId === currentUserId;
-                        const isEnded = entry.arenaStatus === 'left' || entry.arenaStatus === 'ended';
+                        const isActive = entry.sessionStatus === 'running';
                         return (
                           <TableRow
                             key={entry.entryId || entry.displayName}
                             className={`
-                              border-b border-blue-900/30 transition-all hover:bg-blue-950/20
+                              border-b border-blue-900/30 transition-all cursor-pointer
+                              hover:bg-slate-700/50
                               ${entry.rank <= 3 ? "bg-yellow-900/20 border-l-4 border-l-yellow-700" : ""}
                               ${isMe ? "bg-blue-900/30 border-l-4 border-l-blue-800" : ""}
-                              ${isEnded ? "opacity-50" : ""}
+                              ${!isActive ? "opacity-50" : ""}
                             `}
                           >
                             <TableCell className="font-bold text-white">
@@ -799,9 +977,12 @@ function ArenaContent() {
                               <span>{entry.rank}</span>
                             </TableCell>
                             <TableCell>
-                              <div className="flex items-center gap-3">
-                                <UserAvatar 
-                                  displayName={entry.displayName} 
+                              <div 
+                                onClick={() => handleProfileClick(entry.userId)} 
+                                className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity"
+                              >
+                                <UserAvatar
+                                  displayName={entry.displayName}
                                   avatarUrl={entry.avatarUrl}
                                   size={32}
                                 />
@@ -843,15 +1024,20 @@ function ArenaContent() {
                             <TableCell className="text-right text-gray-300">
                               {entry.daysSinceStarted ?? 0}
                             </TableCell>
+                            <TableCell className="text-right text-gray-400 text-sm">
+                              {entry.optedInAt
+                                ? new Date(entry.optedInAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+                                : "N/A"}
+                            </TableCell>
                             <TableCell>
-                              <Badge 
+                              <Badge
                                 className={
-                                  isEnded 
+                                  !isActive 
                                     ? "bg-gray-700/30 text-gray-400 border-gray-700" 
                                     : "bg-emerald-900/50 text-emerald-300 border-emerald-800"
                                 }
                               >
-                                {isEnded ? (entry.arenaStatus === 'left' ? 'Left' : 'Ended') : 'Active'}
+                                {isActive ? 'Active' : 'Inactive'}
                               </Badge>
                             </TableCell>
                           </TableRow>
@@ -870,9 +1056,5 @@ function ArenaContent() {
 }
 
 export default function ArenaPage() {
-  return (
-    <AuthGuard>
-      <ArenaContent />
-    </AuthGuard>
-  );
+  return <ArenaContent />;
 }

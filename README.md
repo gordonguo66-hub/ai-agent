@@ -1,6 +1,6 @@
-# AI Arena Trade
+# Corebound
 
-MVP web platform for AI-powered trading strategies with real market data.
+AI executes. Human strategy sets the limits.
 
 ## Quick Start
 

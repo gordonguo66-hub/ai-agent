@@ -40,6 +40,13 @@ export async function POST(
       return NextResponse.json({ error: "Failed to stop session" }, { status: 500 });
     }
 
+    // Mark any arena entry for this session as ended
+    await serviceClient
+      .from("arena_entries")
+      .update({ arena_status: "ended", active: false })
+      .eq("session_id", sessionId)
+      .eq("user_id", user.id);
+
     return NextResponse.json({ session: updatedSession });
   } catch (error: any) {
     console.error("Stop session error:", error);

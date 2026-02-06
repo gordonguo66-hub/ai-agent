@@ -23,6 +23,7 @@ export interface SendEmailOptions {
   subject: string;
   html: string;
   from?: string;
+  replyTo?: string;
 }
 
 export async function sendEmail(options: SendEmailOptions): Promise<{ success: boolean; error?: string }> {
@@ -34,15 +35,16 @@ export async function sendEmail(options: SendEmailOptions): Promise<{ success: b
   }
 
     try {
-      // Default to Resend's test domain for development if no EMAIL_FROM is set
-      // In production, user should set EMAIL_FROM to their verified domain (e.g., noreply@yourcompany.com)
-      const fromEmail = options.from || process.env.EMAIL_FROM || "AI Arena Trade <onboarding@resend.dev>";
+      // Default to the Corebound support address if no EMAIL_FROM is set
+      // In production, EMAIL_FROM should be support@coreboundai.io
+      const fromEmail = options.from || process.env.EMAIL_FROM || "Corebound <support@coreboundai.io>";
     
     const { data, error } = await client.emails.send({
       from: fromEmail,
       to: options.to,
       subject: options.subject,
       html: options.html,
+      ...(options.replyTo && { reply_to: options.replyTo }),
     });
 
     if (error) {

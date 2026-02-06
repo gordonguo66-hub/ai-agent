@@ -3,6 +3,12 @@ export type SessionStatus = "running" | "stopped";
 
 export type OrderSide = "buy" | "sell";
 
+// Exchange venues
+export type Venue = "hyperliquid" | "coinbase";
+
+// Market types - perpetual (Hyperliquid) vs spot (Coinbase)
+export type MarketType = "perpetual" | "spot";
+
 export interface MarketData {
   market: string;
   bid: number;
@@ -10,6 +16,8 @@ export interface MarketData {
   mid: number;
   mark: number;
   timestamp: number;
+  venue?: Venue;
+  marketType?: MarketType;
 }
 
 export interface OrderRequest {
@@ -27,6 +35,15 @@ export interface OrderExecutionResult {
   venueResponse: Record<string, any>;
 }
 
+// Spot balance for Coinbase accounts
+export interface SpotBalance {
+  asset: string;
+  available: number;
+  hold: number;
+  total: number;
+  usdValue: number;
+}
+
 export interface EngineAccountState {
   // For risk checks + sizing only
   equityUsd: number;
@@ -35,6 +52,8 @@ export interface EngineAccountState {
   netExposureUsd: number;
   // absolute exposure in USD (approx)
   grossExposureUsd: number;
+  // Spot balances for Coinbase accounts
+  spotBalances?: SpotBalance[];
 }
 
 export interface BrokerContext {
@@ -42,6 +61,7 @@ export interface BrokerContext {
   sessionId: string;
   mode: SessionMode;
   marketData: MarketData;
+  venue?: Venue;
 }
 
 export interface Broker {

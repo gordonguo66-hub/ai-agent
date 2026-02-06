@@ -13,6 +13,9 @@ import { useTimezone } from "@/components/timezone-provider";
 import { TIMEZONES, getBrowserTimezone, getTimezoneOffset } from "@/lib/utils/dateFormat";
 import { getBearerToken } from "@/lib/api/clientAuth";
 import { FormattedDate } from "@/components/formatted-date";
+import { Textarea } from "@/components/ui/textarea";
+
+type Venue = "hyperliquid" | "coinbase";
 
 // Provider options for saved keys
 const PROVIDERS = [
@@ -60,11 +63,24 @@ function SettingsContent() {
   const [connections, setConnections] = useState<any[]>([]);
   const [loadingConnections, setLoadingConnections] = useState(false);
   const [exchangeError, setExchangeError] = useState<string | null>(null);
+  const [exchangeSuccess, setExchangeSuccess] = useState(false);
   const [verifying, setVerifying] = useState<string | null>(null);
   const [verifyResults, setVerifyResults] = useState<Record<string, any>>({});
+
+  // Venue selection for adding new connection
+  const [selectedVenue, setSelectedVenue] = useState<Venue>("hyperliquid");
+
+  // Hyperliquid form data
   const [exchangeFormData, setExchangeFormData] = useState({
     wallet_address: "",
     key_material_encrypted: "",
+  });
+
+  // Coinbase form data
+  const [cbFormData, setCbFormData] = useState({
+    api_key: "",
+    api_secret: "",
+    intx_enabled: false,
   });
 
   // Help sections state
@@ -212,31 +228,49 @@ function SettingsContent() {
     e.preventDefault();
     setLoadingConnections(true);
     setExchangeError(null);
+    setExchangeSuccess(false);
 
     try {
       const bearer = await getBearerToken();
       if (!bearer) throw new Error("Unauthorized");
+
+      let body: any = { venue: selectedVenue };
+
+      if (selectedVenue === "hyperliquid") {
+        body.wallet_address = exchangeFormData.wallet_address;
+        body.key_material_encrypted = exchangeFormData.key_material_encrypted;
+      } else {
+        body.api_key = cbFormData.api_key;
+        body.api_secret = cbFormData.api_secret;
+        body.intx_enabled = cbFormData.intx_enabled;
+      }
+
       const response = await fetch("/api/exchange-connections", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: bearer,
         },
-        body: JSON.stringify({
-          wallet_address: exchangeFormData.wallet_address,
-          key_material_encrypted: exchangeFormData.key_material_encrypted,
-          venue: "hyperliquid",
-        }),
+        body: JSON.stringify(body),
       });
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.error || "Failed to create connection");
+        // Include details if available for debugging
+        const errorMsg = errorData.details
+          ? `${errorData.error}\n\nDetails: ${errorData.details}`
+          : errorData.error || "Failed to create connection";
+        throw new Error(errorMsg);
       }
 
-      // Reset form and reload
+      // Reset forms and reload
       setExchangeFormData({ wallet_address: "", key_material_encrypted: "" });
+      setCbFormData({ api_key: "", api_secret: "", intx_enabled: false });
       await loadExchangeConnections();
+
+      // Show success message
+      setExchangeSuccess(true);
+      setTimeout(() => setExchangeSuccess(false), 4000);
     } catch (err: any) {
       setExchangeError(err.message || "Failed to create connection");
     } finally {
@@ -280,7 +314,7 @@ function SettingsContent() {
     try {
       const bearer = await getBearerToken();
       if (!bearer) throw new Error("Unauthorized");
-      
+
       const response = await fetch(`/api/exchange-connections/${connectionId}`, {
         method: "DELETE",
         headers: {
@@ -302,6 +336,21 @@ function SettingsContent() {
     } catch (err: any) {
       alert(err.message || "Failed to delete connection");
     }
+  };
+
+  const getConnectionIdentifier = (conn: any) => {
+    if (conn.venue === "coinbase") {
+      return conn.identifier || conn.api_key?.split("/").pop() || "Connected";
+    }
+    return conn.wallet_address
+      ? `${conn.wallet_address.slice(0, 6)}...${conn.wallet_address.slice(-4)}`
+      : "Unknown";
+  };
+
+  const getVenueBadgeColor = (venue: string) => {
+    return venue === "coinbase"
+      ? "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300"
+      : "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300";
   };
 
   const handleSave = async () => {
@@ -700,7 +749,7 @@ function SettingsContent() {
                 <div>
                   <CardTitle>Exchange Connection</CardTitle>
                   <CardDescription>
-                    Connect your Hyperliquid account to enable live and dry-run trading
+                    Connect your exchange account to enable live and dry-run trading
                   </CardDescription>
                 </div>
                 <Button
@@ -713,65 +762,109 @@ function SettingsContent() {
               </div>
             </CardHeader>
             <CardContent className="space-y-6">
-              {/* Help Section */}
-              {showExchangeHelp && (
+              {/* Security Notice */}
+              <div className="rounded-md bg-yellow-500/10 border border-yellow-500/50 p-3">
+                <p className="text-sm text-muted-foreground">
+                  <strong className="text-yellow-700 dark:text-yellow-400">Security Notice:</strong> Your API keys and credentials are stored encrypted on our servers. Never share your private keys with anyone.
+                </p>
+              </div>
+
+              {/* Venue Selector Tabs */}
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSelectedVenue("hyperliquid")}
+                  className={`flex-1 p-4 border rounded-lg text-left transition-colors ${
+                    selectedVenue === "hyperliquid"
+                      ? "border-purple-500 bg-purple-500/10 ring-2 ring-purple-500/20"
+                      : "border-border hover:border-muted-foreground/50"
+                  }`}
+                >
+                  <div className="font-semibold">Hyperliquid</div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    Perpetuals trading (global)
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedVenue("coinbase")}
+                  className={`flex-1 p-4 border rounded-lg text-left transition-colors ${
+                    selectedVenue === "coinbase"
+                      ? "border-blue-500 bg-blue-500/10 ring-2 ring-blue-500/20"
+                      : "border-border hover:border-muted-foreground/50"
+                  }`}
+                >
+                  <div className="font-semibold">Coinbase</div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    Spot (US) or INTX perpetuals (non-US)
+                  </div>
+                </button>
+              </div>
+
+              {/* Help Section - Hyperliquid */}
+              {showExchangeHelp && selectedVenue === "hyperliquid" && (
                 <div className="p-4 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-                  <h4 className="font-semibold text-blue-900 dark:text-blue-100 mb-3">📚 How to Get Hyperliquid Credentials</h4>
+                  <h4 className="font-semibold text-blue-900 dark:text-blue-100 mb-3">How to Get Hyperliquid Credentials</h4>
                   <div className="space-y-4 text-sm text-blue-800 dark:text-blue-200">
                     <div>
-                      <strong className="block mb-2">Option 1: Using Hyperliquid API Wallet (Recommended) ⭐</strong>
+                      <strong className="block mb-2">Option 1: Using Hyperliquid API Wallet (Recommended)</strong>
                       <ol className="list-decimal ml-5 space-y-1">
                         <li>Go to <a href="https://app.hyperliquid.xyz" target="_blank" rel="noopener noreferrer" className="underline">app.hyperliquid.xyz</a></li>
                         <li>Connect your wallet (MetaMask or other)</li>
                         <li>Click <strong>"More"</strong> → <strong>"API"</strong></li>
                         <li>Click <strong>"Authorize API Wallet"</strong></li>
-                        <li>Copy the <strong>API Wallet Address</strong> (starts with <code className="bg-blue-100 dark:bg-blue-900 px-1 rounded">0x...</code>, 42 characters)</li>
-                        <li>Click <strong>"Show Private Key"</strong> and copy it (starts with <code className="bg-blue-100 dark:bg-blue-900 px-1 rounded">0x...</code>, 66 characters)</li>
+                        <li>Copy the <strong>API Wallet Address</strong></li>
+                        <li>Click <strong>"Show Private Key"</strong> and copy it</li>
                       </ol>
-                      <p className="mt-2 text-xs text-blue-700 dark:text-blue-300">
-                        ✅ This creates a separate trading wallet with limited permissions - safer for API trading!
-                      </p>
                     </div>
-                    
                     <div className="pt-3 border-t border-blue-300 dark:border-blue-700">
-                      <strong className="block mb-2">Option 2: Using Your MetaMask Wallet</strong>
-                      <ol className="list-decimal ml-5 space-y-1">
-                        <li>Open <strong>MetaMask</strong> browser extension</li>
-                        <li>Select the account you use on Hyperliquid</li>
-                        <li>Click the <strong>three dots (⋮)</strong> → <strong>"Account details"</strong></li>
-                        <li>Click <strong>"Export private key"</strong></li>
-                        <li>Enter your MetaMask password</li>
-                        <li>Copy the private key</li>
-                        <li>Your <strong>Wallet Address</strong> is shown at the top of MetaMask (starts with <code className="bg-blue-100 dark:bg-blue-900 px-1 rounded">0x...</code>)</li>
-                      </ol>
-                      <p className="mt-2 text-xs text-orange-700 dark:text-orange-300">
-                        ⚠️ This uses your main wallet - less recommended for automated trading
-                      </p>
-                    </div>
-
-                    <div className="pt-3 border-t border-blue-300 dark:border-blue-700">
-                      <p className="font-medium text-red-700 dark:text-red-300">🔒 Security Tips:</p>
+                      <p className="font-medium text-red-700 dark:text-red-300">Security Tips:</p>
                       <ul className="list-disc ml-5 space-y-1 mt-1">
                         <li>Never share your private key with anyone</li>
                         <li>Private key must be 66 characters and start with <code className="bg-blue-100 dark:bg-blue-900 px-1 rounded">0x</code></li>
                         <li>We encrypt your key before storing it</li>
-                        <li>Option 1 (API Wallet) is recommended for better security</li>
                       </ul>
                     </div>
                   </div>
                 </div>
               )}
 
-              {/* Security Notice */}
-              <div className="rounded-md bg-yellow-500/10 border border-yellow-500/50 p-3">
-                <p className="text-sm text-muted-foreground">
-                  <strong className="text-yellow-700 dark:text-yellow-400">Security Notice:</strong> Your private key is stored encrypted on our servers. Never share your private key with anyone.
-                </p>
-              </div>
+              {/* Help Section - Coinbase */}
+              {showExchangeHelp && selectedVenue === "coinbase" && (
+                <div className="p-4 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                  <h4 className="font-semibold text-blue-900 dark:text-blue-100 mb-3">How to Get Coinbase API Keys</h4>
+                  <div className="space-y-4 text-sm text-blue-800 dark:text-blue-200">
+                    <ol className="list-decimal ml-5 space-y-2">
+                      <li>Go to <a href="https://www.coinbase.com/settings/api" target="_blank" rel="noopener noreferrer" className="underline">coinbase.com/settings/api</a></li>
+                      <li>Sign in with your Coinbase account</li>
+                      <li>Select portfolio:
+                        <ul className="list-disc ml-5 mt-1">
+                          <li><strong>US users (Spot):</strong> Select <strong>Primary</strong> portfolio</li>
+                          <li><strong>Non-US users (Perpetuals):</strong> Select <strong>Perpetuals</strong> portfolio</li>
+                        </ul>
+                      </li>
+                      <li>Click <strong>&quot;Create API Key&quot;</strong></li>
+                      <li>Copy the <strong>API Key ID</strong></li>
+                      <li>Copy the <strong>Secret</strong> - it will be a PEM key starting with <code className="bg-blue-100 dark:bg-blue-900 px-1 rounded text-xs">-----BEGIN EC PRIVATE KEY-----</code></li>
+                    </ol>
+                    <div className="mt-3 p-2 bg-green-100 dark:bg-green-900/30 border border-green-300 dark:border-green-700 rounded">
+                      <p className="text-green-700 dark:text-green-300 text-xs">
+                        Both key types use ECDSA PEM format. No passphrase needed.
+                      </p>
+                    </div>
+                    <div className="pt-3 border-t border-blue-300 dark:border-blue-700">
+                      <p className="font-medium text-blue-700 dark:text-blue-300">Capabilities by Portfolio:</p>
+                      <ul className="list-disc ml-5 space-y-1 mt-1">
+                        <li><strong>Primary (US):</strong> Spot trading only, no leverage, no shorts</li>
+                        <li><strong>Perpetuals (non-US):</strong> Perpetuals + leverage + shorts allowed</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              )}
 
-              {/* Add Connection Form */}
-              <div>
-                <h3 className="text-lg font-semibold mb-3">Add Hyperliquid Connection</h3>
+              {/* Hyperliquid Form */}
+              {selectedVenue === "hyperliquid" && (
                 <form onSubmit={handleExchangeSubmit} className="space-y-4">
                   <div className="space-y-2">
                     <Label htmlFor="wallet_address">Wallet Address</Label>
@@ -786,12 +879,12 @@ function SettingsContent() {
                       required
                     />
                   </div>
-              <div className="space-y-2">
+                  <div className="space-y-2">
                     <Label htmlFor="key_material_encrypted">Private Key</Label>
                     <Input
                       id="key_material_encrypted"
                       type="password"
-                      placeholder="Enter your private key"
+                      placeholder="0x... (66 characters)"
                       value={exchangeFormData.key_material_encrypted}
                       onChange={(e) =>
                         setExchangeFormData({ ...exchangeFormData, key_material_encrypted: e.target.value })
@@ -799,7 +892,7 @@ function SettingsContent() {
                       required
                     />
                     <p className="text-xs text-muted-foreground">
-                      This will be encrypted before storage
+                      Your private key will be encrypted before storage
                     </p>
                   </div>
                   {exchangeError && (
@@ -808,10 +901,90 @@ function SettingsContent() {
                     </div>
                   )}
                   <Button type="submit" disabled={loadingConnections}>
-                    {loadingConnections ? "Connecting..." : "Connect"}
+                    {loadingConnections ? "Connecting..." : "Connect Hyperliquid"}
                   </Button>
                 </form>
-              </div>
+              )}
+
+              {/* Coinbase Form */}
+              {selectedVenue === "coinbase" && (
+                <form onSubmit={handleExchangeSubmit} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="api_key">API Key ID</Label>
+                    <Input
+                      id="api_key"
+                      type="text"
+                      placeholder="e.g., f3808258-..."
+                      value={cbFormData.api_key}
+                      onChange={(e) =>
+                        setCbFormData({ ...cbFormData, api_key: e.target.value })
+                      }
+                      required
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Copy the &quot;API key ID&quot; shown when you create the key
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="api_secret">Secret (PEM Private Key)</Label>
+                    <Textarea
+                      id="api_secret"
+                      placeholder="-----BEGIN EC PRIVATE KEY-----&#10;...&#10;-----END EC PRIVATE KEY-----"
+                      value={cbFormData.api_secret}
+                      onChange={(e) =>
+                        setCbFormData({ ...cbFormData, api_secret: e.target.value })
+                      }
+                      required
+                      rows={5}
+                      className="font-mono text-xs"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Paste the full PEM private key including the BEGIN/END lines
+                    </p>
+                  </div>
+                  {/* INTX Access Toggle */}
+                  <div className="flex items-start space-x-3 p-4 border rounded-lg bg-muted/30">
+                    <input
+                      type="checkbox"
+                      id="intx-enabled-main"
+                      checked={cbFormData.intx_enabled}
+                      onChange={(e) =>
+                        setCbFormData({ ...cbFormData, intx_enabled: e.target.checked })
+                      }
+                      className="mt-1 h-4 w-4 rounded border-gray-300"
+                    />
+                    <div>
+                      <label htmlFor="intx-enabled-main" className="font-medium text-sm cursor-pointer">
+                        I have Coinbase International (INTX) access
+                      </label>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Enable if you&apos;re a <strong>non-US resident</strong> who passed Coinbase&apos;s derivatives
+                        verification. This unlocks perpetuals trading with leverage and short selling (spot trading remains available).
+                      </p>
+                    </div>
+                  </div>
+                  {exchangeError && (
+                    <div className="rounded-md bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-3">
+                      <p className="text-sm text-red-800 dark:text-red-200">{exchangeError}</p>
+                    </div>
+                  )}
+                  <Button type="submit" disabled={loadingConnections}>
+                    {loadingConnections ? "Connecting..." : "Connect Coinbase"}
+                  </Button>
+                </form>
+              )}
+
+              {/* Success Message */}
+              {exchangeSuccess && (
+                <div className="rounded-md bg-green-50 dark:bg-green-900/20 border border-green-300 dark:border-green-700 p-3 flex items-center gap-2">
+                  <svg className="w-5 h-5 text-green-600 dark:text-green-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  <p className="text-sm text-green-700 dark:text-green-300 font-medium">
+                    Exchange connection saved successfully
+                  </p>
+                </div>
+              )}
 
               {/* Existing Connections */}
               <div>
@@ -827,13 +1000,26 @@ function SettingsContent() {
                         <div className="flex items-center justify-between p-4 border rounded-lg bg-background">
                           <div>
                             <div className="flex items-center gap-2 mb-1">
-                              <span className="font-medium capitalize">{conn.venue}</span>
-                              <Badge variant="outline" className="text-xs">
-                                {conn.wallet_address.slice(0, 6)}...{conn.wallet_address.slice(-4)}
+                              <Badge className={getVenueBadgeColor(conn.venue)}>
+                                {conn.venue === "coinbase" ? "Coinbase" : "Hyperliquid"}
                               </Badge>
+                              <span className="font-mono text-sm">
+                                {getConnectionIdentifier(conn)}
+                              </span>
                             </div>
                             <p className="text-xs text-muted-foreground">
                               Connected <FormattedDate date={conn.created_at} format="date" />
+                              {conn.venue === "coinbase" && (
+                                conn.intx_enabled ? (
+                                  <span className="ml-2 text-green-600 dark:text-green-400">
+                                    (INTX - Spot + Perps)
+                                  </span>
+                                ) : (
+                                  <span className="ml-2 text-blue-600 dark:text-blue-400">
+                                    (Spot Only)
+                                  </span>
+                                )
+                              )}
                             </p>
                           </div>
                           <div className="flex gap-2">
@@ -856,22 +1042,35 @@ function SettingsContent() {
                         </div>
                         {verifyResults[conn.id] && (
                           <div className={`mt-2 p-3 rounded-lg text-sm ${
-                            verifyResults[conn.id].success 
-                              ? "bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-200 border border-green-300 dark:border-green-800" 
+                            verifyResults[conn.id].success
+                              ? "bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-200 border border-green-300 dark:border-green-800"
                               : "bg-red-100 dark:bg-red-900/20 text-red-800 dark:text-red-200 border border-red-300 dark:border-red-800"
                           }`}>
                             {verifyResults[conn.id].success ? (
                               <div>
-                                <div className="font-semibold mb-2">✅ Connection Verified!</div>
+                                <div className="font-semibold mb-2">Connection Verified!</div>
                                 <div className="space-y-1 text-xs">
-                                  <div>Account Value: ${verifyResults[conn.id].account?.account_value || 'N/A'}</div>
-                                  <div>Margin Used: ${verifyResults[conn.id].account?.margin_used || 'N/A'}</div>
-                                  <div>Positions: {verifyResults[conn.id].account?.positions_count || 0}</div>
+                                  {conn.venue === "coinbase" ? (
+                                    <>
+                                      <div>Total Equity: ${verifyResults[conn.id].account?.equity?.toLocaleString() || 'N/A'}</div>
+                                      <div>Balances: {verifyResults[conn.id].account?.balances_count || 0} assets</div>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <div className="font-medium">Total Equity: ${Number(verifyResults[conn.id].account?.account_value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                                      <div className="text-muted-foreground mt-1">
+                                        <span>Perp: ${Number(verifyResults[conn.id].account?.perp_equity || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                        <span className="mx-1">•</span>
+                                        <span>Spot USDC: ${Number(verifyResults[conn.id].account?.spot_usdc || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                      </div>
+                                      <div>Positions: {verifyResults[conn.id].account?.positions_count || 0}</div>
+                                    </>
+                                  )}
                                 </div>
                               </div>
                             ) : (
                               <div>
-                                <div className="font-semibold mb-1">❌ Verification Failed</div>
+                                <div className="font-semibold mb-1">Verification Failed</div>
                                 <div className="text-xs">{verifyResults[conn.id].error}</div>
                                 {verifyResults[conn.id].details && (
                                   <div className="text-xs mt-1 opacity-75">{verifyResults[conn.id].details}</div>

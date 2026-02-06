@@ -1,5 +1,5 @@
 {
-  "name": "ai-arena-trade",
+  "name": "corebound",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -17,13 +17,16 @@
     "@supabase/supabase-js": "^2.47.10",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "coinbase-api": "^1.1.10",
     "lucide-react": "^0.562.0",
     "next": "14.2.35",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "recharts": "^2.15.0",
     "resend": "^4.0.1",
-    "tailwind-merge": "^3.4.0"
+    "stripe": "^20.3.0",
+    "tailwind-merge": "^3.4.0",
+    "viem": "^2.45.1"
   },
   "devDependencies": {
     "@types/node": "^20",

@@ -320,6 +320,124 @@ export async function updateAccountEquity(
 }
 
 /**
+ * Sync equity from exchange by account ID only (lightweight version)
+ * Used when fetching session details to ensure fresh equity is displayed
+ * @param accountId - The live_accounts ID
+ * @returns Fresh equity value from exchange, or null if sync fails
+ */
+export async function syncAccountEquityById(
+  accountId: string
+): Promise<{ equity: number; cashBalance: number } | null> {
+  const supabase = createServiceRoleClient();
+
+  console.log(`[liveBroker] 🔄 syncAccountEquityById for account ${accountId}`);
+
+  try {
+    // 1. Fetch the live account to get exchange_connection_id
+    const { data: account, error: accountError } = await supabase
+      .from("live_accounts")
+      .select("exchange_connection_id")
+      .eq("id", accountId)
+      .single();
+
+    if (accountError || !account) {
+      console.warn(`[liveBroker] Could not find live account ${accountId}:`, accountError);
+      return null;
+    }
+
+    // 2. Fetch exchange connection to get wallet address
+    const { data: connection, error: connError } = await supabase
+      .from("exchange_connections")
+      .select("wallet_address, venue")
+      .eq("id", account.exchange_connection_id)
+      .single();
+
+    if (connError || !connection) {
+      console.warn(`[liveBroker] Could not find exchange connection:`, connError);
+      return null;
+    }
+
+    // 3. Only Hyperliquid is supported for now
+    if (connection.venue !== "hyperliquid") {
+      console.log(`[liveBroker] Skipping sync for non-Hyperliquid venue: ${connection.venue}`);
+      return null;
+    }
+
+    // 4. Sync equity from Hyperliquid
+    const result = await updateAccountEquity(accountId, connection.wallet_address);
+    console.log(`[liveBroker] ✅ syncAccountEquityById complete: $${result.equity.toFixed(2)}`);
+    return result;
+  } catch (err: any) {
+    console.error(`[liveBroker] syncAccountEquityById failed:`, err.message);
+    // Don't throw - return null so caller can use stale data as fallback
+    return null;
+  }
+}
+
+/**
+ * Sync all live account data from Hyperliquid (positions + equity)
+ * Used when loading session detail page to ensure fresh data display
+ * @param accountId - The live_accounts ID
+ * @returns Fresh equity and positions, or null if sync fails
+ */
+export async function syncLiveAccountData(
+  accountId: string
+): Promise<{ equity: number; cashBalance: number; positions: any[] } | null> {
+  const supabase = createServiceRoleClient();
+
+  console.log(`[liveBroker] 🔄 syncLiveAccountData for account ${accountId}`);
+
+  try {
+    // 1. Fetch the live account to get exchange_connection_id
+    const { data: account, error: accountError } = await supabase
+      .from("live_accounts")
+      .select("exchange_connection_id")
+      .eq("id", accountId)
+      .single();
+
+    if (accountError || !account) {
+      console.warn(`[liveBroker] Could not find live account ${accountId}:`, accountError);
+      return null;
+    }
+
+    // 2. Fetch exchange connection to get wallet address
+    const { data: connection, error: connError } = await supabase
+      .from("exchange_connections")
+      .select("wallet_address, venue")
+      .eq("id", account.exchange_connection_id)
+      .single();
+
+    if (connError || !connection) {
+      console.warn(`[liveBroker] Could not find exchange connection:`, connError);
+      return null;
+    }
+
+    // 3. Only Hyperliquid is supported for now
+    if (connection.venue !== "hyperliquid") {
+      console.log(`[liveBroker] Skipping sync for non-Hyperliquid venue: ${connection.venue}`);
+      return null;
+    }
+
+    // 4. Sync BOTH positions AND equity from Hyperliquid (in parallel)
+    const [positions, equityResult] = await Promise.all([
+      syncPositionsFromHyperliquid(accountId, connection.wallet_address),
+      updateAccountEquity(accountId, connection.wallet_address),
+    ]);
+
+    console.log(`[liveBroker] ✅ syncLiveAccountData complete: equity=$${equityResult.equity.toFixed(2)}, positions=${positions.length}`);
+
+    return {
+      equity: equityResult.equity,
+      cashBalance: equityResult.cashBalance,
+      positions,
+    };
+  } catch (err: any) {
+    console.error(`[liveBroker] syncLiveAccountData failed:`, err.message);
+    return null;
+  }
+}
+
+/**
  * Record a live trade in the database
  * (Called after placing an order on Hyperliquid)
  */
@@ -368,6 +486,161 @@ export async function recordLiveTrade(
 }
 
 /**
+ * Update position after a trade (for venues that don't support position sync from API)
+ * Used for Coinbase INTX where we track positions locally based on trades
+ */
+export async function updatePositionFromTrade(
+  accountId: string,
+  trade: {
+    market: string;
+    action: "open" | "close" | "increase" | "reduce" | "flip";
+    side: "buy" | "sell";
+    size: number;
+    price: number;
+    leverage?: number;
+  }
+): Promise<void> {
+  const supabase = createServiceRoleClient();
+
+  console.log(`[liveBroker] 📊 Updating position from trade: ${trade.action} ${trade.side} ${trade.size} ${trade.market} @ $${trade.price}`);
+
+  // Get existing position for this market
+  const { data: existing, error: fetchError } = await supabase
+    .from("live_positions")
+    .select("*")
+    .eq("account_id", accountId)
+    .eq("market", trade.market)
+    .maybeSingle();
+
+  if (fetchError) {
+    console.error("[liveBroker] Error fetching existing position:", fetchError);
+  }
+
+  // Determine position side based on trade
+  // For perpetuals: buy = long, sell = short (or close long)
+  const isLongTrade = trade.side === "buy";
+  const tradeSide = isLongTrade ? "long" : "short";
+
+  if (trade.action === "close" || trade.action === "reduce") {
+    // Closing or reducing - we're exiting a position
+    if (!existing) {
+      console.log(`[liveBroker] ⚠️ No existing position to ${trade.action} for ${trade.market}`);
+      return;
+    }
+
+    const newSize = Math.max(0, existing.size - trade.size);
+
+    if (newSize < 0.0000001) {
+      // Position fully closed - delete it
+      const { error: deleteError } = await supabase
+        .from("live_positions")
+        .delete()
+        .eq("account_id", accountId)
+        .eq("market", trade.market);
+
+      if (deleteError) {
+        console.error("[liveBroker] Error deleting closed position:", deleteError);
+      } else {
+        console.log(`[liveBroker] ✅ Position closed and deleted: ${trade.market}`);
+      }
+    } else {
+      // Position reduced but not fully closed
+      const { error: updateError } = await supabase
+        .from("live_positions")
+        .update({
+          size: newSize,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("account_id", accountId)
+        .eq("market", trade.market);
+
+      if (updateError) {
+        console.error("[liveBroker] Error reducing position:", updateError);
+      } else {
+        console.log(`[liveBroker] ✅ Position reduced: ${trade.market} ${existing.size} → ${newSize}`);
+      }
+    }
+  } else if (trade.action === "open" || trade.action === "increase") {
+    // Opening or increasing a position
+    if (existing) {
+      // Increasing existing position - calculate weighted average entry
+      const newSize = existing.size + trade.size;
+      const oldValue = existing.size * existing.avg_entry;
+      const newValue = trade.size * trade.price;
+      const avgEntry = (oldValue + newValue) / newSize;
+
+      const { error: updateError } = await supabase
+        .from("live_positions")
+        .update({
+          size: newSize,
+          avg_entry: avgEntry,
+          leverage: trade.leverage || existing.leverage || 1,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("account_id", accountId)
+        .eq("market", trade.market);
+
+      if (updateError) {
+        console.error("[liveBroker] Error increasing position:", updateError);
+      } else {
+        console.log(`[liveBroker] ✅ Position increased: ${trade.market} ${existing.size} → ${newSize} @ avg $${avgEntry.toFixed(2)}`);
+      }
+    } else {
+      // New position
+      const { error: insertError } = await supabase
+        .from("live_positions")
+        .insert({
+          account_id: accountId,
+          market: trade.market,
+          side: tradeSide,
+          size: trade.size,
+          avg_entry: trade.price,
+          unrealized_pnl: 0,
+          leverage: trade.leverage || 1,
+          peak_price: trade.price, // Initialize for trailing stop tracking
+          updated_at: new Date().toISOString(),
+        });
+
+      if (insertError) {
+        console.error("[liveBroker] Error creating position:", insertError);
+      } else {
+        console.log(`[liveBroker] ✅ New position created: ${tradeSide} ${trade.size} ${trade.market} @ $${trade.price}`);
+      }
+    }
+  } else if (trade.action === "flip") {
+    // Flipping from long to short or vice versa
+    // First delete the old position, then create new one
+    if (existing) {
+      await supabase
+        .from("live_positions")
+        .delete()
+        .eq("account_id", accountId)
+        .eq("market", trade.market);
+    }
+
+    const { error: insertError } = await supabase
+      .from("live_positions")
+      .insert({
+        account_id: accountId,
+        market: trade.market,
+        side: tradeSide,
+        size: trade.size,
+        avg_entry: trade.price,
+        unrealized_pnl: 0,
+        leverage: trade.leverage || 1,
+        peak_price: trade.price, // Initialize for trailing stop tracking
+        updated_at: new Date().toISOString(),
+      });
+
+    if (insertError) {
+      console.error("[liveBroker] Error flipping position:", insertError);
+    } else {
+      console.log(`[liveBroker] ✅ Position flipped to: ${tradeSide} ${trade.size} ${trade.market} @ $${trade.price}`);
+    }
+  }
+}
+
+/**
  * Get all live positions for an account
  */
 export async function getLivePositions(accountId: string): Promise<any[]> {
@@ -384,6 +657,138 @@ export async function getLivePositions(accountId: string): Promise<any[]> {
   }
 
   return data || [];
+}
+
+/**
+ * Reconstruct INTX positions from trade history
+ * Used to recover positions for INTX perpetuals that weren't tracked due to earlier bugs
+ * Only processes INTX markets (those with -PERP-INTX or -INTX suffix)
+ */
+export async function reconstructIntxPositionsFromTrades(
+  accountId: string
+): Promise<void> {
+  const supabase = createServiceRoleClient();
+
+  console.log(`[liveBroker] 🔄 Reconstructing INTX positions from trade history for account ${accountId}`);
+
+  // Get all trades for this account
+  const { data: trades, error: tradesError } = await supabase
+    .from("live_trades")
+    .select("*")
+    .eq("account_id", accountId)
+    .order("created_at", { ascending: true }); // Process oldest first
+
+  if (tradesError || !trades || trades.length === 0) {
+    console.log(`[liveBroker] No trades found for account ${accountId}`);
+    return;
+  }
+
+  // Filter to only INTX trades
+  const intxTrades = trades.filter(t =>
+    t.market?.includes("-PERP") || t.market?.endsWith("-INTX")
+  );
+
+  if (intxTrades.length === 0) {
+    console.log(`[liveBroker] No INTX trades found for account ${accountId}`);
+    return;
+  }
+
+  console.log(`[liveBroker] Found ${intxTrades.length} INTX trades to process`);
+
+  // Get current positions
+  const { data: existingPositions } = await supabase
+    .from("live_positions")
+    .select("market")
+    .eq("account_id", accountId);
+
+  const existingMarkets = new Set((existingPositions || []).map(p => p.market));
+
+  // Build positions from trade history
+  const positionMap: Record<string, {
+    size: number;
+    avgEntry: number;
+    side: string;
+    leverage: number;
+    totalCost: number; // For weighted average calculation
+  }> = {};
+
+  for (const trade of intxTrades) {
+    const market = trade.market;
+
+    // Skip if position already exists (don't overwrite)
+    if (existingMarkets.has(market)) {
+      continue;
+    }
+
+    if (!positionMap[market]) {
+      positionMap[market] = {
+        size: 0,
+        avgEntry: 0,
+        side: trade.side === "buy" ? "long" : "short",
+        leverage: trade.leverage || 1,
+        totalCost: 0,
+      };
+    }
+
+    const pos = positionMap[market];
+    const tradeSize = Number(trade.size || 0);
+    const tradePrice = Number(trade.price || 0);
+
+    if (trade.action === "open" || trade.action === "increase") {
+      // Adding to position - calculate weighted average
+      const newTotalCost = pos.totalCost + (tradeSize * tradePrice);
+      const newSize = pos.size + tradeSize;
+      pos.size = newSize;
+      pos.totalCost = newTotalCost;
+      pos.avgEntry = newSize > 0 ? newTotalCost / newSize : 0;
+      pos.side = trade.side === "buy" ? "long" : "short";
+      pos.leverage = trade.leverage || pos.leverage;
+    } else if (trade.action === "close" || trade.action === "reduce") {
+      // Reducing position
+      pos.size = Math.max(0, pos.size - tradeSize);
+      if (pos.size === 0) {
+        pos.totalCost = 0;
+      } else {
+        // Maintain weighted average on reduction
+        pos.totalCost = pos.size * pos.avgEntry;
+      }
+    } else if (trade.action === "flip") {
+      // Flip to opposite side
+      pos.size = tradeSize;
+      pos.avgEntry = tradePrice;
+      pos.side = trade.side === "buy" ? "long" : "short";
+      pos.totalCost = tradeSize * tradePrice;
+      pos.leverage = trade.leverage || pos.leverage;
+    }
+  }
+
+  // Insert reconstructed positions
+  for (const [market, pos] of Object.entries(positionMap)) {
+    if (pos.size < 0.0000001) {
+      console.log(`[liveBroker] Skipping closed position for ${market}`);
+      continue; // Skip zero positions
+    }
+
+    const { error: insertError } = await supabase
+      .from("live_positions")
+      .upsert({
+        account_id: accountId,
+        market,
+        side: pos.side,
+        size: pos.size,
+        avg_entry: pos.avgEntry,
+        unrealized_pnl: 0, // Will be updated on next sync
+        leverage: pos.leverage,
+        peak_price: pos.avgEntry, // Initialize for trailing stop tracking
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "account_id,market" });
+
+    if (insertError) {
+      console.error(`[liveBroker] Error inserting reconstructed position for ${market}:`, insertError);
+    } else {
+      console.log(`[liveBroker] ✅ Reconstructed position: ${pos.side} ${pos.size} ${market} @ $${pos.avgEntry.toFixed(2)}`);
+    }
+  }
 }
 
 /**
@@ -432,6 +837,18 @@ export async function syncPositionsFromCoinbase(
     const client = new CoinbaseClient();
     client.initialize(apiKey, apiSecret);
 
+    // Fetch existing positions FIRST to preserve entry prices
+    const { data: existingPositions } = await supabase
+      .from("live_positions")
+      .select("market, avg_entry, size")
+      .eq("account_id", accountId);
+
+    // Build map of existing entry prices
+    const existingEntryPrices: Record<string, { avgEntry: number; size: number }> = {};
+    for (const pos of existingPositions || []) {
+      existingEntryPrices[pos.market] = { avgEntry: pos.avg_entry, size: pos.size };
+    }
+
     const balances = await client.getSpotBalances();
 
     console.log(`[liveBroker] 📊 Fetched ${balances.length} balances from Coinbase`);
@@ -449,9 +866,29 @@ export async function syncPositionsFromCoinbase(
       .map((b) => {
         const market = `${b.asset}-USD`;
         const currentPrice = b.total > 0 ? b.usdValue / b.total : 0;
+        const existing = existingEntryPrices[market];
+
+        // Preserve entry price if position exists, otherwise use current price
+        // Also update entry price if position size increased (new buy at different price)
+        let avgEntry = currentPrice;
+        if (existing && existing.avgEntry > 0) {
+          if (b.total > existing.size) {
+            // Size increased - calculate weighted average entry
+            const oldValue = existing.size * existing.avgEntry;
+            const newValue = (b.total - existing.size) * currentPrice;
+            avgEntry = (oldValue + newValue) / b.total;
+            console.log(`[liveBroker] 📈 ${market}: Size increased ${existing.size.toFixed(8)} → ${b.total.toFixed(8)}, weighted avg entry: $${avgEntry.toFixed(2)}`);
+          } else {
+            // Same or reduced size - keep original entry price
+            avgEntry = existing.avgEntry;
+          }
+        }
+
+        // Calculate unrealized PnL now that we have proper entry price
+        const unrealizedPnl = (currentPrice - avgEntry) * b.total;
 
         console.log(
-          `[liveBroker] 📍 Position: ${market} long ${b.total.toFixed(8)} @ $${currentPrice.toFixed(2)} = $${b.usdValue.toFixed(2)}`
+          `[liveBroker] 📍 Position: ${market} long ${b.total.toFixed(8)} @ entry $${avgEntry.toFixed(2)}, current $${currentPrice.toFixed(2)} = $${b.usdValue.toFixed(2)}, unrealized: ${unrealizedPnl >= 0 ? '+' : ''}$${unrealizedPnl.toFixed(2)}`
         );
 
         return {
@@ -459,8 +896,8 @@ export async function syncPositionsFromCoinbase(
           market,
           side: "long", // Spot is always long
           size: b.total,
-          avg_entry: currentPrice, // Use current price as proxy (Coinbase doesn't track cost basis)
-          unrealized_pnl: 0, // Can't calculate without cost basis
+          avg_entry: avgEntry, // Preserved or weighted average entry price
+          unrealized_pnl: unrealizedPnl, // Calculated from entry vs current
           venue: "coinbase",
           position_type: "spot",
           updated_at: new Date().toISOString(),
@@ -540,12 +977,13 @@ export async function updateCoinbaseAccountEquity(
     for (const b of balances) {
       totalEquity += b.usdValue;
       if (b.asset === "USD" || b.asset === "USDC" || b.asset === "USDT") {
-        cashBalance += b.usdValue;
+        // Use AVAILABLE balance (not total) - held funds can't be used for orders
+        cashBalance += b.available;
       }
     }
 
     console.log(
-      `[liveBroker] 💰 Coinbase equity: $${totalEquity.toFixed(2)}, Cash: $${cashBalance.toFixed(2)}`
+      `[liveBroker] 💰 Coinbase equity: $${totalEquity.toFixed(2)}, Available Cash: $${cashBalance.toFixed(2)}`
     );
 
     const { error: updateError } = await supabase

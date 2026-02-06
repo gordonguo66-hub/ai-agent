@@ -1,0 +1,25 @@
+<svg width="360" height="80" viewBox="0 0 360 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Icon -->
+  <g transform="translate(12, 8)">
+    <!-- Side bars (parallel, equal height) -->
+    <rect x="4" y="18" width="6" height="28" fill="#4B5563"/>
+    <rect x="54" y="18" width="6" height="28" fill="#4B5563"/>
+    <!-- Top/Bottom markers (aligned to diamond axis) -->
+    <polygon points="32,2 36,8 28,8" fill="#6B7280"/>
+    <polygon points="32,62 36,56 28,56" fill="#6B7280"/>
+    <!-- Diamond -->
+    <polygon points="32,10 48,32 32,54 16,32" fill="#FFFFFF"/>
+  </g>
+
+  <!-- Wordmark -->
+  <text
+    x="84"
+    y="52"
+    font-family="Arial, sans-serif"
+    font-size="32"
+    font-weight="500"
+    fill="white"
+  >
+    Corebound
+  </text>
+</svg>

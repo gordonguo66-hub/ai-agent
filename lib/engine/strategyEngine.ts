@@ -17,7 +17,7 @@
  * - Account equity updates (delegated to mode-specific data layer)
  */
 
-import { SessionMode } from "./types";
+import { SessionMode, Venue, MarketType } from "./types";
 
 // ============================================================================
 // CORE TYPES - Mode-agnostic input/output interfaces
@@ -130,7 +130,7 @@ export interface StrategyConfig {
 
 export interface AIIntent {
   market: string;
-  bias: "long" | "short" | "neutral";
+  bias: "long" | "short" | "hold" | "neutral" | "close";
   confidence: number;
   entryZone?: { lower: number; upper: number };
   stopLoss?: number;
@@ -228,6 +228,9 @@ export interface StrategyEngineInput {
 
   // AI response (pre-computed to ensure identical calls)
   aiIntent: AIIntent;
+
+  // Exchange venue (for venue-specific constraints)
+  venue?: Venue;
 }
 
 // ============================================================================
@@ -284,7 +287,16 @@ export function evaluateExitConditions(
       };
     }
 
-    // AI signal conflict check
+    // AI explicit close request
+    if (aiIntent.bias === "close") {
+      return {
+        shouldExit: true,
+        reason: `AI requested close: ${unrealizedPnlPct >= 0 ? 'profit taking' : 'loss cutting'} (${unrealizedPnlPct >= 0 ? '+' : ''}${unrealizedPnlPct.toFixed(2)}%)`,
+        exitType: "ai_signal"
+      };
+    }
+
+    // AI signal conflict check (direction reversal)
     const shouldExitOnSignal =
       (positionSide === "long" && aiIntent.bias === "short") ||
       (positionSide === "short" && aiIntent.bias === "long");
@@ -292,7 +304,7 @@ export function evaluateExitConditions(
     if (shouldExitOnSignal) {
       return {
         shouldExit: true,
-        reason: `AI signal flip: ${aiIntent.bias} conflicts with ${positionSide} position`,
+        reason: `AI signal reversal: ${aiIntent.bias} conflicts with ${positionSide} position`,
         exitType: "ai_signal"
       };
     }
@@ -323,9 +335,10 @@ export function evaluateExitConditions(
       : ((currentPrice - peakPrice) / peakPrice) * 100;
 
     if (dropFromPeakPct >= exitConfig.trailingStopPct && currentPrice !== peakPrice) {
+      const extremeLabel = positionSide === "long" ? "peak" : "trough";
       return {
         shouldExit: true,
-        reason: `Trailing stop: ${dropFromPeakPct.toFixed(2)}% drop from peak ${peakPrice.toFixed(2)}`,
+        reason: `Trailing stop: ${dropFromPeakPct.toFixed(2)}% from ${extremeLabel} ${peakPrice.toFixed(2)}`,
         exitType: "trailing_stop"
       };
     }
@@ -359,11 +372,12 @@ export interface EntryEvaluation {
 /**
  * Evaluates entry conditions.
  * This is mode-agnostic - same logic for virtual and live.
+ * Includes venue-specific constraints (e.g., no shorting on Coinbase spot).
  */
 export function evaluateEntryConditions(
   input: StrategyEngineInput
 ): EntryEvaluation {
-  const { config, aiIntent, currentPosition, indicators, tradesLastHour, tradesLastDay, recentTrades } = input;
+  const { config, aiIntent, currentPosition, indicators, tradesLastHour, tradesLastDay, recentTrades, venue } = input;
   const { guardrails, entryExit, risk } = config;
 
   // 1. Check if already in position
@@ -371,7 +385,16 @@ export function evaluateEntryConditions(
     return { canEnter: false, reason: "Already in position", failedCheck: "position" };
   }
 
-  // 2. Confidence check
+  // 2. VENUE CONSTRAINT: Coinbase spot cannot short
+  if (venue === "coinbase" && aiIntent.bias === "short") {
+    return {
+      canEnter: false,
+      reason: "Short selling is not available on Coinbase spot markets. You can only buy assets or sell assets you own.",
+      failedCheck: "venue_constraint"
+    };
+  }
+
+  // 3. Confidence check
   const minConfidence = entryExit.confidenceControl?.minConfidence ?? guardrails.minConfidence ?? 0.65;
   if (aiIntent.confidence < minConfidence) {
     return {
@@ -381,7 +404,7 @@ export function evaluateEntryConditions(
     };
   }
 
-  // 3. Guardrails check (long/short permissions)
+  // 4. Guardrails check (long/short permissions)
   if (aiIntent.bias === "long" && !guardrails.allowLong) {
     return { canEnter: false, reason: "Long positions not allowed", failedCheck: "guardrails" };
   }
@@ -454,7 +477,7 @@ export function evaluateEntryConditions(
  */
 export function evaluateStrategy(input: StrategyEngineInput): StrategyDecision {
   const timestamp = new Date().toISOString();
-  const { market, marketSnapshot, indicators, config, aiIntent, currentPosition, account } = input;
+  const { market, marketSnapshot, indicators, config, aiIntent, currentPosition, account, positions } = input;
 
   const filterResults: StrategyDecision["filterResults"] = {
     confidenceCheck: { passed: true },
@@ -525,6 +548,9 @@ export function evaluateStrategy(input: StrategyEngineInput): StrategyDecision {
       filterResults.tradeControlCheck = { passed: false, reason: entryEval.reason };
     } else if (entryEval.failedCheck === "risk") {
       filterResults.riskCheck = { passed: false, reason: entryEval.reason };
+    } else if (entryEval.failedCheck === "venue_constraint") {
+      // Venue constraints (e.g., no shorting on Coinbase) are treated as guardrails
+      filterResults.guardrailsCheck = { passed: false, reason: entryEval.reason };
     }
 
     riskResult = { passed: false, reason: entryEval.reason };
@@ -545,8 +571,23 @@ export function evaluateStrategy(input: StrategyEngineInput): StrategyDecision {
   }
 
   // ---- CALCULATE POSITION SIZE ----
+  // FIXED: Position sizing now respects maxLeverage setting instead of hardcoded 10% cap
   const maxPositionUsd = config.risk.maxPositionUsd || 10000;
-  let positionNotional = Math.min(maxPositionUsd, account.equity * 0.1);
+  let maxLeverage = config.risk.maxLeverage || 2;
+
+  // VENUE CONSTRAINT: Coinbase spot has no leverage (1x only)
+  if (input.venue === "coinbase" && maxLeverage > 1) {
+    console.log(`[StrategyEngine] Coinbase venue: forcing maxLeverage from ${maxLeverage}x to 1x (spot trading has no leverage)`);
+    maxLeverage = 1;
+  }
+
+  // Calculate max exposure based on leverage allowance
+  const totalCurrentExposure = positions.reduce((sum, p) => sum + (p.avgEntry * p.size), 0);
+  const maxExposureAllowed = account.equity * maxLeverage * 0.99; // 1% safety margin
+  const remainingLeverageRoom = Math.max(0, maxExposureAllowed - totalCurrentExposure);
+
+  // Position size is the minimum of: user's maxPositionUsd OR remaining leverage room
+  let positionNotional = Math.min(maxPositionUsd, remainingLeverageRoom);
 
   // Apply confidence scaling if enabled
   if (config.entryExit.confidenceControl?.confidenceScaling) {
