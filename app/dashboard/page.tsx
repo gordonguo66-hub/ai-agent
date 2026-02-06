@@ -330,7 +330,10 @@ function DashboardContent() {
                     ? (session.live_accounts || null)
                     : (session.virtual_accounts || session.sim_accounts || null);
                   const equity = account ? Number(account.equity) : null;
-                  const startingEquity = account ? Number(account.starting_equity) : null;
+                  // Use session-level starting_equity if available, fallback to account-level for old sessions
+                  const startingEquity = session.starting_equity != null
+                    ? Number(session.starting_equity)
+                    : (account ? Number(account.starting_equity) : null);
                   const pnl = equity != null && startingEquity != null ? equity - startingEquity : null;
                   
                   return (
