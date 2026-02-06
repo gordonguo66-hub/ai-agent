@@ -1961,6 +1961,11 @@ function SessionDetailContent({ sessionId }: { sessionId: string }) {
                             <div>
                               <span className="text-muted-foreground">Intent: </span>
                               <span className="font-medium capitalize">{intent.bias}</span>
+                              {decision.proposed_order?.market && (
+                                <Badge variant="outline" className="ml-2 text-xs">
+                                  {decision.proposed_order.market}
+                                </Badge>
+                              )}
                               {intent.reasoning && (
                                 <span className="text-muted-foreground"> - {intent.reasoning}</span>
                               )}
