@@ -155,8 +155,13 @@ export async function syncPositionsFromHyperliquid(
         const size = Math.abs(szi); // Store absolute value
         const entryPx = Number(p.position?.entryPx || 0);
         const unrealizedPnl = Number(p.position?.unrealizedPnl || 0);
+        // Calculate actual leverage from position value / margin used
+        // Note: leverage.value from Hyperliquid is the MAX leverage setting, not actual leverage
+        const notionalUsd = Math.abs(Number(p.position?.positionValue || 0));
+        const marginUsed = Number(p.position?.marginUsed || 0);
+        const leverage = marginUsed > 0 ? Math.round(notionalUsd / marginUsed * 10) / 10 : 1;
 
-        console.log(`[liveBroker] 📍 Position: ${market} ${side} ${size.toFixed(4)} @ $${entryPx.toFixed(2)}, PnL: $${unrealizedPnl.toFixed(2)}`);
+        console.log(`[liveBroker] 📍 Position: ${market} ${side} ${size.toFixed(4)} @ $${entryPx.toFixed(2)}, PnL: $${unrealizedPnl.toFixed(2)}, Leverage: ${leverage}x (notional: $${notionalUsd.toFixed(2)}, margin: $${marginUsed.toFixed(2)})`);
 
         return {
           account_id: accountId,
@@ -165,6 +170,7 @@ export async function syncPositionsFromHyperliquid(
           size,
           avg_entry: entryPx,
           unrealized_pnl: unrealizedPnl,
+          leverage,
           updated_at: new Date().toISOString(),
         };
       });
@@ -329,11 +335,12 @@ export async function recordLiveTrade(
     fee: number;
     realized_pnl: number;
     venue_order_id?: string;
+    leverage?: number; // Leverage used for this trade (1-50x)
   }
 ): Promise<void> {
   const supabase = createServiceRoleClient();
 
-  console.log(`[liveBroker] Recording live trade: ${trade.action} ${trade.size} ${trade.market} @ $${trade.price}`);
+  console.log(`[liveBroker] Recording live trade: ${trade.action} ${trade.size} ${trade.market} @ $${trade.price} (leverage: ${trade.leverage || 1}x)`);
 
   const { error } = await supabase
     .from("live_trades")
@@ -348,6 +355,7 @@ export async function recordLiveTrade(
       fee: trade.fee,
       realized_pnl: trade.realized_pnl,
       venue_order_id: trade.venue_order_id,
+      leverage: trade.leverage || 1,
       created_at: new Date().toISOString(),
     });
 
@@ -356,7 +364,7 @@ export async function recordLiveTrade(
     throw new Error(`Failed to record trade: ${error.message}`);
   }
 
-  console.log(`[liveBroker] ✅ Recorded live trade in database`);
+  console.log(`[liveBroker] ✅ Recorded live trade in database (leverage: ${trade.leverage || 1}x)`);
 }
 
 /**
