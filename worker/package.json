@@ -1,0 +1,12 @@
+{
+  "name": "tick-worker",
+  "version": "1.0.0",
+  "description": "Railway worker for ticking strategy sessions",
+  "main": "tick-worker.js",
+  "scripts": {
+    "start": "node tick-worker.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
