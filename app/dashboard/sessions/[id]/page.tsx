@@ -1251,10 +1251,13 @@ function SessionDetailContent({ sessionId }: { sessionId: string }) {
 
   // If we have no stored equity points OR the first point is well after session start,
   // inject a baseline point at session creation time so the chart starts correctly
+  // IMPORTANT: Only do this for "All Time" view - when a specific time range is selected,
+  // we should only show data within that range, not prepend session start data
   const sessionStart = session?.started_at || session?.created_at;
   const sessionStartTime = sessionStart ? new Date(sessionStart).getTime() : null;
 
-  if (sessionStartTime && startBal != null) {
+  if (sessionStartTime && startBal != null && !equityTimeRange) {
+    // Only inject baseline for "All Time" view (equityTimeRange is null)
     if (equityPointsForChart.length === 0) {
       // No data at all - create baseline point
       equityPointsForChart = [{ time: sessionStartTime, equity: Number(startBal) }];
@@ -1980,7 +1983,12 @@ function SessionDetailContent({ sessionId }: { sessionId: string }) {
                           </span>
                           <div className="flex items-center gap-2">
                             {decision.executed ? (
-                              <Badge variant="default">Executed</Badge>
+                              <Badge variant="default">
+                                {intent.bias === "long" ? "Opened Long" :
+                                 intent.bias === "short" ? "Opened Short" :
+                                 intent.bias === "close" ? (intent.positionSide === "long" ? "Closed Long" : intent.positionSide === "short" ? "Closed Short" : "Closed Position") :
+                                 "Executed"}
+                              </Badge>
                             ) : (
                               <Badge variant="outline">Skipped</Badge>
                             )}
