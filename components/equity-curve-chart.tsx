@@ -46,6 +46,8 @@ export function EquityCurveChart({
   const isInitialMount = React.useRef(true);
   const lastRequestedRangeRef = React.useRef<{ start: number; end: number } | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  // Track previous equityPoints to detect actual data changes
+  const prevEquityPointsRef = useRef<EquityPoint[]>(equityPoints);
   
   // Handle time range selection
   const handleTimeRangeSelect = (range: TimeRange) => {
@@ -148,11 +150,20 @@ export function EquityCurveChart({
   
   // Detect when new data arrives and clear loading state
   React.useEffect(() => {
-    if (isLoadingNewRange && equityPoints.length > 0) {
-      // For "All Time" (lastRequestedRangeRef is null) or any range change,
-      // if we have data, assume it's the new data and clear loading
-      console.log(`[EquityCurve] New data arrived (${equityPoints.length} points), clearing loading state`);
-      setIsLoadingNewRange(false);
+    // Check if equityPoints actually changed (not just same reference)
+    const prevPoints = prevEquityPointsRef.current;
+    const dataChanged = equityPoints !== prevPoints ||
+      (equityPoints.length !== prevPoints.length) ||
+      (equityPoints.length > 0 && prevPoints.length > 0 &&
+       (equityPoints[0]?.time !== prevPoints[0]?.time ||
+        equityPoints[equityPoints.length - 1]?.time !== prevPoints[prevPoints.length - 1]?.time));
+
+    if (dataChanged) {
+      prevEquityPointsRef.current = equityPoints;
+      if (isLoadingNewRange) {
+        console.log(`[EquityCurve] New data arrived (${equityPoints.length} points), clearing loading state`);
+        setIsLoadingNewRange(false);
+      }
     }
   }, [equityPoints, isLoadingNewRange]);
 

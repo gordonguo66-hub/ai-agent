@@ -53,7 +53,7 @@ function SessionDetailContent({ sessionId }: { sessionId: string }) {
   // Track source of last load (auto-refresh vs time-range-change vs manual)
   const lastLoadSourceRef = useRef<'auto-refresh' | 'time-range' | 'initial' | 'manual'>('initial');
   const LOAD_DEBOUNCE_MS = 3000; // Minimum 3 seconds between loads (prevents race conditions)
-  const TIME_RANGE_DEBOUNCE_MS = 500; // Faster debounce for time range changes (better UX)
+  const TIME_RANGE_DEBOUNCE_MS = 50; // Very fast debounce for time range changes (snappy UX)
 
   useEffect(() => {
     // CRITICAL: Clear stale equity data immediately on mount
