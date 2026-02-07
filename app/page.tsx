@@ -32,26 +32,26 @@ export default function Home() {
       </div>
       
       {/* Glowing Orbs */}
-      <div 
-        className="absolute top-10 left-5 w-[700px] h-[700px] bg-blue-900/40 rounded-full blur-3xl"
+      <div
+        className="absolute top-10 left-5 w-[300px] h-[300px] sm:w-[500px] sm:h-[500px] lg:w-[700px] lg:h-[700px] bg-blue-900/40 rounded-full blur-3xl"
         style={{
           animation: 'slowPulse 4s ease-in-out infinite, randomFloat1 35s ease-in-out infinite'
         }}
       ></div>
-      <div 
-        className="absolute top-1/3 right-10 w-[600px] h-[600px] bg-blue-800/30 rounded-full blur-3xl"
+      <div
+        className="absolute top-1/3 right-10 w-[250px] h-[250px] sm:w-[400px] sm:h-[400px] lg:w-[600px] lg:h-[600px] bg-blue-800/30 rounded-full blur-3xl"
         style={{
           animation: 'slowPulse 5s ease-in-out infinite 1s, randomFloat2 40s ease-in-out infinite'
         }}
       ></div>
-      <div 
-        className="absolute top-2/3 left-10 w-[600px] h-[600px] bg-blue-900/30 rounded-full blur-3xl"
+      <div
+        className="absolute top-2/3 left-10 w-[250px] h-[250px] sm:w-[400px] sm:h-[400px] lg:w-[600px] lg:h-[600px] bg-blue-900/30 rounded-full blur-3xl"
         style={{
           animation: 'slowPulse 4.5s ease-in-out infinite 3s, randomFloat1 45s ease-in-out infinite 10s'
         }}
       ></div>
-      <div 
-        className="absolute bottom-10 right-5 w-[700px] h-[700px] bg-blue-800/40 rounded-full blur-3xl"
+      <div
+        className="absolute bottom-10 right-5 w-[300px] h-[300px] sm:w-[500px] sm:h-[500px] lg:w-[700px] lg:h-[700px] bg-blue-800/40 rounded-full blur-3xl"
         style={{
           animation: 'slowPulse 4s ease-in-out infinite 2s, randomFloat2 40s ease-in-out infinite'
         }}
@@ -94,12 +94,12 @@ export default function Home() {
           <div className="text-center space-y-12 pt-20">
             {/* Headline with decorative lines */}
             <div className="flex justify-center w-full">
-              <div className="relative inline-block">
-                {/* Decorative vertical lines */}
-                <div className="absolute -left-16 top-0 bottom-0 w-px bg-gradient-to-b from-transparent via-blue-500/50 to-transparent"></div>
-                <div className="absolute -right-16 top-0 bottom-0 w-px bg-gradient-to-b from-transparent via-blue-500/50 to-transparent"></div>
-                
-                <h1 className="text-5xl sm:text-6xl lg:text-7xl font-light text-white leading-tight whitespace-nowrap px-4">
+              <div className="relative inline-block max-w-full">
+                {/* Decorative vertical lines - hidden on mobile */}
+                <div className="hidden sm:block absolute -left-16 top-0 bottom-0 w-px bg-gradient-to-b from-transparent via-blue-500/50 to-transparent"></div>
+                <div className="hidden sm:block absolute -right-16 top-0 bottom-0 w-px bg-gradient-to-b from-transparent via-blue-500/50 to-transparent"></div>
+
+                <h1 className="text-3xl sm:text-5xl md:text-6xl lg:text-7xl font-light text-white leading-tight px-4 text-center">
                   AI executes. You set the boundaries.
                 </h1>
               </div>
@@ -128,8 +128,8 @@ export default function Home() {
           </div>
 
           {/* Platform Definition */}
-          <div className="max-w-7xl mx-auto text-center">
-            <p className="text-lg text-gray-400 leading-relaxed whitespace-nowrap">
+          <div className="max-w-7xl mx-auto text-center px-4">
+            <p className="text-base sm:text-lg text-gray-400 leading-relaxed">
               Corebound is a model-agnostic AI trading platform where execution is automated and risk is human-defined.
             </p>
           </div>
