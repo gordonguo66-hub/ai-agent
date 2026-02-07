@@ -157,13 +157,9 @@ export function EquityCurveChart({
   }, [equityPoints, isLoadingNewRange]);
 
   // Filter and prepare data points
+  // NOTE: We no longer clear data when loading - instead we show the old chart with a loading overlay
+  // This provides a smoother transition between time ranges
   const chartData = useMemo(() => {
-    // CRITICAL: If loading new range, return empty array to prevent showing stale data
-    if (isLoadingNewRange) {
-      console.log(`[EquityCurve] Loading new range, returning empty data to prevent stale chart`);
-      return [];
-    }
-    
     // RUNTIME GUARD: Detect if filtered data is identical across range changes
     const totalPoints = equityPoints.length;
 
@@ -488,7 +484,16 @@ export function EquityCurveChart({
       </CardHeader>
       
       <CardContent>
-        <div className="h-[400px] w-full">
+        <div className="h-[400px] w-full relative">
+          {/* Loading overlay - shows on top of chart during transitions */}
+          {isLoadingNewRange && (
+            <div className="absolute inset-0 bg-background/50 backdrop-blur-[1px] z-10 flex items-center justify-center">
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                <span className="text-sm">Loading...</span>
+              </div>
+            </div>
+          )}
           <ResponsiveContainer width="100%" height="100%">
             <LineChart
               data={chartData}

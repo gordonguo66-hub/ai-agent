@@ -1178,25 +1178,20 @@ function SessionDetailContent({ sessionId }: { sessionId: string }) {
     .filter((p: any) => Number.isFinite(p.time) && Number.isFinite(p.equity) && p.equity >= 0) // Remove invalid values
     .sort((a: any, b: any) => a.time - b.time);
 
-  // CRITICAL: Filter out stale data that doesn't match the current time range OR is too old
+  // Check for stale data and trigger refetch if needed (but don't clear the chart)
   if (equityPointsForChart.length > 0) {
     const now = Date.now();
     const lastPoint = equityPointsForChart[equityPointsForChart.length - 1].time;
     const ageMinutes = (now - lastPoint) / (1000 * 60);
-    
+
     // If showing "All Time" and the last data point is more than 10 minutes old
-    // but the session is still running, the data is stale
+    // but the session is still running, trigger a refetch (but keep showing old data)
     if (!equityTimeRange && sessionStatus === 'running' && ageMinutes > 10) {
-      console.log(`[UI] 🚫 Ignoring stale data (last point too old for running session):`, {
-        lastPoint: new Date(lastPoint).toISOString(),
-        ageMinutes: ageMinutes.toFixed(1),
-        status: sessionStatus,
-      });
-      // Clear the data and trigger immediate refetch
-      equityPointsForChart = [];
+      console.log(`[UI] ⚠️ Data is stale (${ageMinutes.toFixed(1)} min old), triggering refetch`);
+      // Don't clear the data - just trigger a refetch in the background
+      // The chart will update smoothly when new data arrives
       if (!waitingForFreshData) {
         setWaitingForFreshData(true);
-        // Trigger immediate refetch
         setTimeout(() => {
           console.log(`[UI] 🔄 Refetching data due to stale equity curve`);
           loadAll('manual');
@@ -1204,37 +1199,10 @@ function SessionDetailContent({ sessionId }: { sessionId: string }) {
         }, 100);
       }
     }
-    
-    // Also check if data matches the requested time range
-    if (equityTimeRange && equityPointsForChart.length > 0) {
-      const firstPoint = equityPointsForChart[0].time;
-      const rangeStart = equityTimeRange.start;
-      const rangeEnd = equityTimeRange.end;
-      
-      // Data is valid if it overlaps with the requested range (allow 1 hour tolerance)
-      const tolerance = 60 * 60 * 1000; // 1 hour
-      const dataMatchesRange = 
-        (firstPoint >= rangeStart - tolerance && firstPoint <= rangeEnd + tolerance) ||
-        (lastPoint >= rangeStart - tolerance && lastPoint <= rangeEnd + tolerance);
-      
-      if (!dataMatchesRange) {
-        console.log(`[UI] 🚫 Ignoring stale data (doesn't match time range):`, {
-          dataRange: `${new Date(firstPoint).toISOString().slice(11, 19)} → ${new Date(lastPoint).toISOString().slice(11, 19)}`,
-          requestedRange: `${new Date(rangeStart).toISOString().slice(11, 19)} → ${new Date(rangeEnd).toISOString().slice(11, 19)}`,
-          points: equityPointsForChart.length,
-        });
-        // Clear the data and trigger immediate refetch
-        equityPointsForChart = [];
-        if (!waitingForFreshData) {
-          setWaitingForFreshData(true);
-          setTimeout(() => {
-            console.log(`[UI] 🔄 Refetching data due to time range mismatch`);
-            loadAll('manual');
-            setWaitingForFreshData(false);
-          }, 100);
-        }
-      }
-    }
+
+    // Note: We no longer clear data to prevent jarring "No data" flashes.
+    // The chart component now shows a loading overlay while keeping old data visible.
+    // The data will be naturally replaced when the new time-range-filtered data arrives.
   }
 
   // De-duplicate points with identical timestamps (keep latest)
