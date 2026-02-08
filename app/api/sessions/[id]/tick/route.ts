@@ -79,13 +79,14 @@ async function placeMarketOrder(params: {
   feeBps: number;
   isExit?: boolean; // Whether this is an exit/close order (for reduce_only and action tracking)
   exitPosition?: { side: "long" | "short"; avgEntry: number }; // Position data for calculating realized PnL on exits
+  exitPositionSize?: number; // Exact position size for complete closes (prevents dust)
   leverage?: number; // Leverage to use for Hyperliquid entry orders (default 1x)
 }): Promise<{
   success: boolean;
   error?: string;
   trade?: any;
 }> {
-  const { sessionMode, venue = "hyperliquid", livePrivateKey, liveApiKey, liveApiSecret, isExit, exitPosition, leverage = 1, ...orderParams } = params;
+  const { sessionMode, venue = "hyperliquid", livePrivateKey, liveApiKey, liveApiSecret, isExit, exitPosition, exitPositionSize, leverage = 1, ...orderParams } = params;
 
   console.log(`[Order Execution] Session mode: ${sessionMode}, Venue: ${venue}`);
 
@@ -99,11 +100,16 @@ async function placeMarketOrder(params: {
 
       console.log(`[Order Execution] 🔴 LIVE MODE: Placing REAL order on Coinbase`);
 
-      // For exits (closing positions), use sellAll to ensure complete close
-      // This fetches actual balance and sells it all, preventing leftover dust
-      const isSellAll = isExit && orderParams.side === "sell";
+      // For exits (closing positions), use sellAll (spot) or exactSize (INTX) to ensure complete close
+      const isIntxMarket = orderParams.market.includes("-PERP") || orderParams.market.endsWith("-INTX");
+      const isSellAll = isExit && orderParams.side === "sell" && !isIntxMarket; // sellAll is for spot only
+      const exactSizeForIntx = isExit && isIntxMarket ? exitPositionSize : undefined;
+
       if (isSellAll) {
-        console.log(`[Order Execution] 🔄 Exit order: Using sellAll to close entire position`);
+        console.log(`[Order Execution] 🔄 Exit order (spot): Using sellAll to close entire position`);
+      }
+      if (exactSizeForIntx) {
+        console.log(`[Order Execution] 🔄 Exit order (INTX): Using exact size ${exactSizeForIntx} to close position`);
       }
 
       try {
@@ -113,7 +119,8 @@ async function placeMarketOrder(params: {
           orderParams.market, // Already in BTC-USD format or ETH-PERP-INTX for INTX
           orderParams.side,
           orderParams.notionalUsd,
-          isSellAll // sellAll flag for complete position closes
+          isSellAll, // sellAll flag for spot complete closes
+          exactSizeForIntx // exact size for INTX complete closes
         );
 
         if (result.success) {
@@ -540,6 +547,18 @@ export async function POST(
         return NextResponse.json({ error: "Failed to create live account" }, { status: 500 });
       }
 
+      // CRITICAL FIX: If exchange credentials were recreated, the live_account_id in
+      // session may point to an orphaned account. Update session to use current account.
+      // This happens when users re-add exchange connections (e.g., after fixing encryption key).
+      if (session.live_account_id !== account.id) {
+        console.log(`[Tick] ⚠️ Session live_account_id mismatch! Session has ${session.live_account_id}, current is ${account.id}. Updating session.`);
+        await serviceClient
+          .from("strategy_sessions")
+          .update({ live_account_id: account.id })
+          .eq("id", sessionId);
+        console.log(`[Tick] ✅ Updated session ${sessionId} to use live_account_id: ${account.id}`);
+      }
+
       // Sync positions and equity from exchange based on venue
       if (liveVenue === "coinbase") {
         try {
@@ -838,12 +857,55 @@ export async function POST(
           feeBps: 5,
           isExit: true,
           exitPosition: { side: position.side as "long" | "short", avgEntry: entryPrice },
+          exitPositionSize: size, // Exact position size for complete closes
         });
 
         if (exitResult.success) {
           console.log(`[Tick] ✅ Auto-exit executed: ${exitReason}`);
+
+          // Log auto-exit as a decision so it appears in the decision history
+          const exitActionSummary = `Closed ${position.side}: ${exitReason} (P&L: ${unrealizedPnlPct >= 0 ? '+' : ''}${unrealizedPnlPct.toFixed(2)}%)`;
+          await serviceClient
+            .from("session_decisions")
+            .insert({
+              session_id: sessionId,
+              market_snapshot: { price: positionPrice },
+              indicators_snapshot: {},
+              intent: { bias: "close", positionSide: position.side, reasoning: exitReason },
+              confidence: 1.0, // System-triggered exits are 100% confidence
+              action_summary: exitActionSummary,
+              risk_result: { passed: true, executed: true },
+              proposed_order: {
+                market: position.market,
+                side: exitSide,
+                notionalUsd: exitNotional,
+              },
+              executed: true,
+              error: null,
+            });
+          console.log(`[Tick] 📝 Logged auto-exit decision: ${exitActionSummary}`);
         } else {
           console.error(`[Tick] ❌ Auto-exit failed: ${exitResult.error}`);
+
+          // Log failed auto-exit attempt
+          await serviceClient
+            .from("session_decisions")
+            .insert({
+              session_id: sessionId,
+              market_snapshot: { price: positionPrice },
+              indicators_snapshot: {},
+              intent: { bias: "close", positionSide: position.side, reasoning: exitReason },
+              confidence: 1.0,
+              action_summary: `Auto-exit failed: ${exitResult.error}`,
+              risk_result: { passed: true, executed: false, reason: exitResult.error },
+              proposed_order: {
+                market: position.market,
+                side: exitSide,
+                notionalUsd: exitNotional,
+              },
+              executed: false,
+              error: exitResult.error,
+            });
         }
       }
     }
@@ -1366,6 +1428,7 @@ export async function POST(
               feeBps: 5,
               isExit: true,
               exitPosition: { side: positionSide as "long" | "short", avgEntry: entryPrice },
+              exitPositionSize: posSize, // Exact position size for complete closes
             });
 
             if (exitResult.success) {
@@ -1375,10 +1438,14 @@ export async function POST(
                 : `AI reversal: Closed ${positionSide} position (new bias: ${aiIntent})`;
               riskResult = { passed: true, executed: true };
               console.log(`[Tick] ✅ AI-driven exit executed for ${market}: ${actionSummary}`);
-              
+
               // IMPORTANT: Preserve the original intent for the decision log
               // But prevent entry logic from running by setting passed to false
               riskResult.passed = false; // Prevent entry logic from running
+
+              // Add positionSide to intent so dashboard shows "Closed Long" or "Closed Short"
+              intent.positionSide = positionSide;
+              intent.bias = "close"; // Override to "close" for consistent badge display
             } else {
               actionSummary = `AI-driven exit failed: ${exitResult.error || "Unknown error"}`;
               riskResult = { passed: false, reason: actionSummary };
@@ -1932,7 +1999,7 @@ export async function POST(
 
             if (orderResult.success) {
               executed = true;
-              actionSummary = `Executed ${intent.bias} order: $${positionNotional.toFixed(2)} @ $${currentPrice.toFixed(2)}`;
+              actionSummary = `Opened ${intent.bias}: $${positionNotional.toFixed(2)} at $${currentPrice.toFixed(2)}`;
               riskResult = { passed: true, executed: true };
               const tradeId = (orderResult as any).trade_id || orderResult.trade?.order_id || 'N/A';
               const realizedPnl = (orderResult as any).realized_pnl || 0;
