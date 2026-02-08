@@ -11,8 +11,8 @@
  * - Tiered markup based on subscription tier
  * - On-demand: 100% markup (2× cost)
  * - Pro ($19/mo): 60% markup → 25% more AI usage
- * - Pro+ ($89/mo): 45% markup → 38% more AI usage
- * - Ultra ($249/mo): 30% markup → 54% more AI usage
+ * - Pro+ ($89/mo): 48% markup → 35% more AI usage
+ * - Ultra ($249/mo): 33% markup → 50% more AI usage
  */
 
 // ============================================
@@ -26,8 +26,8 @@
 export const TIER_MARKUPS = {
   'on_demand': 1.00,   // 100% markup (2× cost) - baseline
   'pro': 0.60,         // 60% markup (1.6× cost) - 25% more usage
-  'pro_plus': 0.45,    // 45% markup (1.45× cost) - 38% more usage
-  'ultra': 0.30,       // 30% markup (1.3× cost) - 54% more usage
+  'pro_plus': 0.48,    // 48% markup (1.48× cost) - 35% more usage
+  'ultra': 0.33,       // 33% markup (1.33× cost) - 50% more usage
 } as const;
 
 export type SubscriptionTier = keyof typeof TIER_MARKUPS;
@@ -46,14 +46,14 @@ export const SUBSCRIPTION_TIERS = {
   'pro_plus': {
     name: 'Pro+',
     price_cents: 8900,      // $89/mo
-    markup: 0.45,
-    more_usage_percent: 38,  // "38% more AI usage"
+    markup: 0.48,
+    more_usage_percent: 35,  // "35% more AI usage"
   },
   'ultra': {
     name: 'Ultra',
     price_cents: 24900,     // $249/mo
-    markup: 0.30,
-    more_usage_percent: 54,  // "54% more AI usage"
+    markup: 0.33,
+    more_usage_percent: 50,  // "50% more AI usage"
   },
 } as const;
 

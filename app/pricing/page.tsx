@@ -333,14 +333,14 @@ export default function PricingPage() {
                     <p className="text-white font-medium">Pro+</p>
                   </div>
                   <div className="p-4 border-b border-blue-500/20">
-                    <p className="text-green-400 font-medium">38% more AI usage</p>
+                    <p className="text-green-400 font-medium">35% more AI usage</p>
                   </div>
 
                   <div className="p-4 border-r border-blue-500/20">
                     <p className="text-white font-medium">Ultra</p>
                   </div>
                   <div className="p-4">
-                    <p className="text-green-400 font-medium">54% more AI usage</p>
+                    <p className="text-green-400 font-medium">50% more AI usage</p>
                   </div>
                 </div>
               </div>
@@ -395,7 +395,7 @@ export default function PricingPage() {
               <div className="p-6 rounded-xl bg-blue-950/20 border border-blue-500/20">
                 <h3 className="text-white font-medium mb-2">Why subscribe instead of pay-as-you-go?</h3>
                 <p className="text-gray-400 text-sm">
-                  Subscribers get better rates on every AI decision. Ultra subscribers get 54% more
+                  Subscribers get better rates on every AI decision. Ultra subscribers get 50% more
                   AI usage for the same money compared to on-demand.
                 </p>
               </div>

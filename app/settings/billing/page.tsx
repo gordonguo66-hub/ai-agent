@@ -259,8 +259,8 @@ const [topupPackages, setTopupPackages] = useState<TopupPackage[]>(DEFAULT_PACKA
     // Returns how much more AI usage subscribers get compared to on-demand
     switch (planId) {
       case "pro": return 25;
-      case "pro_plus": return 38;
-      case "ultra": return 54;
+      case "pro_plus": return 35;
+      case "ultra": return 50;
       default: return 0;
     }
   };
@@ -416,7 +416,7 @@ const [topupPackages, setTopupPackages] = useState<TopupPackage[]>(DEFAULT_PACKA
                         </div>
                       ) : (
                         <div className="text-sm text-gray-500">
-                          Subscribe for up to 54% more AI usage
+                          Subscribe for up to 50% more AI usage
                         </div>
                       )}
                     </div>
