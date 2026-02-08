@@ -26,6 +26,9 @@ function StrategyDetailContent() {
   const [liveDialogOpen, setLiveDialogOpen] = useState(false);
   const [confirmText, setConfirmText] = useState("");
 
+  // Session limit tracking
+  const [sessionLimit, setSessionLimit] = useState<{ count: number; limit: number | null; tier: string } | null>(null);
+
   useEffect(() => {
     const load = async () => {
       const supabase = createClient();
@@ -56,12 +59,31 @@ function StrategyDetailContent() {
         });
         if (sessionsResponse.ok) {
           const sessionsJson = await sessionsResponse.json();
+          const allSessions = sessionsJson.sessions || [];
           // Filter to only sessions for this strategy
-          const strategySessions = (sessionsJson.sessions || [])
+          const strategySessions = allSessions
             .filter((s: any) => s.strategy_id === strategyId)
             .slice(0, 10);
           console.log(`[Strategy Page] Found ${strategySessions.length} sessions for strategy ${strategyId}`);
           setSessions(strategySessions);
+
+          // Calculate session limit info
+          const totalSessionCount = allSessions.length;
+
+          // Fetch subscription tier
+          const creditsResponse = await fetch("/api/credits", {
+            headers: bearer ? { Authorization: bearer } : {},
+          });
+          if (creditsResponse.ok) {
+            const creditsJson = await creditsResponse.json();
+            const tier = creditsJson.subscription?.plan_id || "on_demand";
+            const hasLimit = tier === "pro" || tier === "on_demand" || !tier;
+            setSessionLimit({
+              count: totalSessionCount,
+              limit: hasLimit ? 3 : null,
+              tier,
+            });
+          }
         }
       } catch (err) {
         console.error("[Strategy Page] Failed to load sessions", err);
@@ -175,6 +197,17 @@ function StrategyDetailContent() {
             </CardHeader>
             <CardContent>
               {error && <p className="text-sm text-red-600 dark:text-red-400 mb-3">{error}</p>}
+              {sessionLimit && sessionLimit.limit !== null && sessionLimit.count >= sessionLimit.limit && (
+                <div className="mb-4 p-3 rounded-lg bg-amber-950/30 border border-amber-600/50">
+                  <p className="text-amber-400 text-sm font-medium">
+                    Session limit reached ({sessionLimit.count}/{sessionLimit.limit})
+                  </p>
+                  <p className="text-amber-300/70 text-xs mt-1">
+                    Upgrade to Pro+ or Ultra for unlimited sessions.{" "}
+                    <a href="/settings/billing" className="underline hover:text-amber-200">Upgrade now</a>
+                  </p>
+                </div>
+              )}
               <div className="mb-4 space-y-2">
                 <div className="flex items-center gap-2 text-sm">
                   <Badge variant="secondary">AI Model</Badge>
@@ -190,16 +223,21 @@ function StrategyDetailContent() {
                   </p>
                 )}
               </div>
+              {(() => {
+                const noApiKey = (!strategy.api_key_ciphertext || strategy.api_key_ciphertext === "stored_in_ai_connections") && !strategy.saved_api_key_id;
+                const atSessionLimit = sessionLimit?.limit !== null && sessionLimit && sessionLimit.count >= sessionLimit.limit;
+                const isDisabled = busy || noApiKey || atSessionLimit;
+                return (
               <div className="flex flex-wrap gap-2">
-                <Button 
-                  disabled={busy || ((!strategy.api_key_ciphertext || strategy.api_key_ciphertext === "stored_in_ai_connections") && !strategy.saved_api_key_id)} 
+                <Button
+                  disabled={isDisabled}
                   onClick={() => createAndStart("virtual")}
                   className="bg-blue-900 hover:bg-blue-800 text-white border border-blue-700"
                 >
                   {busy ? "Starting..." : "Start Virtual ($100k)"}
                 </Button>
                 <Button
-                  disabled={busy || ((!strategy.api_key_ciphertext || strategy.api_key_ciphertext === "stored_in_ai_connections") && !strategy.saved_api_key_id)}
+                  disabled={isDisabled}
                   variant="default"
                   onClick={() => createAndStart("arena")}
                   className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white"
@@ -207,7 +245,7 @@ function StrategyDetailContent() {
                   {busy ? "Starting..." : "Start in Arena 🏆"}
                 </Button>
                 <Button
-                  disabled={busy || ((!strategy.api_key_ciphertext || strategy.api_key_ciphertext === "stored_in_ai_connections") && !strategy.saved_api_key_id)}
+                  disabled={isDisabled}
                   variant="destructive"
                   onClick={() => {
                     setConfirmText("");
@@ -221,6 +259,8 @@ function StrategyDetailContent() {
                   Manage Exchange Connection
                 </Button>
               </div>
+                );
+              })()}
             </CardContent>
           </Card>
 

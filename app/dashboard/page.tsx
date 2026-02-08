@@ -22,6 +22,7 @@ function DashboardContent() {
   const [sessionDeleteDialogOpen, setSessionDeleteDialogOpen] = useState(false);
   const [sessionToDelete, setSessionToDelete] = useState<string | null>(null);
   const [deletingSession, setDeletingSession] = useState(false);
+  const [sessionLimit, setSessionLimit] = useState<{ limit: number | null; tier: string } | null>(null);
 
   useEffect(() => {
     const loadData = async () => {
@@ -64,6 +65,25 @@ function DashboardContent() {
           }
         } catch (err) {
           console.error("Failed to load sessions", err);
+        }
+
+        // Fetch subscription tier for session limits
+        try {
+          const bearer = await getBearerToken();
+          const creditsResponse = await fetch("/api/credits", {
+            headers: bearer ? { Authorization: bearer } : {},
+          });
+          if (creditsResponse.ok) {
+            const creditsJson = await creditsResponse.json();
+            const tier = creditsJson.subscription?.plan_id || "on_demand";
+            const hasLimit = tier === "pro" || tier === "on_demand" || !tier;
+            setSessionLimit({
+              limit: hasLimit ? 3 : null,
+              tier,
+            });
+          }
+        } catch (err) {
+          console.error("Failed to load subscription info", err);
         }
 
         setStrategies(strategiesData || []);
@@ -303,9 +323,18 @@ function DashboardContent() {
                 Trading Sessions
               </h2>
               {sessions.length > 0 && (
-                <span className="text-sm text-gray-300 bg-blue-950/30 px-3 py-1 rounded-full border border-blue-900">
-                  {sessions.filter((s: any) => s.status === "running").length} active
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-gray-300 bg-blue-950/30 px-3 py-1 rounded-full border border-blue-900">
+                    {sessions.filter((s: any) => s.status === "running").length} active
+                  </span>
+                  {sessionLimit && (
+                    <span className="text-sm text-gray-400">
+                      {sessionLimit.limit !== null
+                        ? `${sessions.length}/${sessionLimit.limit} sessions`
+                        : `${sessions.length} sessions`}
+                    </span>
+                  )}
+                </div>
               )}
             </div>
             {sessions.length === 0 ? (

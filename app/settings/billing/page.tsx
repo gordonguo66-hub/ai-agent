@@ -538,9 +538,12 @@ const [topupPackages, setTopupPackages] = useState<TopupPackage[]>(DEFAULT_PACKA
                             <span className="text-3xl font-medium text-green-500">{formatPrice(plan.price_cents)}</span>
                             <span className="text-gray-500 text-sm">/month</span>
                           </div>
-                          <div className="flex items-center gap-2 text-green-600 text-sm mb-4">
+                          <div className="flex items-center gap-2 text-green-600 text-sm mb-2">
                             <Sparkles className="w-3.5 h-3.5" />
                             <span>{moreUsage}% more AI usage</span>
+                          </div>
+                          <div className="text-gray-500 text-xs mb-4">
+                            {plan.id === "pro" ? "Up to 3 sessions" : "Unlimited sessions"}
                           </div>
                           {!isCurrent && (
                             <Button

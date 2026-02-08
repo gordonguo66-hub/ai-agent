@@ -307,40 +307,55 @@ export default function PricingPage() {
             {/* Tier Comparison */}
             <div className="max-w-xl mx-auto">
               <div className="rounded-xl bg-blue-950/20 border border-blue-500/20 overflow-hidden">
-                <div className="grid grid-cols-2 gap-0 text-center">
+                <div className="grid grid-cols-3 gap-0 text-center">
                   <div className="p-4 border-b border-r border-blue-500/20">
                     <p className="text-gray-400 text-sm">Plan</p>
                   </div>
-                  <div className="p-4 border-b border-blue-500/20">
+                  <div className="p-4 border-b border-r border-blue-500/20">
                     <p className="text-gray-400 text-sm">AI Usage Benefit</p>
+                  </div>
+                  <div className="p-4 border-b border-blue-500/20">
+                    <p className="text-gray-400 text-sm">Sessions</p>
                   </div>
 
                   <div className="p-4 border-b border-r border-blue-500/20">
                     <p className="text-white font-medium">On-demand</p>
                   </div>
-                  <div className="p-4 border-b border-blue-500/20">
+                  <div className="p-4 border-b border-r border-blue-500/20">
                     <p className="text-gray-400">Pay as you go</p>
+                  </div>
+                  <div className="p-4 border-b border-blue-500/20">
+                    <p className="text-gray-400">Up to 3</p>
                   </div>
 
                   <div className="p-4 border-b border-r border-blue-500/20">
                     <p className="text-white font-medium">Pro</p>
                   </div>
-                  <div className="p-4 border-b border-blue-500/20">
+                  <div className="p-4 border-b border-r border-blue-500/20">
                     <p className="text-green-400 font-medium">25% more AI usage</p>
+                  </div>
+                  <div className="p-4 border-b border-blue-500/20">
+                    <p className="text-gray-400">Up to 3</p>
                   </div>
 
                   <div className="p-4 border-b border-r border-blue-500/20">
                     <p className="text-white font-medium">Pro+</p>
                   </div>
-                  <div className="p-4 border-b border-blue-500/20">
+                  <div className="p-4 border-b border-r border-blue-500/20">
                     <p className="text-green-400 font-medium">35% more AI usage</p>
+                  </div>
+                  <div className="p-4 border-b border-blue-500/20">
+                    <p className="text-green-400 font-medium">Unlimited</p>
                   </div>
 
                   <div className="p-4 border-r border-blue-500/20">
                     <p className="text-white font-medium">Ultra</p>
                   </div>
-                  <div className="p-4">
+                  <div className="p-4 border-r border-blue-500/20">
                     <p className="text-green-400 font-medium">50% more AI usage</p>
+                  </div>
+                  <div className="p-4">
+                    <p className="text-green-400 font-medium">Unlimited</p>
                   </div>
                 </div>
               </div>

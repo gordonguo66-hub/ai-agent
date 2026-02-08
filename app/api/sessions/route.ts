@@ -161,6 +161,36 @@ export async function POST(request: NextRequest) {
 
     const serviceClient = createServiceRoleClient();
 
+    // Check session limit based on subscription tier
+    // Pro and on-demand: max 3 sessions, Pro+ and Ultra: unlimited
+    const { data: userSub } = await serviceClient
+      .from("user_subscriptions")
+      .select("plan_id, status")
+      .eq("user_id", user.id)
+      .single();
+
+    const tier = (userSub?.status === "active" && userSub?.plan_id) ? userSub.plan_id : "on_demand";
+
+    // Pro and on-demand users have max 3 sessions
+    if (tier === "pro" || tier === "on_demand" || !tier) {
+      const { count } = await serviceClient
+        .from("strategy_sessions")
+        .select("*", { count: "exact", head: true })
+        .eq("user_id", user.id);
+
+      if ((count || 0) >= 3) {
+        return NextResponse.json(
+          {
+            error: "Session limit reached",
+            message: "You have reached the maximum of 3 sessions. Upgrade to Pro+ or Ultra for unlimited sessions.",
+            limit: 3,
+            current: count,
+          },
+          { status: 403 }
+        );
+      }
+    }
+
     // Verify strategy exists and belongs to user
     const { data: strategy, error: strategyError } = await serviceClient
       .from("strategies")
