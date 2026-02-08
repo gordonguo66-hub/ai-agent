@@ -61,9 +61,9 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // If no records exist, user might be new - initialize them with 0 balance
-    if (!balance || !subscription) {
-      // Initialize balance with 0
+    // Initialize balance if user is new
+    let actualBalance = balance;
+    if (!balance) {
       const { error: initBalanceError } = await serviceClient
         .from("user_balance")
         .upsert({
@@ -75,37 +75,7 @@ export async function GET(request: NextRequest) {
       if (initBalanceError) {
         console.error("[GET /api/credits] Error initializing balance:", initBalanceError);
       }
-
-      // Initialize subscription as inactive (no plan)
-      const { error: initSubError } = await serviceClient
-        .from("user_subscriptions")
-        .upsert({
-          user_id: user.id,
-          plan_id: null,
-          status: "inactive",
-        }, { onConflict: "user_id" });
-
-      if (initSubError) {
-        console.error("[GET /api/credits] Error initializing subscription:", initSubError);
-      }
-
-      // Return default values
-      return NextResponse.json({
-        credits: {
-          balance: 0,
-          balance_cents: 0,
-          balance_usd: "0.00",
-          lifetime_used: 0,
-          lifetime_spent_cents: 0,
-        },
-        subscription: {
-          plan_id: null,
-          plan_name: "No Plan",
-          status: "inactive",
-          price_cents: 0,
-          features: [],
-        },
-      });
+      actualBalance = { balance_cents: 0, lifetime_spent_cents: 0, updated_at: null };
     }
 
     const planData = subscription?.subscription_plans as any;
@@ -114,15 +84,15 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       credits: {
         // Legacy field for backwards compatibility (1 credit = 1 cent)
-        balance: balance?.balance_cents || 0,
+        balance: actualBalance?.balance_cents || 0,
         // New USD-based fields
-        balance_cents: balance?.balance_cents || 0,
-        balance_usd: ((balance?.balance_cents || 0) / 100).toFixed(2),
+        balance_cents: actualBalance?.balance_cents || 0,
+        balance_usd: ((actualBalance?.balance_cents || 0) / 100).toFixed(2),
         // Legacy field
-        lifetime_used: balance?.lifetime_spent_cents || 0,
+        lifetime_used: actualBalance?.lifetime_spent_cents || 0,
         // New field
-        lifetime_spent_cents: balance?.lifetime_spent_cents || 0,
-        updated_at: balance?.updated_at,
+        lifetime_spent_cents: actualBalance?.lifetime_spent_cents || 0,
+        updated_at: actualBalance?.updated_at,
       },
       subscription: {
         plan_id: planId || null,
