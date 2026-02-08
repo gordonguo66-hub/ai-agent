@@ -101,11 +101,38 @@ console.log(`[Worker] API Key: ${API_KEY.substring(0, 8)}...`);
 console.log(`[Worker] Tick interval: ${TICK_INTERVAL_MS / 1000} seconds`);
 console.log('[Worker] ========================================');
 
-// Run first tick immediately
-tick();
+/**
+ * Sleep helper
+ */
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
 
-// Then run every TICK_INTERVAL_MS
-setInterval(tick, TICK_INTERVAL_MS);
+/**
+ * Main tick loop - waits for each tick to complete before scheduling next
+ * This prevents overlapping ticks when processing takes longer than the interval
+ */
+async function runTickLoop() {
+  while (true) {
+    const tickStartTime = Date.now();
+    await tick();
+    const tickDuration = Date.now() - tickStartTime;
+
+    // Wait for remainder of interval, or start immediately if tick took longer
+    const waitTime = Math.max(0, TICK_INTERVAL_MS - tickDuration);
+    if (waitTime > 0) {
+      await sleep(waitTime);
+    } else {
+      console.log(`[Worker] ⚠️ Tick took ${tickDuration}ms (longer than ${TICK_INTERVAL_MS}ms interval), starting next tick immediately`);
+    }
+  }
+}
+
+// Start the tick loop
+runTickLoop().catch(err => {
+  console.error('[Worker] Fatal error in tick loop:', err);
+  process.exit(1);
+});
 
 // Keep the process alive
 console.log('[Worker] Worker is running. Press Ctrl+C to stop.');
