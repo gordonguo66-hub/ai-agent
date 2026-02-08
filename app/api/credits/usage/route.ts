@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServiceRoleClient } from "@/lib/supabase/server";
+import { createFreshServiceClient } from "@/lib/supabase/freshClient";
 import { getUserFromRequest } from "@/lib/api/serverAuth";
 
 // Disable Next.js caching for this route
 export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 /**
  * POST /api/credits/usage
@@ -35,7 +36,7 @@ export async function POST(request: NextRequest) {
     // Round to ensure we're working with integers
     const deductAmount = Math.round(amountCents);
 
-    const serviceClient = createServiceRoleClient();
+    const serviceClient = createFreshServiceClient();
 
     // Get current balance
     const { data: currentBalance, error: fetchError } = await serviceClient
@@ -145,7 +146,7 @@ export async function GET(request: NextRequest) {
     const limit = Math.min(parseInt(searchParams.get("limit") || "50"), 100);
     const offset = parseInt(searchParams.get("offset") || "0");
 
-    const serviceClient = createServiceRoleClient();
+    const serviceClient = createFreshServiceClient();
 
     const { data, error, count } = await serviceClient
       .from("balance_transactions")

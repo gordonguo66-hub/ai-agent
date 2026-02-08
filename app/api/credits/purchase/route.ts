@@ -3,6 +3,7 @@ import { stripe, getBaseUrl } from "@/lib/stripe/server";
 import { getUserFromRequest } from "@/lib/api/serverAuth";
 
 export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 /**
  * On-demand balance top-up packages

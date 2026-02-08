@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe/server";
-import { createServiceRoleClient } from "@/lib/supabase/server";
+import { createFreshServiceClient } from "@/lib/supabase/freshClient";
 import Stripe from "stripe";
 
 export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 // Stripe webhook signature verification requires raw body
 export async function POST(request: NextRequest) {
@@ -95,7 +96,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
 
   console.log(`[Stripe Webhook] Processing balance top-up: $${(amountCents / 100).toFixed(2)} for user ${user_id}`);
 
-  const serviceClient = createServiceRoleClient();
+  const serviceClient = createFreshServiceClient();
 
   // Get current balance (try new table first, fallback to legacy)
   let currentBalance = 0;

@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServiceRoleClient } from "@/lib/supabase/server";
+import { createFreshServiceClient } from "@/lib/supabase/freshClient";
 import { getUserFromRequest } from "@/lib/api/serverAuth";
 
 // Disable Next.js caching for this route
 export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 /**
  * GET /api/credits
@@ -18,9 +19,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const serviceClient = createServiceRoleClient();
+    // Use fresh client to avoid Supabase caching issues
+    const serviceClient = createFreshServiceClient();
 
-    // Get user balance (table renamed from user_credits to user_balance)
+    // Get user balance
     const { data: balance, error: balanceError } = await serviceClient
       .from("user_balance")
       .select("balance_cents, lifetime_spent_cents, updated_at")

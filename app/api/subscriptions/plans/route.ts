@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServiceRoleClient } from "@/lib/supabase/server";
+import { createFreshServiceClient } from "@/lib/supabase/freshClient";
 
 // Disable Next.js caching for this route
 export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 /**
  * GET /api/subscriptions/plans
@@ -10,7 +11,7 @@ export const dynamic = 'force-dynamic';
  */
 export async function GET(request: NextRequest) {
   try {
-    const serviceClient = createServiceRoleClient();
+    const serviceClient = createFreshServiceClient();
 
     // Try raw SQL query to bypass any caching
     const { data, error } = await serviceClient

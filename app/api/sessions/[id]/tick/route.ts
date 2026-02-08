@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceRoleClient } from "@/lib/supabase/server";
+import { createFreshServiceClient } from "@/lib/supabase/freshClient";
+
+// Disable Next.js caching for this route
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 import { getUserFromRequest } from "@/lib/api/serverAuth";
 import { decryptCredential } from "@/lib/crypto/credentials";
 import { resolveStrategyApiKey } from "@/lib/ai/resolveApiKey";
@@ -1251,8 +1256,9 @@ export async function POST(
         try {
           const { calculateCost, calculateChargedCents, getMarkupForTier } = await import("@/lib/pricing/apiCosts");
 
-          // Get user's subscription tier for tiered markup
-          const { data: userSub } = await serviceClient
+          // Get user's subscription tier for tiered markup (use fresh client to avoid caching issues)
+          const freshClient = createFreshServiceClient();
+          const { data: userSub } = await freshClient
             .from("user_subscriptions")
             .select("plan_id, status")
             .eq("user_id", user.id)
