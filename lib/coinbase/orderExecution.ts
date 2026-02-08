@@ -87,6 +87,7 @@ function getBaseIncrement(productId: string): number {
  * @param productId - Product ID (e.g., "ETH-PERP-INTX")
  * @param side - "buy" or "sell"
  * @param sizeUsd - Order size in USD
+ * @param exactSize - Optional exact size to close (for complete position closes)
  * @returns Order result with status and details
  */
 async function placeIntxMarketOrder(
@@ -94,7 +95,8 @@ async function placeIntxMarketOrder(
   apiSecret: string,
   productId: string,
   side: "buy" | "sell",
-  sizeUsd: number
+  sizeUsd: number,
+  exactSize?: number
 ): Promise<OrderResult> {
   try {
     console.log(
@@ -111,16 +113,21 @@ async function placeIntxMarketOrder(
     const currentPrice = await getMidPrice(productId);
     console.log(`[Coinbase INTX] Current ${productId} price: $${currentPrice.toFixed(2)}`);
 
-    // Calculate contract size - perpetuals use base asset size
-    const contractSize = sizeUsd / currentPrice;
-
-    // INTX products have base_increment requirements (step size)
-    // ETH: 0.001, BTC: 0.0001, SOL: 0.01, etc.
-    // Round UP to valid increment to ensure we meet minimum notional
+    let roundedSize: number;
     const baseIncrement = getBaseIncrement(productId);
-    const roundedSize = Math.ceil(contractSize / baseIncrement) * baseIncrement;
 
-    console.log(`[Coinbase INTX] Base size: raw=${contractSize.toFixed(8)}, increment=${baseIncrement}, rounded=${roundedSize}`);
+    if (exactSize != null && exactSize > 0) {
+      // Use exact size for complete position closes (no USD calculation needed)
+      // Round to valid increment
+      roundedSize = Math.round(exactSize / baseIncrement) * baseIncrement;
+      console.log(`[Coinbase INTX] Using exact size for close: ${exactSize.toFixed(8)} → rounded=${roundedSize} (increment=${baseIncrement})`);
+    } else {
+      // Calculate contract size from USD - for new positions
+      const contractSize = sizeUsd / currentPrice;
+      // Round UP to valid increment to ensure we meet minimum notional
+      roundedSize = Math.ceil(contractSize / baseIncrement) * baseIncrement;
+      console.log(`[Coinbase INTX] Base size: raw=${contractSize.toFixed(8)}, increment=${baseIncrement}, rounded=${roundedSize}`);
+    }
 
     // Generate client order ID
     const clientOrderId = `cc_intx_${Date.now()}_${Math.random().toString(36).substring(7)}`;
@@ -240,7 +247,8 @@ async function placeIntxMarketOrder(
  * @param productId - Product ID (e.g., "BTC-USD" for spot, "ETH-PERP-INTX" for INTX)
  * @param side - "buy" or "sell"
  * @param sizeUsd - Order size in USD (for buys) or asset value in USD (for sells)
- * @param sellAll - If true, sell entire available balance (for closing positions completely)
+ * @param sellAll - If true, sell entire available balance (for closing spot positions completely)
+ * @param exactSize - For INTX perpetuals: exact position size to close (bypasses USD calculation)
  * @returns Order result with status and details
  */
 export async function placeMarketOrder(
@@ -249,11 +257,12 @@ export async function placeMarketOrder(
   productId: string,
   side: "buy" | "sell",
   sizeUsd: number,
-  sellAll: boolean = false
+  sellAll: boolean = false,
+  exactSize?: number
 ): Promise<OrderResult> {
   // Check if this is a perpetual - route to INTX handler
   if (productId.endsWith("-INTX") || productId.includes("-PERP")) {
-    return placeIntxMarketOrder(apiKey, apiSecret, productId, side, sizeUsd);
+    return placeIntxMarketOrder(apiKey, apiSecret, productId, side, sizeUsd, exactSize);
   }
 
   // Otherwise use Advanced Trade for spot
