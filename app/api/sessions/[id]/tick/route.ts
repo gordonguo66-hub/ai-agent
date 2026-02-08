@@ -401,7 +401,24 @@ export async function POST(
       console.log(`[Tick API] 🛑 REJECTED - Session status is "${session.status}", not "running". NOT calling AI.`);
       return NextResponse.json({ error: "Session is not running" }, { status: 400 });
     }
-    
+
+    // TICK DEDUPLICATION: Reject if another tick completed too recently
+    // This prevents duplicate processing from Railway + browser calling simultaneously
+    const MIN_TICK_INTERVAL_MS = 10000; // 10 seconds minimum between ticks
+    const lastTickAt = session.last_tick_at ? new Date(session.last_tick_at).getTime() : 0;
+    const timeSinceLastTick = Date.now() - lastTickAt;
+
+    if (timeSinceLastTick < MIN_TICK_INTERVAL_MS) {
+      console.log(`[Tick API] ⏭️ SKIPPED - Too soon since last tick (${Math.floor(timeSinceLastTick / 1000)}s ago, min ${MIN_TICK_INTERVAL_MS / 1000}s)`);
+      return NextResponse.json({
+        skipped: true,
+        reason: "tick_too_soon",
+        lastTickAt: session.last_tick_at,
+        timeSinceLastTickMs: timeSinceLastTick,
+        minIntervalMs: MIN_TICK_INTERVAL_MS,
+      });
+    }
+
     // INVARIANT LOG: Verify tick is processing this session with correct mode and markets
     const sessionMode = session.mode || "virtual";
     const sessionMarkets = session.markets || [];
