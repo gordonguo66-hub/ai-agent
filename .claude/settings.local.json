@@ -37,7 +37,11 @@
       "Bash(supabase db push:*)",
       "Bash(cd /Users/gordon/Desktop/AI\\\\ Agent && npx supabase db push:*)",
       "WebFetch(domain:help.coinbase.com)",
-      "Bash(npx next build:*)"
+      "Bash(npx next build:*)",
+      "Bash(cd:*)",
+      "Bash(git diff:*)",
+      "Bash(git diff app/api/sessions/[id]/tick/route.ts)",
+      "Bash(brew install:*)"
     ]
   }
 }

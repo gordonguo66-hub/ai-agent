@@ -1908,10 +1908,29 @@ function SessionDetailContent({ sessionId }: { sessionId: string }) {
                                     N/A (open)
                                   </span>
                                 ) : (
-                                  <>
-                                    {Number(trade.realized_pnl || 0) >= 0 ? "+" : ""}
-                                    ${Number(trade.realized_pnl || 0).toFixed(2)}
-                                  </>
+                                  (() => {
+                                    const realizedPnl = Number(trade.realized_pnl || 0);
+                                    const closeNotional = Number(trade.size || 0) * Number(trade.price || 0);
+                                    // Calculate entry notional: for long closes (sell), entry = close - pnl
+                                    // For short closes (buy), entry = close + pnl
+                                    const entryNotional = isSell
+                                      ? closeNotional - realizedPnl
+                                      : closeNotional + realizedPnl;
+                                    const pnlPct = entryNotional > 0
+                                      ? (realizedPnl / entryNotional) * 100
+                                      : 0;
+
+                                    return (
+                                      <div className="flex flex-col items-end">
+                                        <span>
+                                          {realizedPnl >= 0 ? "+" : ""}${realizedPnl.toFixed(2)}
+                                        </span>
+                                        <span className="text-xs font-normal opacity-70">
+                                          ({pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(2)}%)
+                                        </span>
+                                      </div>
+                                    );
+                                  })()
                                 )}
                               </TableCell>
                             </TableRow>

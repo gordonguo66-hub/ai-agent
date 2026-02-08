@@ -402,22 +402,38 @@ export async function POST(
       return NextResponse.json({ error: "Session is not running" }, { status: 400 });
     }
 
-    // TICK DEDUPLICATION: Reject if another tick completed too recently
-    // This prevents duplicate processing from Railway + browser calling simultaneously
+    // TICK DEDUPLICATION: Atomic lock to prevent race conditions
+    // Uses UPDATE with WHERE clause that only succeeds if last_tick_at is old enough
+    // This guarantees only ONE request can proceed, even with concurrent requests
     const MIN_TICK_INTERVAL_MS = 10000; // 10 seconds minimum between ticks
-    const lastTickAt = session.last_tick_at ? new Date(session.last_tick_at).getTime() : 0;
-    const timeSinceLastTick = Date.now() - lastTickAt;
+    const nowTimestamp = new Date().toISOString();
 
-    if (timeSinceLastTick < MIN_TICK_INTERVAL_MS) {
-      console.log(`[Tick API] ⏭️ SKIPPED - Too soon since last tick (${Math.floor(timeSinceLastTick / 1000)}s ago, min ${MIN_TICK_INTERVAL_MS / 1000}s)`);
+    // Atomic update: only succeeds if last_tick_at is old enough (or null)
+    const { data: lockAcquired, error: lockError } = await serviceClient
+      .from("strategy_sessions")
+      .update({ last_tick_at: nowTimestamp })
+      .eq("id", sessionId)
+      .or(`last_tick_at.is.null,last_tick_at.lt.${new Date(Date.now() - MIN_TICK_INTERVAL_MS).toISOString()}`)
+      .select("id")
+      .maybeSingle();
+
+    if (lockError) {
+      console.error(`[Tick API] ❌ Lock acquisition error:`, lockError);
+      return NextResponse.json({ error: "Failed to acquire tick lock" }, { status: 500 });
+    }
+
+    if (!lockAcquired) {
+      // Another request won the race - this tick should be skipped
+      console.log(`[Tick API] ⏭️ SKIPPED - Another tick is in progress or completed recently (atomic lock failed)`);
       return NextResponse.json({
         skipped: true,
-        reason: "tick_too_soon",
-        lastTickAt: session.last_tick_at,
-        timeSinceLastTickMs: timeSinceLastTick,
+        reason: "tick_lock_failed",
+        message: "Another tick is already in progress or completed recently",
         minIntervalMs: MIN_TICK_INTERVAL_MS,
       });
     }
+
+    console.log(`[Tick API] 🔒 Acquired tick lock at ${nowTimestamp}`);
 
     // INVARIANT LOG: Verify tick is processing this session with correct mode and markets
     const sessionMode = session.mode || "virtual";
@@ -933,37 +949,8 @@ export async function POST(
     const tickStartTimestamp = new Date().toISOString();
     console.log(`[Tick] ⏰ Starting tick at ${tickStartTimestamp}`);
     
-    // CRITICAL FIX: Set last_tick_at at START of tick, not END
-    // This prevents drift where tick execution time causes us to miss cron cycles.
-    // By setting it at the start, we ensure the next cron check sees the correct time.
-    // Update session last_tick_at at START (will be overridden at end to same value if needed)
-    const DEBUG = process.env.DEBUG_CADENCE === "true";
-    if (DEBUG) {
-      const prevLastTickAt = session.last_tick_at;
-      const timeSinceLastTick = prevLastTickAt 
-        ? Math.floor((Date.now() - new Date(prevLastTickAt).getTime()) / 1000)
-        : null;
-      console.log(`[Tick API] Setting last_tick_at at START:`, {
-        sessionId,
-        cadenceSeconds,
-        prevLastTickAt,
-        newLastTickAt: tickStartTimestamp,
-        timeSinceLastTick,
-      });
-    }
-    // CRITICAL: Update last_tick_at synchronously at START of tick
-    // This must complete BEFORE tick processing to ensure next cron reads correct value
-    const { error: updateError } = await serviceClient
-      .from("strategy_sessions")
-      .update({ last_tick_at: tickStartTimestamp })
-      .eq("id", sessionId);
-    
-    if (updateError) {
-      console.error(`[Tick API] Failed to update last_tick_at:`, updateError);
-      // Continue with tick anyway - we'll log it for debugging
-    } else {
-      console.log(`[Tick API] ✅ Updated last_tick_at to ${tickStartTimestamp} at START of tick`);
-    }
+    // NOTE: last_tick_at was already set atomically during lock acquisition at the start of the tick
+    // This ensures no race conditions and prevents duplicate ticks
     console.log(`[Tick] Processing ${marketsToProcess.length} markets: ${marketsToProcess.join(", ")}`);
     console.log(`[Tick] ⚠️ NOTE: Each market will trigger a separate AI call. Total AI calls this tick: ${marketsToProcess.length}`);
 
