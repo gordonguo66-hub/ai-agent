@@ -78,6 +78,7 @@ const [topupPackages, setTopupPackages] = useState<TopupPackage[]>(DEFAULT_PACKA
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [customAmount, setCustomAmount] = useState<string>("");
   const [isCustomTopup, setIsCustomTopup] = useState(false);
+  const [purchasingPlan, setPurchasingPlan] = useState<string | null>(null);
 
   useEffect(() => {
     loadData();
@@ -85,9 +86,13 @@ const [topupPackages, setTopupPackages] = useState<TopupPackage[]>(DEFAULT_PACKA
     // Check for success message from Stripe redirect
     const success = searchParams.get("success");
     const amount = searchParams.get("amount");
+    const plan = searchParams.get("plan");
     if (success === "topup" && amount) {
       setSuccessMessage(`Successfully added $${(parseInt(amount) / 100).toFixed(2)} to your balance!`);
-      // Clear URL params
+      window.history.replaceState({}, "", "/settings/billing");
+    } else if (success === "subscription" && plan) {
+      const planName = plan === "pro" ? "Pro" : plan === "pro_plus" ? "Pro+" : plan === "ultra" ? "Ultra" : plan;
+      setSuccessMessage(`Successfully subscribed to ${planName}! Your subscription is now active.`);
       window.history.replaceState({}, "", "/settings/billing");
     }
   }, [searchParams]);
@@ -206,6 +211,38 @@ const [topupPackages, setTopupPackages] = useState<TopupPackage[]>(DEFAULT_PACKA
       alert(error.message || "Failed to start checkout. Please try again.");
     } finally {
       setIsCustomTopup(false);
+    }
+  };
+
+  const handleSubscribe = async (planId: string) => {
+    try {
+      setPurchasingPlan(planId);
+      const bearer = await getBearerToken();
+      if (!bearer) return;
+
+      const res = await fetch("/api/subscriptions/checkout", {
+        method: "POST",
+        headers: {
+          Authorization: bearer,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ plan_id: planId }),
+      });
+
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to create checkout session");
+      }
+
+      const data = await res.json();
+      if (data.checkout_url) {
+        window.location.href = data.checkout_url;
+      }
+    } catch (error: any) {
+      console.error("Failed to start subscription:", error);
+      alert(error.message || "Failed to start checkout. Please try again.");
+    } finally {
+      setPurchasingPlan(null);
     }
   };
 
@@ -509,11 +546,17 @@ const [topupPackages, setTopupPackages] = useState<TopupPackage[]>(DEFAULT_PACKA
                             <Button
                               variant="outline"
                               className="w-full"
-                              onClick={() => {
-                                alert("Subscription management coming soon! Contact support to change plans.");
-                              }}
+                              onClick={() => handleSubscribe(plan.id)}
+                              disabled={purchasingPlan !== null}
                             >
-                              {hasNoPlan ? "Get Started" : plan.price_cents > userData.subscription.price_cents ? "Upgrade" : "Switch"}
+                              {purchasingPlan === plan.id ? (
+                                <>
+                                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                  Processing...
+                                </>
+                              ) : (
+                                hasNoPlan ? "Get Started" : plan.price_cents > userData.subscription.price_cents ? "Upgrade" : "Switch"
+                              )}
                             </Button>
                           )}
                         </div>

@@ -183,29 +183,192 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
  * Handle paid invoice (subscription renewals)
  */
 async function handleInvoicePaid(invoice: Stripe.Invoice) {
-  // This would handle subscription credit grants on renewal
-  // For now, just log it
   console.log(`[Stripe Webhook] Invoice paid: ${invoice.id}`);
+
+  // Only process subscription invoices
+  if (!invoice.subscription) {
+    console.log("[Stripe Webhook] Not a subscription invoice, skipping");
+    return;
+  }
+
+  // Log renewal for tracking
+  if (invoice.billing_reason === "subscription_cycle") {
+    const customerId = invoice.customer as string;
+    const userId = await getUserIdFromCustomer(customerId);
+    console.log(`[Stripe Webhook] Subscription renewal processed for user ${userId}`);
+  }
 }
 
 /**
- * Handle subscription updates
+ * Map Stripe price ID to internal plan ID
+ */
+function getPlanIdFromSubscription(subscription: Stripe.Subscription): string | null {
+  // First, check subscription metadata (set during checkout)
+  const metadataPlanId = subscription.metadata?.plan_id;
+  if (metadataPlanId && ["pro", "pro_plus", "ultra"].includes(metadataPlanId)) {
+    return metadataPlanId;
+  }
+
+  // Fallback: check price ID against environment variables
+  const priceId = subscription.items.data[0]?.price?.id;
+  if (!priceId) return null;
+
+  const priceMap: Record<string, string> = {};
+  if (process.env.STRIPE_PRICE_PRO) priceMap[process.env.STRIPE_PRICE_PRO] = "pro";
+  if (process.env.STRIPE_PRICE_PRO_PLUS) priceMap[process.env.STRIPE_PRICE_PRO_PLUS] = "pro_plus";
+  if (process.env.STRIPE_PRICE_ULTRA) priceMap[process.env.STRIPE_PRICE_ULTRA] = "ultra";
+
+  return priceMap[priceId] || null;
+}
+
+/**
+ * Get user_id from Stripe customer
+ */
+async function getUserIdFromCustomer(customerId: string): Promise<string | null> {
+  const serviceClient = createFreshServiceClient();
+
+  // First, try to find user by stripe_customer_id
+  const { data: subData } = await serviceClient
+    .from("user_subscriptions")
+    .select("user_id")
+    .eq("stripe_customer_id", customerId)
+    .single();
+
+  if (subData?.user_id) {
+    return subData.user_id;
+  }
+
+  // Fallback: check Stripe customer metadata
+  try {
+    const customer = await stripe.customers.retrieve(customerId);
+    if (customer && !customer.deleted && customer.metadata?.user_id) {
+      return customer.metadata.user_id;
+    }
+  } catch (err) {
+    console.error("[Stripe Webhook] Error retrieving customer:", err);
+  }
+
+  return null;
+}
+
+/**
+ * Map Stripe subscription status to internal status
+ */
+function mapStripeStatus(stripeStatus: string): string {
+  switch (stripeStatus) {
+    case "active":
+      return "active";
+    case "trialing":
+      return "trialing";
+    case "past_due":
+      return "past_due";
+    case "canceled":
+    case "unpaid":
+    case "incomplete_expired":
+      return "canceled";
+    default:
+      return "inactive";
+  }
+}
+
+/**
+ * Handle subscription updates (created, updated)
  */
 async function handleSubscriptionUpdate(subscription: Stripe.Subscription) {
   const customerId = subscription.customer as string;
+  const subscriptionId = subscription.id;
   const status = subscription.status;
-  const priceId = subscription.items.data[0]?.price?.id;
 
-  console.log(`[Stripe Webhook] Subscription update: ${subscription.id}, status: ${status}`);
+  console.log(`[Stripe Webhook] Subscription update: ${subscriptionId}, status: ${status}`);
 
-  // This would update the user's subscription status in the database
-  // For now, just log it
+  // Get user_id from metadata or customer lookup
+  let userId = subscription.metadata?.user_id;
+  if (!userId) {
+    userId = await getUserIdFromCustomer(customerId);
+  }
+
+  if (!userId) {
+    console.error(`[Stripe Webhook] Cannot find user for customer: ${customerId}`);
+    return;
+  }
+
+  // Get plan_id from subscription
+  const planId = getPlanIdFromSubscription(subscription);
+  if (!planId) {
+    console.warn(`[Stripe Webhook] Unknown plan for subscription: ${subscriptionId}`);
+  }
+
+  const serviceClient = createFreshServiceClient();
+
+  // Map Stripe status to our status
+  const mappedStatus = mapStripeStatus(status);
+
+  // Get period dates
+  const currentPeriodStart = subscription.current_period_start
+    ? new Date(subscription.current_period_start * 1000).toISOString()
+    : null;
+  const currentPeriodEnd = subscription.current_period_end
+    ? new Date(subscription.current_period_end * 1000).toISOString()
+    : null;
+
+  // Upsert user subscription
+  const { error } = await serviceClient
+    .from("user_subscriptions")
+    .upsert({
+      user_id: userId,
+      plan_id: planId,
+      status: mappedStatus,
+      current_period_start: currentPeriodStart,
+      current_period_end: currentPeriodEnd,
+      cancel_at_period_end: subscription.cancel_at_period_end || false,
+      stripe_subscription_id: subscriptionId,
+      stripe_customer_id: customerId,
+    }, { onConflict: "user_id" });
+
+  if (error) {
+    console.error("[Stripe Webhook] Error updating subscription:", error);
+    throw error;
+  }
+
+  console.log(`[Stripe Webhook] Updated subscription for user ${userId}: plan=${planId}, status=${mappedStatus}`);
 }
 
 /**
  * Handle subscription cancellation
  */
 async function handleSubscriptionCanceled(subscription: Stripe.Subscription) {
-  console.log(`[Stripe Webhook] Subscription canceled: ${subscription.id}`);
-  // This would mark the subscription as canceled in the database
+  const subscriptionId = subscription.id;
+  const customerId = subscription.customer as string;
+
+  console.log(`[Stripe Webhook] Subscription canceled: ${subscriptionId}`);
+
+  // Get user_id
+  let userId = subscription.metadata?.user_id;
+  if (!userId) {
+    userId = await getUserIdFromCustomer(customerId);
+  }
+
+  if (!userId) {
+    console.error(`[Stripe Webhook] Cannot find user for canceled subscription: ${subscriptionId}`);
+    return;
+  }
+
+  const serviceClient = createFreshServiceClient();
+
+  // Mark subscription as canceled
+  const { error } = await serviceClient
+    .from("user_subscriptions")
+    .update({
+      status: "canceled",
+      plan_id: null,
+      cancel_at_period_end: false,
+    })
+    .eq("user_id", userId);
+
+  if (error) {
+    console.error("[Stripe Webhook] Error canceling subscription:", error);
+    throw error;
+  }
+
+  console.log(`[Stripe Webhook] Marked subscription as canceled for user ${userId}`);
 }
