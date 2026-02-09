@@ -226,7 +226,7 @@ function StrategyDetailContent() {
               {(() => {
                 const noApiKey = (!strategy.api_key_ciphertext || strategy.api_key_ciphertext === "stored_in_ai_connections") && !strategy.saved_api_key_id;
                 const atSessionLimit = sessionLimit?.limit !== null && sessionLimit && sessionLimit.count >= sessionLimit.limit;
-                const isDisabled = busy || noApiKey || atSessionLimit;
+                const isDisabled = !!(busy || noApiKey || atSessionLimit);
                 return (
               <div className="flex flex-wrap gap-2">
                 <Button

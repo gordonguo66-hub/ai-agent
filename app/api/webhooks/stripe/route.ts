@@ -151,8 +151,8 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   // Log transaction (try new table first, fallback to legacy)
   const transactionData = {
     user_id,
-    amount_cents: amountCents,
-    balance_after_cents: newBalance,
+    amount: amountCents,           // Column name is 'amount', not 'amount_cents'
+    balance_after: newBalance,     // Column name is 'balance_after', not 'balance_after_cents'
     transaction_type: "topup",
     description: `Added $${(amountCents / 100).toFixed(2)} to balance`,
     metadata: {
@@ -165,7 +165,8 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   const { error: txError } = await serviceClient.from("balance_transactions").insert(transactionData);
 
   if (txError) {
-    // Fallback to legacy table with legacy column names
+    // Fallback to legacy table
+    console.error("[Stripe Webhook] Error logging to balance_transactions:", txError);
     await serviceClient.from("credit_transactions").insert({
       user_id,
       amount: amountCents,
@@ -186,7 +187,7 @@ async function handleInvoicePaid(invoice: Stripe.Invoice) {
   console.log(`[Stripe Webhook] Invoice paid: ${invoice.id}`);
 
   // Only process subscription invoices
-  if (!invoice.subscription) {
+  if (!(invoice as any).subscription) {
     console.log("[Stripe Webhook] Not a subscription invoice, skipping");
     return;
   }
@@ -282,7 +283,7 @@ async function handleSubscriptionUpdate(subscription: Stripe.Subscription) {
   console.log(`[Stripe Webhook] Subscription update: ${subscriptionId}, status: ${status}`);
 
   // Get user_id from metadata or customer lookup
-  let userId = subscription.metadata?.user_id;
+  let userId: string | null | undefined = subscription.metadata?.user_id;
   if (!userId) {
     userId = await getUserIdFromCustomer(customerId);
   }
@@ -303,12 +304,13 @@ async function handleSubscriptionUpdate(subscription: Stripe.Subscription) {
   // Map Stripe status to our status
   const mappedStatus = mapStripeStatus(status);
 
-  // Get period dates
-  const currentPeriodStart = subscription.current_period_start
-    ? new Date(subscription.current_period_start * 1000).toISOString()
+  // Get period dates (use type assertion for Stripe API properties)
+  const sub = subscription as any;
+  const currentPeriodStart = sub.current_period_start
+    ? new Date(sub.current_period_start * 1000).toISOString()
     : null;
-  const currentPeriodEnd = subscription.current_period_end
-    ? new Date(subscription.current_period_end * 1000).toISOString()
+  const currentPeriodEnd = sub.current_period_end
+    ? new Date(sub.current_period_end * 1000).toISOString()
     : null;
 
   // Upsert user subscription
@@ -320,7 +322,7 @@ async function handleSubscriptionUpdate(subscription: Stripe.Subscription) {
       status: mappedStatus,
       current_period_start: currentPeriodStart,
       current_period_end: currentPeriodEnd,
-      cancel_at_period_end: subscription.cancel_at_period_end || false,
+      cancel_at_period_end: sub.cancel_at_period_end || false,
       stripe_subscription_id: subscriptionId,
       stripe_customer_id: customerId,
     }, { onConflict: "user_id" });
@@ -343,7 +345,7 @@ async function handleSubscriptionCanceled(subscription: Stripe.Subscription) {
   console.log(`[Stripe Webhook] Subscription canceled: ${subscriptionId}`);
 
   // Get user_id
-  let userId = subscription.metadata?.user_id;
+  let userId: string | null | undefined = subscription.metadata?.user_id;
   if (!userId) {
     userId = await getUserIdFromCustomer(customerId);
   }
