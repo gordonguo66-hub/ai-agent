@@ -508,7 +508,7 @@ export function EquityCurveChart({
           <ResponsiveContainer width="100%" height="100%">
             <LineChart
               data={chartData}
-              margin={{ top: 10, right: 30, left: 20, bottom: 60 }}
+              margin={{ top: 10, right: 10, left: 0, bottom: 30 }}
             >
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" opacity={0.5} />
               <XAxis
@@ -535,27 +535,21 @@ export function EquityCurveChart({
                   }
                   return "";
                 }}
-                angle={-45}
-                textAnchor="end"
-                height={60}
-                minTickGap={30}
+                tick={{ fontSize: 11 }}
+                height={25}
+                minTickGap={50}
               />
               <YAxis
                 domain={yAxisDomain}
                 tickFormatter={(v) => formatYAxisValue(Number(v))}
-                width={70}
-                label={{
-                  value: chartMode === "equity" ? "Equity (USD)" : "PnL (USD)",
-                  angle: -90,
-                  position: "insideLeft",
-                  style: { textAnchor: "middle" },
-                }}
+                width={35}
+                tick={{ fontSize: 10 }}
               />
               <Tooltip content={<CustomTooltip />} />
               <Line
                 type="monotone"
                 dataKey="value"
-                stroke={chartMode === "equity" ? "#8884d8" : "#10b981"}
+                stroke={chartMode === "equity" ? "#10b981" : "#8884d8"}
                 strokeWidth={2}
                 dot={false}
                 activeDot={{ r: 4 }}

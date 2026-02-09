@@ -1215,6 +1215,16 @@ export async function POST(
           console.log(`[Tick] 📊 All positions being sent to AI:`, contextPositions);
         }
         
+        // Determine if trading perpetuals (leverage/shorts) or spot (no leverage)
+        const isPerpsMarket = market.includes("-PERP") || market.endsWith("-INTX") ||
+          sessionVenue === "hyperliquid" || sessionMode === "virtual" || sessionMode === "arena" ||
+          (sessionVenue === "coinbase" && isIntxEnabled);
+        const marketType = isPerpsMarket ? "perpetual" : "spot";
+        const maxLeverage = isPerpsMarket ? (risk.maxLeverage || 1) : 1;
+        const canShort = isPerpsMarket && guardrails.allowShort !== false;
+
+        console.log(`[Tick] 📊 Market type: ${marketType}, Max leverage: ${maxLeverage}x, Shorts allowed: ${canShort}`);
+
         const context: any = {
           market,
           marketData: marketSnapshot, // Includes price, candles (if enabled), orderbook (if enabled)
@@ -1234,7 +1244,7 @@ export async function POST(
               if (behaviors.trend) enabled.push("trend-following (price moving in clear trend direction)");
               if (behaviors.breakout) enabled.push("breakout (price breaking through key support/resistance levels)");
               if (behaviors.meanReversion) enabled.push("mean reversion (price deviating significantly from average)");
-              
+
               if (enabled.length === 0) {
                 return "No entry behaviors enabled. Do not enter any positions.";
               } else if (enabled.length === 3) {
@@ -1243,6 +1253,11 @@ export async function POST(
                 return `Only these entry types are allowed: ${enabled.join(", ")}. Focus your analysis on these patterns only.`;
               }
             })(),
+            // Trading constraints - what the AI is allowed to do
+            marketType, // 'perpetual' (leverage/shorts available) or 'spot' (1x only, longs only)
+            maxLeverage, // Max leverage allowed (1 = no leverage, 2 = 2x, etc.)
+            allowLong: guardrails.allowLong !== false,
+            allowShort: canShort,
           },
         };
 
@@ -1988,12 +2003,11 @@ export async function POST(
             const entryTiming = entryExit.entry?.timing || {};
             const slippageBps = entryTiming.maxSlippagePct ? Math.min(entryTiming.maxSlippagePct * 100, 100) : 30; // Default 30bps, cap at 100bps (1%)
 
-            // Calculate actual leverage based on AI's decision (scaled by maxLeverage)
-            // AI outputs leverage as 0.1-1.0 multiplier, we scale it to actual leverage
-            const aiLeverageMultiplier = intent.leverage ?? 0.5; // Default to 0.5 (50% of max) if AI doesn't specify
-            const actualLeverage = Math.max(1, Math.round(aiLeverageMultiplier * maxLeverage));
+            // AI outputs leverage directly (1 to maxLeverage), cap at user's maxLeverage setting
+            const aiLeverage = intent.leverage ?? 1; // Default to 1x if AI doesn't specify
+            const actualLeverage = Math.max(1, Math.min(Math.round(aiLeverage), maxLeverage));
 
-            console.log(`[Tick] 💰 Placing order: ${side} ${market} for $${positionNotional.toFixed(2)} (confidence: ${confidence.toFixed(2)}, leverage: ${actualLeverage}x from AI=${aiLeverageMultiplier.toFixed(2)}*max=${maxLeverage})`);
+            console.log(`[Tick] 💰 Placing order: ${side} ${market} for $${positionNotional.toFixed(2)} (confidence: ${confidence.toFixed(2)}, leverage: ${actualLeverage}x, AI requested: ${aiLeverage}x, max allowed: ${maxLeverage}x)`);
 
             // Execute order (real for live, virtual for virtual)
             const orderResult = await placeMarketOrder({

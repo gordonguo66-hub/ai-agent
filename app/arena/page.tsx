@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, useMemo, useCallback, useRef } from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -158,25 +157,15 @@ function ChartAvatarDotInner({ cx, cy, participant, isRefreshing, onProfileClick
 }
 
 function ChartAvatarDot(props: any) {
-  const { cx, cy, participant, rank, chartView, isRefreshing, latestValueForDisplay, onProfileClick } = props;
+  const { cx, cy, participant, isRefreshing, onProfileClick } = props;
   
   if (!participant) return null;
   
   const size = 48; // Max size for foreignObject (to accommodate hover enlargement)
-  const emoji = rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : null;
-  
-  // Get the value to display
-  const value = chartView === "return"
-    ? formatReturnPct(Number(participant.returnPct ?? 0), 1)
-    : Number.isFinite(latestValueForDisplay)
-      ? `$${(latestValueForDisplay / 1000).toFixed(0)}k`
-      : Number.isFinite(participant.latestEquity)
-        ? `$${(participant.latestEquity / 1000).toFixed(0)}k`
-        : "N/A";
   
   return (
     <g>
-      {/* Avatar */}
+      {/* Avatar only - no label */}
       <foreignObject
         x={cx - size / 2}
         y={cy - size / 2}
@@ -185,24 +174,6 @@ function ChartAvatarDot(props: any) {
         style={{ overflow: 'visible', pointerEvents: 'all' }}
       >
         <ChartAvatarDotInner cx={cx} cy={cy} participant={participant} isRefreshing={isRefreshing} onProfileClick={onProfileClick} />
-      </foreignObject>
-      
-      {/* Label next to avatar */}
-      <foreignObject
-        x={cx + 20}
-        y={cy - 15}
-        width={160}
-        height={30}
-        style={{ overflow: 'visible', pointerEvents: 'none' }}
-      >
-        <div className="flex justify-start items-center h-full">
-          <div className="whitespace-nowrap">
-            <div className="flex items-center gap-1.5">
-              {emoji && <span className="text-sm">{emoji}</span>}
-              <span className="font-medium text-xs text-white">{participant.displayName}</span>
-            </div>
-          </div>
-    </div>
       </foreignObject>
     </g>
   );
@@ -538,97 +509,88 @@ function ArenaContent() {
   }, [hoveredLine, activePointIndex, chartData, participantByEntryId, rankByEntryId]);
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] page-container white-cards">
-      <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
-        <div className="max-w-7xl mx-auto">
-          <div className="mb-8">
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <h1 className="text-3xl sm:text-4xl font-bold tracking-tight text-white">
-                  Arena Leaderboard
-                </h1>
-                <Badge className="mt-2 bg-blue-900/50 text-white border-blue-800">
-                  Virtual $100k Competition
-                </Badge>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button 
-                  onClick={() => router.push("/dashboard")}
-                  size="sm"
-                  className="bg-blue-900 hover:bg-blue-800 text-white border border-blue-700 transition-all"
-                >
-                  Start in Arena →
-                </Button>
-              </div>
+    <div className="min-h-[calc(100vh-4rem)] page-container">
+      {/* Header section */}
+      <div className="px-4 sm:px-6 lg:px-8 py-4 border-b border-blue-900/30">
+        <div className="flex items-start sm:items-center justify-between gap-4">
+          <div>
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-white">Arena</h1>
+            <p className="text-gray-400 text-sm sm:text-base mt-0.5">Virtual $100k Competition • Real market data</p>
+          </div>
+          <Button
+            onClick={() => router.push("/dashboard")}
+            size="sm"
+            className="bg-blue-600 hover:bg-blue-500 text-white transition-all flex-shrink-0"
+          >
+            Start in Arena →
+          </Button>
+        </div>
+        <div className="hidden sm:flex items-center gap-2 text-sm text-gray-400 mt-2">
+          <span className="text-yellow-500">💡</span>
+          <span>To join: Go to your strategy page and click <strong className="text-white">"Start in Arena"</strong></span>
+        </div>
+      </div>
+
+      {/* Performance Chart - Full Width */}
+      <div className="border-b border-blue-900/30">
+        {/* Chart Header */}
+        <div className="px-4 sm:px-6 lg:px-8 py-3 sm:py-4 flex items-center justify-between gap-2">
+          {/* Mobile: simple icon + title */}
+          <div className="flex sm:hidden items-center gap-2">
+            <div className="w-7 h-7 rounded-md bg-green-600 flex items-center justify-center flex-shrink-0">
+              <TrendingUp className="w-4 h-4 text-white" />
             </div>
-            <p className="text-gray-300 text-base mb-4">
-              Compete with other traders using real market data. Everyone starts with $100,000 virtual capital.
-            </p>
-            <div className="bg-blue-950/30 border border-blue-900 rounded-lg p-4">
-              <div className="flex items-start gap-3">
-                <span className="text-2xl">💡</span>
-                <div>
-                  <p className="text-sm text-gray-300 leading-relaxed">
-                    <strong className="text-white">To join:</strong> Go to your strategy page and click <strong className="text-white">"Start in Arena"</strong> to begin competing with a fresh $100k account.
-                  </p>
-                </div>
-              </div>
+            <h2 className="text-sm font-semibold text-white">
+              {chartView === "return" ? "Return %" : "Equity $"}
+            </h2>
+          </div>
+          {/* Desktop: full header */}
+          <div className="hidden sm:flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-green-600 flex items-center justify-center flex-shrink-0">
+              <TrendingUp className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-white">
+                {chartView === "return" ? "Performance - Return %" : "Performance - Equity $"}
+              </h2>
+              <p className="text-sm text-gray-400">
+                {chartView === "return"
+                  ? "Percentage return comparison across top competitors"
+                  : "Account equity evolution for top participants"}
+              </p>
             </div>
           </div>
-
-          {/* Performance Chart */}
-          <Card className="mb-8">
-            <CardHeader className="border-b border-blue-900/50 bg-[#0A0E1A]">
-              <div className="flex items-center justify-between flex-wrap gap-3">
-                <div className="flex items-start gap-3">
-                  <div className="w-12 h-12 rounded-lg bg-green-600 flex items-center justify-center flex-shrink-0 mt-1">
-                    <TrendingUp className="w-7 h-7 text-white" />
-                  </div>
-                  <div className="flex-1">
-                    <CardTitle className="text-xl font-bold text-white leading-tight">
-                      {chartView === "return" ? "Arena Performance - Return %" : "Arena Performance - Account Value"}
-                    </CardTitle>
-                    <CardDescription className="text-gray-300 mt-2">
-                      {chartView === "return"
-                        ? "Percentage return comparison across top competitors"
-                        : "Account equity evolution for top participants"}
-                    </CardDescription>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  {/* View toggle */}
-                  <div className="flex items-center rounded-lg border border-blue-900 overflow-hidden bg-blue-950/30">
-                    <button
-                      onClick={() => setChartView("return")}
-                      className={`px-3 py-1.5 text-sm font-medium transition-all ${
-                        chartView === "return"
-                          ? "bg-blue-900 text-white border-blue-700"
-                          : "bg-transparent text-gray-300 hover:text-white"
-                      }`}
-                    >
-                      Return %
-                    </button>
-                    <button
-                      onClick={() => setChartView("equity")}
-                      className={`px-3 py-1.5 text-sm font-medium border-l border-blue-900 transition-all ${
-                        chartView === "equity"
-                          ? "bg-blue-900 text-white border-blue-700"
-                          : "bg-transparent text-gray-300 hover:text-white"
-                      }`}
-                    >
-                      Equity $
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="bg-[#0A0E1A]">
+          <div className="flex items-center rounded-lg border border-blue-900 overflow-hidden bg-blue-950/30">
+            <button
+              onClick={() => setChartView("return")}
+              className={`px-3 py-1.5 text-sm font-medium transition-all ${
+                chartView === "return"
+                  ? "bg-blue-600 text-white"
+                  : "bg-transparent text-gray-300 hover:text-white"
+              }`}
+            >
+              Return %
+            </button>
+            <button
+              onClick={() => setChartView("equity")}
+              className={`px-3 py-1.5 text-sm font-medium border-l border-blue-900 transition-all ${
+                chartView === "equity"
+                  ? "bg-blue-600 text-white"
+                  : "bg-transparent text-gray-300 hover:text-white"
+              }`}
+            >
+              Equity $
+            </button>
+          </div>
+        </div>
+        {/* Chart Content - Edge to Edge */}
+        <div className="px-2 sm:px-4">
               {loadingChart ? (
-                <div className="h-[400px] flex items-center justify-center">
+                <div className="h-[500px] flex items-center justify-center">
                   <p className="text-muted-foreground">Loading chart...</p>
                 </div>
               ) : chartData.length === 0 || displayedParticipants.length === 0 ? (
-                <div className="h-[400px] flex flex-col items-center justify-center">
+                <div className="h-[500px] flex flex-col items-center justify-center">
                   <div className="text-center space-y-3">
                     <div className="w-12 h-12 rounded-lg bg-green-600 flex items-center justify-center mx-auto mb-2">
                       <TrendingUp className="w-8 h-8 text-white" />
@@ -649,12 +611,12 @@ function ArenaContent() {
                       {chartWarning}
                     </div>
                   )}
-                  <div className="relative px-2 py-4">
-                    <ResponsiveContainer width="100%" height={400}>
+                  <div className="relative py-2 sm:py-4">
+                    <ResponsiveContainer width="100%" height={450}>
                       <LineChart
                         ref={chartRef}
                         data={chartData}
-                        margin={{ top: 5, right: 140, left: 20, bottom: 5 }}
+                        margin={{ top: 5, right: 20, left: 0, bottom: 5 }}
                         onMouseMove={handleChartMouseMove}
                         onMouseLeave={handleChartMouseLeave}
                         onClick={handleChartClick}
@@ -668,30 +630,17 @@ function ArenaContent() {
                           domain={["dataMin", "dataMax"]}
                           tickFormatter={(value) => {
                             if (!Number.isFinite(value) || value < 0) return "";
-                            // value is absolute timestamp (epoch ms) — format as calendar date/time
                             const date = new Date(value);
-
-                            // For very short ranges (< 24h), show time only
+                            // Compact format: "Jan 30" or just "30" if same month
                             if (chartRangeHours <= 24) {
                               return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
                             }
-                            // For medium ranges (< 7 days), show date + time
-                            if (chartRangeHours <= 168) {
-                              return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ' +
-                                     date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
-                            }
-                            // For longer ranges, show just date
-                            // Include year if range crosses years
-                            const minYear = chartMinTime > 0 ? new Date(chartMinTime).getFullYear() : date.getFullYear();
-                            const maxYear = chartMaxTime > 0 ? new Date(chartMaxTime).getFullYear() : date.getFullYear();
-                            if (minYear !== maxYear) {
-                              return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-                            }
-                            return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+                            // Just show "D Mon" format like "30 Jan", "4 Feb"
+                            return `${date.getDate()} ${date.toLocaleDateString(undefined, { month: 'short' })}`;
                           }}
-                          tickCount={8}
-                          minTickGap={40}
-                          tick={{ fontSize: 14, fill: '#9CA3AF' }}
+                          tickCount={4}
+                          minTickGap={60}
+                          tick={{ fontSize: 11, fill: '#9CA3AF' }}
                           stroke="#374151"
                         />
                         <YAxis
@@ -711,12 +660,7 @@ function ArenaContent() {
                           tickFormatter={(value) => {
                             if (!Number.isFinite(value)) return "";
                             if (chartView === "equity") {
-                              const range = chartYAxisDomain
-                                ? chartYAxisDomain.max - chartYAxisDomain.min
-                                : 0;
-                              if (range > 0 && range < 20000) {
-                                return `$${Math.round(value).toLocaleString("en-US")}`;
-                              }
+                              // Always use compact "k" notation
                               if (Math.abs(value) >= 1000) {
                                 return `$${(value / 1000).toFixed(0)}k`;
                               }
@@ -725,9 +669,9 @@ function ArenaContent() {
                               return formatReturnPct(Number(value), 1);
                             }
                           }}
-                          tick={{ fontSize: 14, fill: '#9CA3AF' }}
+                          tick={{ fontSize: 11, fill: '#9CA3AF' }}
                           stroke="#374151"
-                          width={95}
+                          width={55}
                         />
                         {hoveredLine && (
                           <Tooltip
@@ -901,29 +845,25 @@ function ArenaContent() {
                   </div>
                 </div>
               )}
-            </CardContent>
-          </Card>
+        </div>
+      </div>
 
-          {/* Leaderboard */}
-          <Card className="trading-card border-blue-900/50">
-            <CardHeader className="border-b border-blue-900/50 bg-[#0A0E1A]">
-              <div className="flex items-center justify-between">
-                <div className="flex items-start gap-3">
-                  <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-yellow-500 to-orange-600 flex items-center justify-center flex-shrink-0 mt-1">
-                    <Trophy className="w-7 h-7 text-white" />
-                  </div>
-                  <div className="flex-1">
-                    <CardTitle className="text-xl font-bold text-white leading-tight">
-                      Virtual Arena Leaderboard
-                    </CardTitle>
-                    <CardDescription className="text-gray-300 mt-2">
-                      Rankings based on equity. Everyone starts with $100,000
-                    </CardDescription>
-                  </div>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="bg-[#0A0E1A]">
+      {/* Leaderboard - Full Width */}
+      <div className="border-b border-blue-900/30">
+        {/* Leaderboard Header */}
+        <div className="px-4 sm:px-6 lg:px-8 py-3 sm:py-4">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-gradient-to-br from-yellow-500 to-orange-600 flex items-center justify-center flex-shrink-0">
+              <Trophy className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
+            </div>
+            <div>
+              <h2 className="text-base sm:text-lg font-semibold text-white">Leaderboard</h2>
+              <p className="hidden sm:block text-sm text-gray-400">Rankings based on equity • Starting capital: $100,000</p>
+            </div>
+          </div>
+        </div>
+        {/* Leaderboard Content */}
+        <div className="px-2 sm:px-4 pb-6">
               {loading ? (
                 <div className="text-center py-8">
                   <p className="text-muted-foreground">Loading leaderboard...</p>
@@ -1047,8 +987,6 @@ function ArenaContent() {
                   </Table>
                 </div>
               )}
-            </CardContent>
-          </Card>
         </div>
       </div>
     </div>

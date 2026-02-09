@@ -26,12 +26,20 @@ interface UserBalance {
   };
 }
 
-// How much more AI usage each tier provides compared to on-demand
-const TIER_MORE_USAGE: Record<string, number> = {
+// Savings percentage for each tier (used on plan cards)
+const TIER_SAVINGS: Record<string, number> = {
   on_demand: 0,
-  pro: 25,
-  pro_plus: 38,
-  ultra: 54,
+  pro: 20,
+  pro_plus: 26,
+  ultra: 33,
+};
+
+// Value per dollar for each tier (used in comparison table)
+const TIER_VALUE_PER_DOLLAR: Record<string, string> = {
+  on_demand: "$1.00",
+  pro: "$1.25",
+  pro_plus: "$1.35",
+  ultra: "$1.50",
 };
 
 // Estimated cost per AI decision (based on typical usage)
@@ -49,6 +57,7 @@ export default function PricingPage() {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [userBalance, setUserBalance] = useState<UserBalance | null>(null);
   const [loading, setLoading] = useState(true);
+  const [subscribing, setSubscribing] = useState<string | null>(null);
 
   useEffect(() => {
     loadPlans();
@@ -95,15 +104,39 @@ export default function PricingPage() {
     }
   };
 
-  const handleSelectPlan = (planId: string) => {
+  const handleSelectPlan = async (planId: string) => {
     if (!user) {
-      gatedNavigate("/settings/billing", {
+      gatedNavigate("/pricing", {
         title: "Sign in to subscribe",
-        description: "Create an account or sign in to manage your subscription.",
+        description: "Create an account or sign in to subscribe.",
       });
       return;
     }
-    window.location.href = `/settings/billing?plan=${planId}`;
+
+    setSubscribing(planId);
+    try {
+      const bearer = await getBearerToken();
+      const res = await fetch("/api/subscriptions/checkout", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: bearer || "",
+        },
+        body: JSON.stringify({ plan_id: planId }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.checkout_url) {
+        window.location.href = data.checkout_url;
+      } else {
+        alert(data.error || "Failed to start checkout");
+      }
+    } catch (error) {
+      console.error("Checkout error:", error);
+      alert("Something went wrong. Please try again.");
+    } finally {
+      setSubscribing(null);
+    }
   };
 
   const formatPrice = (cents: number) => {
@@ -128,8 +161,12 @@ export default function PricingPage() {
     }
   };
 
-  const getMoreUsage = (planId: string) => {
-    return TIER_MORE_USAGE[planId] || 0;
+  const getSavings = (planId: string) => {
+    return TIER_SAVINGS[planId] || 0;
+  };
+
+  const getValuePerDollar = (planId: string) => {
+    return TIER_VALUE_PER_DOLLAR[planId] || "$1.00";
   };
 
   const isCurrentPlan = (planId: string) => {
@@ -189,7 +226,7 @@ export default function PricingPage() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-4xl mx-auto">
               {plans.map((plan) => {
                 const isCurrent = isCurrentPlan(plan.id);
-                const moreUsage = getMoreUsage(plan.id);
+                const savings = getSavings(plan.id);
 
                 return (
                   <div
@@ -223,9 +260,9 @@ export default function PricingPage() {
                           </span>
                           <span className="text-gray-500">/month</span>
                         </div>
-                        {moreUsage > 0 && (
+                        {savings > 0 && (
                           <p className="text-green-600 font-semibold">
-                            {moreUsage}% more AI usage
+                            Save {savings}% on every AI call
                           </p>
                         )}
                       </div>
@@ -242,14 +279,14 @@ export default function PricingPage() {
 
                       <Button
                         onClick={() => handleSelectPlan(plan.id)}
-                        disabled={isCurrent}
+                        disabled={isCurrent || subscribing === plan.id}
                         className={`w-full py-6 text-base rounded-xl transition-all ${
                           isCurrent
                             ? "bg-gray-200 text-gray-400 cursor-not-allowed"
                             : "bg-blue-600 hover:bg-blue-700 text-white"
                         }`}
                       >
-                        {isCurrent ? "Current Plan" : "Subscribe"}
+                        {isCurrent ? "Current Plan" : subscribing === plan.id ? "Redirecting..." : "Subscribe"}
                       </Button>
                     </div>
                   </div>
@@ -312,7 +349,7 @@ export default function PricingPage() {
                     <p className="text-gray-400 text-sm">Plan</p>
                   </div>
                   <div className="p-4 border-b border-r border-blue-500/20">
-                    <p className="text-gray-400 text-sm">AI Usage Benefit</p>
+                    <p className="text-gray-400 text-sm">$1 Gets You</p>
                   </div>
                   <div className="p-4 border-b border-blue-500/20">
                     <p className="text-gray-400 text-sm">Sessions</p>
@@ -322,7 +359,7 @@ export default function PricingPage() {
                     <p className="text-white font-medium">On-demand</p>
                   </div>
                   <div className="p-4 border-b border-r border-blue-500/20">
-                    <p className="text-gray-400">Pay as you go</p>
+                    <p className="text-gray-400">$1.00 of AI usage</p>
                   </div>
                   <div className="p-4 border-b border-blue-500/20">
                     <p className="text-gray-400">Up to 3</p>
@@ -332,7 +369,7 @@ export default function PricingPage() {
                     <p className="text-white font-medium">Pro</p>
                   </div>
                   <div className="p-4 border-b border-r border-blue-500/20">
-                    <p className="text-green-400 font-medium">25% more AI usage</p>
+                    <p className="text-green-400 font-medium">$1.25 of AI usage</p>
                   </div>
                   <div className="p-4 border-b border-blue-500/20">
                     <p className="text-gray-400">Up to 3</p>
@@ -342,7 +379,7 @@ export default function PricingPage() {
                     <p className="text-white font-medium">Pro+</p>
                   </div>
                   <div className="p-4 border-b border-r border-blue-500/20">
-                    <p className="text-green-400 font-medium">35% more AI usage</p>
+                    <p className="text-green-400 font-medium">$1.35 of AI usage</p>
                   </div>
                   <div className="p-4 border-b border-blue-500/20">
                     <p className="text-green-400 font-medium">Unlimited</p>
@@ -352,7 +389,7 @@ export default function PricingPage() {
                     <p className="text-white font-medium">Ultra</p>
                   </div>
                   <div className="p-4 border-r border-blue-500/20">
-                    <p className="text-green-400 font-medium">50% more AI usage</p>
+                    <p className="text-green-400 font-medium">$1.50 of AI usage</p>
                   </div>
                   <div className="p-4">
                     <p className="text-green-400 font-medium">Unlimited</p>
@@ -416,10 +453,10 @@ export default function PricingPage() {
               </div>
 
               <div className="p-6 rounded-xl bg-blue-950/20 border border-blue-500/20">
-                <h3 className="text-white font-medium mb-2">Is there a refund policy?</h3>
+                <h3 className="text-white font-medium mb-2">Are my payments secure?</h3>
                 <p className="text-gray-400 text-sm">
-                  We offer a 7-day money-back guarantee for first-time subscribers. Contact support
-                  if you&apos;re not satisfied.
+                  Absolutely. We use Stripe, the industry-leading payment processor trusted by millions
+                  of businesses worldwide. Your card details are never stored on our servers.
                 </p>
               </div>
             </div>

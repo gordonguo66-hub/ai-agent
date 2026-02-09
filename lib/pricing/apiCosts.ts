@@ -39,7 +39,7 @@ export type SubscriptionTier = keyof typeof TIER_MARKUPS;
 export const SUBSCRIPTION_TIERS = {
   'pro': {
     name: 'Pro',
-    price_cents: 1900,      // $19/mo
+    price_cents: 2900,      // $29/mo
     markup: 0.60,
     more_usage_percent: 25,  // "25% more AI usage"
   },

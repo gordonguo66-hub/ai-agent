@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { getBearerToken } from "@/lib/api/clientAuth";
 import { FormattedDate } from "@/components/formatted-date";
-import { Zap, TrendingUp, Crown, ArrowRight, CreditCard, History, DollarSign, Check, Loader2, Sparkles } from "lucide-react";
+import { Zap, TrendingUp, Crown, ArrowRight, CreditCard, History, DollarSign, Check, Loader2, Sparkles, XCircle } from "lucide-react";
 
 interface TopupPackage {
   id: string;
@@ -29,12 +29,15 @@ interface Plan {
 
 interface BalanceTransaction {
   id: string;
-  amount_cents: number;
-  balance_after_cents: number;
+  amount: number;           // Amount in cents (positive for topup, negative for usage)
+  balance_after: number;    // Balance in cents after this transaction
   transaction_type: string;
   description: string;
   metadata: any;
   created_at: string;
+  // Optional USD values added by API
+  amount_usd?: string;
+  balance_after_usd?: string;
 }
 
 interface UserData {
@@ -79,6 +82,7 @@ const [topupPackages, setTopupPackages] = useState<TopupPackage[]>(DEFAULT_PACKA
   const [customAmount, setCustomAmount] = useState<string>("");
   const [isCustomTopup, setIsCustomTopup] = useState(false);
   const [purchasingPlan, setPurchasingPlan] = useState<string | null>(null);
+  const [cancelingSubscription, setCancelingSubscription] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -246,6 +250,39 @@ const [topupPackages, setTopupPackages] = useState<TopupPackage[]>(DEFAULT_PACKA
     }
   };
 
+  const handleCancelSubscription = async () => {
+    if (!confirm("Are you sure you want to cancel your subscription? You'll keep access until the end of your billing period.")) {
+      return;
+    }
+
+    try {
+      setCancelingSubscription(true);
+      const bearer = await getBearerToken();
+      if (!bearer) return;
+
+      const res = await fetch("/api/subscriptions/cancel", {
+        method: "POST",
+        headers: {
+          Authorization: bearer,
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to cancel subscription");
+      }
+
+      setSuccessMessage("Your subscription has been canceled. You'll keep access until the end of your billing period.");
+      loadData(); // Reload to show updated status
+    } catch (error: any) {
+      console.error("Failed to cancel subscription:", error);
+      alert(error.message || "Failed to cancel subscription. Please try again.");
+    } finally {
+      setCancelingSubscription(false);
+    }
+  };
+
   const formatPrice = (cents: number) => {
     if (cents === 0) return "Free";
     return `$${(cents / 100).toFixed(0)}`;
@@ -265,16 +302,26 @@ const [topupPackages, setTopupPackages] = useState<TopupPackage[]>(DEFAULT_PACKA
     }
   };
 
+  const getSavePercent = (planId: string | null) => {
+    // Returns how much subscribers save on every AI call compared to on-demand
+    switch (planId) {
+      case "pro": return 20;
+      case "pro_plus": return 26;
+      case "ultra": return 33;
+      default: return 0;
+    }
+  };
+
   const getPlanIcon = (planId: string | null) => {
     switch (planId) {
       case "pro":
-        return <Zap className="w-5 h-5" />;
+        return <Zap className="w-6 h-6" />;
       case "pro_plus":
-        return <TrendingUp className="w-5 h-5" />;
+        return <TrendingUp className="w-6 h-6" />;
       case "ultra":
-        return <Crown className="w-5 h-5" />;
+        return <Crown className="w-6 h-6" />;
       default:
-        return <Zap className="w-5 h-5" />;
+        return <Zap className="w-6 h-6" />;
     }
   };
 
@@ -316,8 +363,8 @@ const [topupPackages, setTopupPackages] = useState<TopupPackage[]>(DEFAULT_PACKA
     if (!planId || planId === "on_demand") {
       return { label: "On-Demand", color: "text-gray-400" };
     }
-    const moreUsage = getMoreUsagePercent(planId);
-    return { label: `${moreUsage}% More AI Usage`, color: "text-green-400" };
+    const savePercent = getSavePercent(planId);
+    return { label: `Save ${savePercent}% on every AI call`, color: "text-green-400" };
   };
 
   return (
@@ -339,7 +386,7 @@ const [topupPackages, setTopupPackages] = useState<TopupPackage[]>(DEFAULT_PACKA
               {/* Current Plan & Credits Overview */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Current Subscription */}
-                <Card>
+                <Card className="flex flex-col">
                   <CardHeader>
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
@@ -366,28 +413,44 @@ const [topupPackages, setTopupPackages] = useState<TopupPackage[]>(DEFAULT_PACKA
                       </span>
                     </div>
                   </CardHeader>
-                  <CardContent className="space-y-4">
-                    {userData.subscription.plan_id !== null && userData.subscription.plan_id !== "on_demand" && (
-                      <div className="flex items-center gap-2 text-sm">
-                        <Sparkles className="w-4 h-4 text-green-600" />
-                        <span className="text-green-600">
-                          {getTierLabel(userData.subscription.plan_id).label}
-                        </span>
-                      </div>
-                    )}
+                  <CardContent className="space-y-2 mt-auto">
                     {userData.subscription.current_period_end && (
                       <div className="text-sm text-gray-500">
-                        Renews: <FormattedDate date={userData.subscription.current_period_end} format="date" />
+                        {userData.subscription.cancel_at_period_end
+                          ? <>Cancels: <FormattedDate date={userData.subscription.current_period_end} format="date" /></>
+                          : <>Renews: <FormattedDate date={userData.subscription.current_period_end} format="date" /></>
+                        }
                       </div>
                     )}
-                    {userData.subscription.plan_id !== "ultra" && (
-                      <Link href="/pricing">
-                        <Button className="w-full mt-2" variant="outline">
-                          <CreditCard className="w-4 h-4 mr-2" />
-                          {userData.subscription.plan_id === null ? "Subscribe" : "Upgrade Plan"}
-                        </Button>
-                      </Link>
+                    {userData.subscription.cancel_at_period_end && (
+                      <div className="text-sm text-orange-600">
+                        Subscription will end at period end
+                      </div>
                     )}
+                    <div className="flex gap-2">
+                      {userData.subscription.plan_id !== "ultra" && !userData.subscription.cancel_at_period_end && (
+                        <Link href="/pricing" className="flex-1">
+                          <Button className="w-full" variant="outline">
+                            <CreditCard className="w-4 h-4 mr-2" />
+                            {userData.subscription.plan_id === null ? "Subscribe" : "Upgrade"}
+                          </Button>
+                        </Link>
+                      )}
+                      {userData.subscription.status === "active" && !userData.subscription.cancel_at_period_end && (
+                        <Button
+                          variant="ghost"
+                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                          onClick={handleCancelSubscription}
+                          disabled={cancelingSubscription}
+                        >
+                          {cancelingSubscription ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <XCircle className="w-4 h-4" />
+                          )}
+                        </Button>
+                      )}
+                    </div>
                   </CardContent>
                 </Card>
 
@@ -412,11 +475,11 @@ const [topupPackages, setTopupPackages] = useState<TopupPackage[]>(DEFAULT_PACKA
                       {userData.subscription.plan_id && userData.subscription.plan_id !== "on_demand" ? (
                         <div className="flex items-center gap-2 text-sm text-green-600">
                           <Sparkles className="w-3.5 h-3.5" />
-                          {getMoreUsagePercent(userData.subscription.plan_id)}% more AI usage with your plan
+                          Save {getSavePercent(userData.subscription.plan_id)}% on every AI call
                         </div>
                       ) : (
                         <div className="text-sm text-gray-500">
-                          Subscribe for up to 50% more AI usage
+                          Subscribe to save up to 33% on every AI call
                         </div>
                       )}
                     </div>
@@ -506,7 +569,7 @@ const [topupPackages, setTopupPackages] = useState<TopupPackage[]>(DEFAULT_PACKA
               <Card>
                 <CardHeader>
                   <CardTitle>Available Plans</CardTitle>
-                  <CardDescription>Subscribe for better rates on AI usage</CardDescription>
+                  <CardDescription>Subscribe to save on every AI call</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -540,7 +603,7 @@ const [topupPackages, setTopupPackages] = useState<TopupPackage[]>(DEFAULT_PACKA
                           </div>
                           <div className="flex items-center gap-2 text-green-600 text-sm mb-2">
                             <Sparkles className="w-3.5 h-3.5" />
-                            <span>{moreUsage}% more AI usage</span>
+                            <span>Save {getSavePercent(plan.id)}% on every AI call</span>
                           </div>
                           <div className="text-gray-500 text-xs mb-4">
                             {plan.id === "pro" ? "Up to 3 sessions" : "Unlimited sessions"}
@@ -583,7 +646,7 @@ const [topupPackages, setTopupPackages] = useState<TopupPackage[]>(DEFAULT_PACKA
                     <div className="text-center text-gray-500 py-8">Loading transactions...</div>
                   ) : transactions.length === 0 ? (
                     <div className="text-center text-gray-500 py-8">
-                      No transactions yet. Start a trading session to see AI usage.
+                      No transactions yet. Add funds or subscribe to see your transaction history.
                     </div>
                   ) : (
                     <div className="overflow-x-auto">
@@ -600,9 +663,8 @@ const [topupPackages, setTopupPackages] = useState<TopupPackage[]>(DEFAULT_PACKA
                         <TableBody>
                           {transactions.map((tx) => {
                             const typeInfo = getTransactionTypeLabel(tx.transaction_type);
-                            // Handle both new (amount_cents) and legacy (amount) formats
-                            const amountCents = tx.amount_cents ?? (tx as any).amount ?? 0;
-                            const balanceAfterCents = tx.balance_after_cents ?? (tx as any).balance_after ?? 0;
+                            const amountCents = tx.amount;
+                            const balanceAfterCents = tx.balance_after;
                             return (
                               <TableRow key={tx.id}>
                                 <TableCell className="text-sm text-gray-500">

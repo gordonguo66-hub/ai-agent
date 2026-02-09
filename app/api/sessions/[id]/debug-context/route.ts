@@ -220,6 +220,15 @@ export async function GET(
 
     const entryExit = filters.entryExit || {};
     const entry = entryExit.entry || {};
+    const guardrails = filters.guardrails || {};
+    const risk = filters.risk || {};
+
+    // Determine market type (perpetual vs spot)
+    // For debug context, we default to perpetual since most users are on Hyperliquid/virtual
+    const isPerpsMarket = market.includes("-PERP") || market.endsWith("-INTX") || sessionMode === "virtual";
+    const marketType = isPerpsMarket ? "perpetual" : "spot";
+    const maxLeverage = isPerpsMarket ? (risk.maxLeverage || 1) : 1;
+    const canShort = isPerpsMarket && guardrails.allowShort !== false;
 
     // Build the actual context that would be sent to AI
     const context = {
@@ -238,13 +247,18 @@ export async function GET(
         recentDecisions: aiInputs.includeRecentDecisions ? recentDecisions : [],
       strategy: {
         entryMode: entry.mode || "signal",
-        entryInstructions: entry.mode === "trend" 
+        entryInstructions: entry.mode === "trend"
           ? "Focus on trend-following signals. Enter when price is moving in a clear trend direction."
           : entry.mode === "meanReversion"
           ? "Focus on mean reversion opportunities. Enter when price deviates significantly from its average."
           : entry.mode === "breakout"
           ? "Focus on breakout patterns. Enter when price breaks through key support/resistance levels."
           : "Use AI-driven signal analysis to identify entry opportunities.",
+        // Trading constraints sent to AI
+        marketType, // 'perpetual' or 'spot'
+        maxLeverage, // Max leverage allowed (1 = no leverage)
+        allowLong: guardrails.allowLong !== false,
+        allowShort: canShort,
       },
       // AI Inputs configuration (what user set)
       aiInputsConfig: {

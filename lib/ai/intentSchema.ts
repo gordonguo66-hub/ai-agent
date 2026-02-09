@@ -19,14 +19,14 @@ export interface Intent {
   take_profit: number;
   risk: number; // 0-1
   /**
-   * Leverage multiplier (0.1-1.0) representing how much of maxLeverage to use.
-   * Higher values = more leverage = more risk/reward.
-   * - 1.0 = use full maxLeverage (e.g., if maxLeverage=5x, use 5x)
-   * - 0.5 = use half maxLeverage (e.g., if maxLeverage=5x, use 2.5x → rounds to 3x)
-   * - 0.2 = use 20% of maxLeverage (e.g., if maxLeverage=5x, use 1x)
-   * Only applies to entry orders. Defaults to 0.5 if not specified.
+   * Leverage to use for the trade (1 to maxLeverage).
+   * - 1 = no leverage (spot-equivalent)
+   * - 2 = 2x leverage
+   * - etc. up to the user's configured maxLeverage
+   * Only applies to perpetual markets. Spot markets always use 1x.
+   * Defaults to 1 if not specified.
    */
-  leverage?: number; // 0.1-1.0, optional
+  leverage?: number; // 1 to maxLeverage
   reasoning: string;
 }
 
@@ -57,7 +57,7 @@ export const intentSchema = {
     stop_loss: { type: "number" },
     take_profit: { type: "number" },
     risk: { type: "number", minimum: 0, maximum: 1 },
-    leverage: { type: "number", minimum: 0.1, maximum: 1, description: "Leverage multiplier (0.1-1.0) - how much of maxLeverage to use based on conviction" },
+    leverage: { type: "number", minimum: 1, description: "Leverage to use (1 to maxLeverage). 1 = no leverage, higher = more risk/reward" },
     reasoning: { type: "string" },
   },
 };

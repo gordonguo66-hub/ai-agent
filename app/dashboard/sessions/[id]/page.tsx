@@ -657,17 +657,20 @@ function SessionDetailContent({ sessionId }: { sessionId: string }) {
       
       if (accountId) {
         // Build queries - make session_id optional in case it's null
-        const tradesQuery = supabase
+        // CRITICAL: Use explicit assignment for Supabase query chaining to ensure filters are applied
+        let tradesQuery = supabase
           .from(tradesTable)
           .select("*")
-          .eq("account_id", accountId)
-          .order("created_at", { ascending: false })
-          .limit(500); // Increased limit but still bounded for performance
-        
+          .eq("account_id", accountId);
+
         // Only filter by session_id if it exists
         if (sessionId) {
-          tradesQuery.eq("session_id", sessionId);
+          tradesQuery = tradesQuery.eq("session_id", sessionId);
         }
+
+        tradesQuery = tradesQuery
+          .order("created_at", { ascending: false })
+          .limit(500); // Increased limit but still bounded for performance
         
         const positionsQuery = supabase
           .from(positionsTable)
@@ -679,23 +682,28 @@ function SessionDetailContent({ sessionId }: { sessionId: string }) {
           sessionId,
           hasTimeRange: !!capturedTimeRange,
         });
-        
-        const equityQuery = supabase
+
+        // CRITICAL: Use explicit assignment for Supabase query chaining to ensure filters are applied
+        let equityQuery = supabase
           .from("equity_points")
           .select("*")
           .eq("account_id", accountId);
 
         // Only filter equity_points by session_id if it exists
         if (sessionId) {
-          equityQuery.eq("session_id", sessionId);
+          equityQuery = equityQuery.eq("session_id", sessionId);
           console.log(`[loadAll] 🔍 Filtering by session_id: ${sessionId}`);
         }
-        
+
         // SERVER-SIDE TIME FILTERING: Apply timerange filter if specified
         if (capturedTimeRange) {
           const startISO = new Date(capturedTimeRange.start).toISOString();
           const endISO = new Date(capturedTimeRange.end).toISOString();
-          equityQuery.gte("t", startISO).lte("t", endISO);
+          equityQuery = equityQuery
+            .gte("t", startISO)
+            .lte("t", endISO)
+            .order("t", { ascending: true })
+            .range(0, 99999);
 
           console.log(`[loadAll] 🔍 Applying SERVER-SIDE time filter to query:`, {
             start: startISO,
@@ -703,15 +711,14 @@ function SessionDetailContent({ sessionId }: { sessionId: string }) {
             startLocal: new Date(capturedTimeRange.start).toLocaleString(),
             endLocal: new Date(capturedTimeRange.end).toLocaleString(),
           });
-          // Use range() instead of limit() to bypass Supabase's default 1000 row limit
-          // Order oldest-first for chronological display
-          equityQuery.order("t", { ascending: true }).range(0, 99999);
         } else {
           console.log(`[loadAll] 🌍 No time filter - fetching ALL equity points for session`);
           // CRITICAL: Use range() instead of limit() to bypass Supabase's default 1000 row limit
           // Set to 1,000,000 to support 5+ years of data at any cadence
           // Order oldest-first so chart displays chronologically
-          equityQuery.order("t", { ascending: true }).range(0, 999999);
+          equityQuery = equityQuery
+            .order("t", { ascending: true })
+            .range(0, 999999);
         }
         
         const [tradesResult, positionsResult, equityResult] = await Promise.all([

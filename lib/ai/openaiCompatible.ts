@@ -77,6 +77,14 @@ export async function openAICompatibleIntentCall(args: {
       size: number;
       realizedPnl: number | null;
     }[];
+    strategy?: {
+      entryBehaviors?: { trend?: boolean; breakout?: boolean; meanReversion?: boolean };
+      entryInstructions?: string;
+      marketType?: "perpetual" | "spot"; // perpetual = leverage/shorts, spot = 1x longs only
+      maxLeverage?: number; // Max leverage allowed (1 = no leverage)
+      allowLong?: boolean;
+      allowShort?: boolean;
+    };
   };
   provider?: string; // Optional provider hint for API format selection
 }): Promise<IntentWithUsage> {
@@ -88,14 +96,15 @@ export async function openAICompatibleIntentCall(args: {
     "You are a trading decision engine that manages both entries AND exits.",
     "",
     "Return ONLY valid JSON (no markdown) matching this interface:",
-    "{ market: string, bias: 'long'|'short'|'hold'|'neutral'|'close', confidence: number (0..1), entry_zone:{lower:number, upper:number}, stop_loss:number, take_profit:number, risk:number (0..1), leverage:number (0.1..1), reasoning:string }",
+    "{ market: string, bias: 'long'|'short'|'hold'|'neutral'|'close', confidence: number (0..1), entry_zone:{lower:number, upper:number}, stop_loss:number, take_profit:number, risk:number (0..1), leverage:number (1..maxLeverage), reasoning:string }",
     "",
-    "LEVERAGE (0.1-1.0):",
-    "- This is a MULTIPLIER of the user's maxLeverage setting (e.g., if maxLeverage=5x and you output 0.5, actual leverage=2.5x→3x)",
-    "- Use HIGHER leverage (0.7-1.0) when: strong conviction, clear trend, good risk/reward, high confidence",
-    "- Use MODERATE leverage (0.4-0.6) when: decent setup but some uncertainty, normal conditions",
-    "- Use LOWER leverage (0.1-0.3) when: uncertain conditions, counter-trend trade, testing a thesis",
-    "- Default to 0.5 if unsure. Only use 1.0 for your highest conviction trades.",
+    "LEVERAGE:",
+    "- Check strategy.marketType: 'perpetual' allows leverage, 'spot' is always 1x",
+    "- Check strategy.maxLeverage for the maximum allowed (e.g., if maxLeverage=5, you can use 1x to 5x)",
+    "- Output the actual leverage you want to use (e.g., 1, 2, 3, 5), NOT a multiplier",
+    "- Use HIGHER leverage (closer to maxLeverage) when: strong conviction, clear trend, good risk/reward",
+    "- Use LOWER leverage (1x-2x) when: uncertain conditions, testing a thesis, higher risk",
+    "- For spot trading (marketType='spot'), always output leverage: 1",
     "",
     "BIAS OPTIONS:",
     "- 'long': Bullish - ENTER a new long position (use only when NO position is open)",
@@ -197,6 +206,31 @@ export async function openAICompatibleIntentCall(args: {
   // Add recent trades if available
   if (recentTradesContext) {
     userParts.push(recentTradesContext);
+  }
+
+  // Add trading constraints (market type, leverage, allowed directions)
+  const strategy = args.context.strategy;
+  if (strategy) {
+    const constraints: string[] = [];
+
+    if (strategy.marketType === "perpetual") {
+      constraints.push(`Market Type: PERPETUAL (leverage and short-selling available)`);
+      constraints.push(`Max Leverage: ${strategy.maxLeverage || 1}x (you can use any leverage from 1x to ${strategy.maxLeverage || 1}x)`);
+    } else {
+      constraints.push(`Market Type: SPOT (no leverage, longs only)`);
+      constraints.push(`Leverage: 1x only (spot market)`);
+    }
+
+    if (strategy.allowLong === false) {
+      constraints.push(`⚠️ LONG positions are DISABLED - do not go long`);
+    }
+    if (strategy.allowShort === false) {
+      constraints.push(`⚠️ SHORT positions are DISABLED - do not go short`);
+    }
+
+    if (constraints.length > 0) {
+      userParts.push(`TRADING CONSTRAINTS:\n${constraints.join('\n')}`);
+    }
   }
 
   userParts.push(
@@ -311,6 +345,12 @@ function parseIntentJson(raw: string): Intent {
   const bias = obj.bias;
   if (!["long", "short", "hold", "neutral", "close"].includes(bias)) throw new Error("Invalid bias: must be 'long', 'short', 'hold', 'neutral', or 'close'");
 
+  // Parse leverage - default to 1 if not specified or invalid
+  let leverage = Number(obj.leverage);
+  if (!Number.isFinite(leverage) || leverage < 1) {
+    leverage = 1;
+  }
+
   return {
     market: String(obj.market || "BTC-PERP"),
     bias,
@@ -322,6 +362,7 @@ function parseIntentJson(raw: string): Intent {
     stop_loss: Number(obj.stop_loss ?? 0),
     take_profit: Number(obj.take_profit ?? 0),
     risk: clamp01(Number(obj.risk)),
+    leverage,
     reasoning: String(obj.reasoning || ""),
   };
 }

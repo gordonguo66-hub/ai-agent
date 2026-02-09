@@ -87,6 +87,8 @@ const MAJOR_MARKETS_CB_INTX = ["BTC-PERP-INTX", "ETH-PERP-INTX", "SOL-PERP-INTX"
 const BASE_VENUES = [
   { id: "hyperliquid", name: "Hyperliquid", description: "Perpetuals (up to 50x leverage, shorts allowed)" },
   { id: "coinbase", name: "Coinbase", description: "Spot trading (1x only, no shorts - US compliant)" },
+  { id: "virtual", name: "Virtual", description: "Paper trading with simulated markets (no exchange needed)" },
+  { id: "arena", name: "Arena", description: "Competition mode - $100k virtual balance, leaderboard rankings" },
 ];
 
 interface StrategyFormProps {
@@ -124,7 +126,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
   const isEditMode = !!strategyId;
 
   // Venue selection
-  const [venue, setVenue] = useState<"hyperliquid" | "coinbase">("hyperliquid");
+  const [venue, setVenue] = useState<"hyperliquid" | "coinbase" | "virtual" | "arena">("hyperliquid");
 
   // INTX (Coinbase International) access status
   const [coinbaseIntxEnabled, setCoinbaseIntxEnabled] = useState(false);
@@ -379,7 +381,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
       const filters = initialData.filters || {};
 
       // Venue
-      if (filters.venue && (filters.venue === "hyperliquid" || filters.venue === "coinbase")) {
+      if (filters.venue && ["hyperliquid", "coinbase", "virtual", "arena"].includes(filters.venue)) {
         setVenue(filters.venue);
       }
 
@@ -609,7 +611,9 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
       setMarketsLoading(true);
       setMarketsError(false);
       try {
-        const endpoint = venue === "coinbase"
+        // Virtual and Arena use Hyperliquid markets (simulated perpetuals)
+        const effectiveVenue = (venue === "virtual" || venue === "arena") ? "hyperliquid" : venue;
+        const endpoint = effectiveVenue === "coinbase"
           ? "/api/coinbase/markets"
           : "/api/hyperliquid/markets";
         const response = await fetch(endpoint);
@@ -1138,7 +1142,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                           key={v.id}
                           type="button"
                           onClick={() => {
-                            setVenue(v.id as "hyperliquid" | "coinbase");
+                            setVenue(v.id as "hyperliquid" | "coinbase" | "virtual" | "arena");
                             // Reset markets when changing venue
                             setSelectedMarkets([]);
                           }}
@@ -1169,6 +1173,17 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                           </p>
                         </div>
                       )
+                    )}
+                    {(venue === "virtual" || venue === "arena") && (
+                      <div className="p-3 bg-purple-500/10 border border-purple-500/20 rounded-md mt-2">
+                        <p className="text-sm text-purple-700 dark:text-purple-400">
+                          {venue === "virtual" ? (
+                            <><strong>Virtual Trading:</strong> Paper trading with simulated execution. Uses Hyperliquid market data for realistic price feeds. No exchange connection required.</>
+                          ) : (
+                            <><strong>Arena Mode:</strong> Competition with $100k virtual balance. Uses Hyperliquid market data. Compete on the leaderboard!</>
+                          )}
+                        </p>
+                      </div>
                     )}
                   </div>
 
