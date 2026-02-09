@@ -409,7 +409,14 @@ export async function POST(
 
     // TICK DEDUPLICATION: Use RPC function to bypass PostgREST schema cache issue
     // This guarantees only ONE request can proceed, even with concurrent requests
-    const MIN_TICK_INTERVAL_MS = 10000; // 10 seconds minimum between ticks
+    // Use session's actual cadence for tick lock instead of fixed 10 seconds
+    // This prevents both cron and frontend auto-tick from firing within the same cadence window
+    const lockStrategy = session.strategies;
+    const lockFilters = lockStrategy?.filters || {};
+    const lockCadenceSeconds = lockFilters.cadenceSeconds || session.cadence_seconds || 30;
+    const lockCadenceMs = lockCadenceSeconds * 1000;
+    // Lock interval: cadence minus 5s tolerance (matching cron's tolerance), minimum 10s
+    const MIN_TICK_INTERVAL_MS = Math.max(10000, lockCadenceMs - 5000);
 
     // Call RPC function for atomic lock acquisition
     const { data: lockAcquired, error: lockError } = await serviceClient
