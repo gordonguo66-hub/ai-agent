@@ -4,7 +4,7 @@ export type SessionStatus = "running" | "stopped";
 export type OrderSide = "buy" | "sell";
 
 // Exchange venues
-export type Venue = "hyperliquid" | "coinbase";
+export type Venue = "hyperliquid" | "coinbase" | "virtual" | "arena";
 
 // Market types - perpetual (Hyperliquid) vs spot (Coinbase)
 export type MarketType = "perpetual" | "spot";
