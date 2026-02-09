@@ -411,8 +411,9 @@ export async function POST(
     // This guarantees only ONE request can proceed, even with concurrent requests
     // Use session's actual cadence for tick lock instead of fixed 10 seconds
     // This prevents both cron and frontend auto-tick from firing within the same cadence window
-    const lockStrategy = session.strategies;
-    const lockFilters = lockStrategy?.filters || {};
+    // CRITICAL: Handle array case - Supabase may return strategies as array
+    const lockStrategy = Array.isArray(session.strategies) ? session.strategies[0] : session.strategies;
+    const lockFilters = (lockStrategy as any)?.filters || {};
     const lockCadenceSeconds = lockFilters.cadenceSeconds || session.cadence_seconds || 30;
     const lockCadenceMs = lockCadenceSeconds * 1000;
     // Lock interval: cadence minus 5s tolerance (matching cron's tolerance), minimum 10s
@@ -453,8 +454,9 @@ export async function POST(
       console.log(`[Tick API] ⚠️ ARENA MODE DETECTED - This MUST use same strategy evaluation as virtual, only broker differs`);
     }
 
-    const strategy = session.strategies;
-    const filters = strategy.filters || {};
+    // CRITICAL: Handle array case - Supabase may return strategies as array
+    const strategy = Array.isArray(session.strategies) ? session.strategies[0] : session.strategies;
+    const filters = (strategy as any)?.filters || {};
     const tables = getTables(sessionMode);
     
     // Log loaded strategy details to verify fresh data is being fetched on each tick
