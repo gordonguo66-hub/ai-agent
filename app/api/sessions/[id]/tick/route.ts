@@ -407,20 +407,16 @@ export async function POST(
       return NextResponse.json({ error: "Session is not running" }, { status: 400 });
     }
 
-    // TICK DEDUPLICATION: Atomic lock to prevent race conditions
-    // Uses UPDATE with WHERE clause that only succeeds if last_tick_at is old enough
+    // TICK DEDUPLICATION: Use RPC function to bypass PostgREST schema cache issue
     // This guarantees only ONE request can proceed, even with concurrent requests
     const MIN_TICK_INTERVAL_MS = 10000; // 10 seconds minimum between ticks
-    const nowTimestamp = new Date().toISOString();
 
-    // Atomic update: only succeeds if last_tick_at is old enough (or null)
+    // Call RPC function for atomic lock acquisition
     const { data: lockAcquired, error: lockError } = await serviceClient
-      .from("strategy_sessions")
-      .update({ last_tick_at: nowTimestamp })
-      .eq("id", sessionId)
-      .or(`last_tick_at.is.null,last_tick_at.lt.${new Date(Date.now() - MIN_TICK_INTERVAL_MS).toISOString()}`)
-      .select("id")
-      .maybeSingle();
+      .rpc('acquire_tick_lock', {
+        p_session_id: sessionId,
+        p_min_interval_ms: MIN_TICK_INTERVAL_MS
+      });
 
     if (lockError) {
       console.error(`[Tick API] ❌ Lock acquisition error:`, lockError);
@@ -429,7 +425,7 @@ export async function POST(
 
     if (!lockAcquired) {
       // Another request won the race - this tick should be skipped
-      console.log(`[Tick API] ⏭️ SKIPPED - Another tick is in progress or completed recently (atomic lock failed)`);
+      console.log(`[Tick API] ⏭️ SKIPPED - Another tick is in progress or completed recently`);
       return NextResponse.json({
         skipped: true,
         reason: "tick_lock_failed",
@@ -438,7 +434,7 @@ export async function POST(
       });
     }
 
-    console.log(`[Tick API] 🔒 Acquired tick lock at ${nowTimestamp}`);
+    console.log(`[Tick API] 🔒 Acquired tick lock via RPC`);
 
     // INVARIANT LOG: Verify tick is processing this session with correct mode and markets
     const sessionMode = session.mode || "virtual";
@@ -700,7 +696,9 @@ export async function POST(
 
     // Get venue from session (default to hyperliquid for backwards compatibility)
     const sessionVenue: Venue = (session.venue as Venue) || "hyperliquid";
-    console.log(`[Tick] 📊 Using venue: ${sessionVenue}`);
+    // Virtual and Arena venues use Hyperliquid for market data (simulated trading)
+    const priceVenue: Venue = (sessionVenue === "virtual" || sessionVenue === "arena") ? "hyperliquid" : sessionVenue;
+    console.log(`[Tick] 📊 Using venue: ${sessionVenue} (price source: ${priceVenue})`);
 
     // Fetch real prices from exchange based on venue
     // IMPORTANT: include ALL open position markets so equity reflects full portfolio
@@ -711,7 +709,7 @@ export async function POST(
         if (position?.market) pricingMarkets.add(position.market);
       }
       const marketsArray = Array.from(pricingMarkets);
-      pricesByMarket = sessionVenue === "coinbase"
+      pricesByMarket = priceVenue === "coinbase"
         ? await getCoinbasePrices(marketsArray)
         : await getHyperliquidPrices(marketsArray);
       if (Object.keys(pricesByMarket).length === 0) {
@@ -999,8 +997,8 @@ export async function POST(
             candleInterval = `${candleInterval}m`;
           }
 
-          // Use venue-specific candle fetching
-          const fetchedCandles = sessionVenue === "coinbase"
+          // Use venue-specific candle fetching (priceVenue maps virtual/arena to hyperliquid)
+          const fetchedCandles = priceVenue === "coinbase"
             ? await getCoinbaseCandles(market, candleInterval, candleCount)
             : await getHyperliquidCandles(market, candleInterval, candleCount);
           candles = fetchedCandles.map((c: any) => ({
@@ -1024,8 +1022,8 @@ export async function POST(
       if (aiInputs.orderbook?.enabled) {
         try {
           const depth = aiInputs.orderbook.depth || 20;
-          // Use venue-specific orderbook fetching
-          const orderbook = sessionVenue === "coinbase"
+          // Use venue-specific orderbook fetching (priceVenue maps virtual/arena to hyperliquid)
+          const orderbook = priceVenue === "coinbase"
             ? await getCoinbaseOrderbook(market, depth)
             : await hyperliquidClient.getOrderbook(market, depth);
           orderbookSnapshot = {
