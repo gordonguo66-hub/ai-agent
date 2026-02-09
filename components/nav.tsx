@@ -6,7 +6,7 @@ import { Button } from "./ui/button";
 import { createClient } from "@/lib/supabase/browser";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { EnvelopeClosedIcon, GearIcon, ExitIcon, HamburgerMenuIcon, Cross1Icon } from "@radix-ui/react-icons";
+import { EnvelopeClosedIcon, GearIcon, ExitIcon, HamburgerMenuIcon, Cross1Icon, PersonIcon } from "@radix-ui/react-icons";
 import { DollarSign, BarChart3 } from "lucide-react";
 import { useAuthGate } from "./auth-gate-provider";
 import { getBearerToken } from "@/lib/api/clientAuth";
@@ -176,25 +176,29 @@ export function Nav() {
                   onMouseEnter={() => setProfileDropdownOpen(true)}
                   onMouseLeave={() => setProfileDropdownOpen(false)}
                 >
-                  <button className="flex items-center gap-2 px-2 sm:px-3 py-2 hover:bg-blue-950/30 rounded-lg transition-all duration-300">
-                    <div className="relative w-8 h-8 sm:w-9 sm:h-9">
+                  <div className="flex items-center gap-2 px-2 sm:px-3 py-2 hover:bg-blue-950/30 rounded-lg transition-all duration-300 cursor-pointer">
+                    <Link
+                      href={`/u/${user.id}`}
+                      className="relative w-8 h-8 sm:w-9 sm:h-9"
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       {avatarUrl ? (
                         <img
                           src={avatarUrl}
                           alt={username || "Profile"}
-                          className="w-8 h-8 sm:w-9 sm:h-9 rounded-full object-cover border-2 border-blue-800"
+                          className="w-8 h-8 sm:w-9 sm:h-9 rounded-full object-cover border-2 border-blue-800 hover:border-blue-600 transition-colors"
                         />
                       ) : (
-                        <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-blue-900 flex items-center justify-center text-white font-bold text-sm sm:text-base border-2 border-blue-700">
+                        <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-blue-900 flex items-center justify-center text-white font-bold text-sm sm:text-base border-2 border-blue-700 hover:border-blue-600 transition-colors">
                           {(username || user.email || "U").charAt(0).toUpperCase()}
                         </div>
                       )}
-                    </div>
+                    </Link>
                     <span className="hidden md:inline-block text-sm xl:text-base font-medium text-white truncate max-w-[100px] xl:max-w-[150px]">
                       {username || user.email?.split("@")[0] || `user_${user.id.substring(0, 8)}`}
                     </span>
                     <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${profileDropdownOpen ? 'rotate-180' : ''}`} />
-                  </button>
+                  </div>
 
                   {/* Dropdown Menu */}
                   {profileDropdownOpen && (
@@ -204,6 +208,15 @@ export function Nav() {
 
                       <div className="absolute right-0 mt-2 w-56 bg-[#0a1628] border border-blue-500/20 rounded-xl shadow-xl shadow-black/50 overflow-hidden z-50">
                         <div className="py-2">
+                          {/* My Profile */}
+                          <Link
+                            href={`/u/${user.id}`}
+                            className="flex items-center gap-3 px-4 py-3 hover:bg-blue-950/30 transition-all duration-200 text-gray-300 hover:text-white"
+                          >
+                            <PersonIcon className="w-5 h-5" />
+                            <span className="text-base">My Profile</span>
+                          </Link>
+
                           {/* Messages */}
                           <Link
                             href="/messages"
@@ -360,6 +373,16 @@ export function Nav() {
                     <span className="text-blue-400">${(balanceCents / 100).toFixed(2)}</span>
                   </Link>
                 )}
+
+                {/* My Profile */}
+                <Link
+                  href={`/u/${user.id}`}
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="flex items-center gap-3 px-4 py-3 text-base font-medium rounded-lg text-gray-300 hover:text-white hover:bg-blue-950/30 transition-all"
+                >
+                  <PersonIcon className="w-5 h-5" />
+                  My Profile
+                </Link>
 
                 {/* Messages */}
                 <Link
