@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
+import { Analytics } from "@vercel/analytics/react";
 import "./globals.css";
 import { Nav } from "@/components/nav";
 import { ErrorLogger } from "@/components/error-logger";
@@ -49,6 +50,7 @@ export default function RootLayout({
             </LegalGate>
           </AuthGateProvider>
         </TimezoneProvider>
+        <Analytics />
       </body>
     </html>
   );
