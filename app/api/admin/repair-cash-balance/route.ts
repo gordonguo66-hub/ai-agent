@@ -1,15 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceRoleClient } from "@/lib/supabase/server";
+import { requireAdmin } from "@/lib/api/adminAuth";
 
 /**
  * ONE-TIME REPAIR: Fix corrupted cash_balance values
- * 
+ *
  * The correct formula (Option A model):
  * cash_balance = starting_equity + sum(realized_pnl) - sum(fees)
- * 
+ *
  * This endpoint recalculates cash_balance for all accounts based on their trade history
+ *
+ * REQUIRES ADMIN AUTHENTICATION
  */
 export async function POST(request: NextRequest) {
+  // Verify admin authentication
+  const { authorized, user, response } = await requireAdmin(request);
+  if (!authorized) return response;
+
+  console.log(`[Cash Balance Repair] Admin ${user?.id} initiated repair process`);
+
   const serviceClient = createServiceRoleClient();
   
   console.log("[Cash Balance Repair] Starting repair process...");

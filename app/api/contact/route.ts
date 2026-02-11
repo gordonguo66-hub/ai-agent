@@ -1,11 +1,20 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { checkRateLimit } from "@/lib/api/rateLimit";
 
 export async function POST(request: Request) {
   try {
-    console.log("[Contact Form] Received submission");
+    // Rate limit: 3 contact form submissions per IP per 5 minutes
+    const clientIp = (request as any).headers?.get?.("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+    const rateCheck = checkRateLimit(`contact:${clientIp}`, 3, 300_000);
+    if (rateCheck.limited) {
+      return NextResponse.json(
+        { error: "Too many submissions. Please try again later." },
+        { status: 429 }
+      );
+    }
+
     const { email, subject, message } = await request.json();
-    console.log("[Contact Form] From:", email, "| Subject:", subject);
 
     // Validate inputs
     if (!email || !subject || !message) {
@@ -70,9 +79,11 @@ CONTACT EMAIL: ${email}
 MESSAGE:
 ${message}`;
 
-    // Send via Formspree (no DNS setup required!)
-    const formspreeEndpoint = "https://formspree.io/f/xykpjbwp";
-    console.log("[Contact Form] Sending via Formspree");
+    // Send via Formspree
+    const formspreeEndpoint = process.env.FORMSPREE_ENDPOINT || "https://formspree.io/f/xykpjbwp";
+    if (!process.env.FORMSPREE_ENDPOINT) {
+      console.warn("[Contact Form] FORMSPREE_ENDPOINT not set, using hardcoded fallback");
+    }
     
     const formspreeResponse = await fetch(formspreeEndpoint, {
       method: "POST",

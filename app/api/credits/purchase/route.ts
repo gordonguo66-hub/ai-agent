@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { stripe, getBaseUrl } from "@/lib/stripe/server";
 import { getUserFromRequest } from "@/lib/api/serverAuth";
+import { requireValidOrigin } from "@/lib/api/csrfProtection";
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -49,6 +50,9 @@ const TOPUP_PACKAGES = [
  */
 export async function POST(request: NextRequest) {
   try {
+    const csrfCheck = requireValidOrigin(request);
+    if (csrfCheck) return csrfCheck;
+
     const user = await getUserFromRequest(request);
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -65,9 +69,19 @@ export async function POST(request: NextRequest) {
     if (custom_amount_cents) {
       amountCents = Math.round(custom_amount_cents);
 
-      if (amountCents <= 0) {
+      const MIN_CUSTOM_CENTS = 100;    // $1 minimum
+      const MAX_CUSTOM_CENTS = 50000;  // $500 maximum
+
+      if (!Number.isFinite(amountCents) || !Number.isInteger(amountCents)) {
         return NextResponse.json(
-          { error: "Amount must be greater than 0" },
+          { error: "Amount must be a valid integer" },
+          { status: 400 }
+        );
+      }
+
+      if (amountCents < MIN_CUSTOM_CENTS || amountCents > MAX_CUSTOM_CENTS) {
+        return NextResponse.json(
+          { error: `Custom amount must be between $${(MIN_CUSTOM_CENTS / 100).toFixed(2)} and $${(MAX_CUSTOM_CENTS / 100).toFixed(2)}` },
           { status: 400 }
         );
       }

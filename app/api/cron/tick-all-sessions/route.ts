@@ -17,8 +17,8 @@ export async function GET(request: NextRequest) {
   const authHeader = request.headers.get("authorization") || request.headers.get("Authorization");
   
   // Log for debugging
-  console.log(`[Cron] Request received - Has Secret: ${!!cronSecret}, Auth Header: ${authHeader ? `${authHeader.substring(0, 20)}...` : 'MISSING'}`);
-  
+  console.log(`[Cron] Request received - Has Secret: ${!!cronSecret}, Has Auth Header: ${!!authHeader}`);
+
   // CRITICAL FIX: Always require authentication. If no secret is configured,
   // reject the request rather than allowing unauthenticated access.
   // This prevents anyone from triggering all session ticks in production.
@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
 
   const expectedAuth = `Bearer ${cronSecret}`;
   if (!authHeader || authHeader !== expectedAuth) {
-    console.error(`[Cron] ❌ Unauthorized - Expected: Bearer ${cronSecret.substring(0, 8)}..., Got: ${authHeader ? `${authHeader.substring(0, 20)}...` : 'MISSING'}`);
+    console.error(`[Cron] Unauthorized - auth header ${authHeader ? 'present but invalid' : 'missing'}`);
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   console.log(`[Cron] ✅ Authentication successful`);
@@ -84,56 +84,50 @@ export async function GET(request: NextRequest) {
     // Process up to 50 sessions concurrently to avoid overwhelming the system
     const BATCH_SIZE = 50;
     
-    // CRITICAL: Use production URL - Vercel preview deployments require authentication
-    // Strategy: Use request host first (cron runs on production), then NEXT_PUBLIC_APP_URL, then hardcoded fallback
-    
-    // First, try to get the production URL from the request host (most reliable for cron)
-    // Cron jobs run on production, so the host header should be the production domain
+    // Determine the app URL for internal tick calls.
+    // Priority: NEXT_PUBLIC_APP_URL env var > request host > localhost fallback.
+    // Vercel preview deployments are rejected (they contain random subdomains).
     let appUrl: string | undefined;
     const host = request.headers.get('host') || request.headers.get('x-forwarded-host');
-    
-    if (host && !host.includes('localhost') && !host.match(/-[a-z0-9]+-gordons-projects/)) {
-      appUrl = `https://${host}`;
-      console.log(`[Cron] Using request host as app URL: ${appUrl}`);
-    }
-    
-    // If request host is a preview URL, try NEXT_PUBLIC_APP_URL
-    if (!appUrl || appUrl.match(/-[a-z0-9]+-gordons-projects/)) {
-      appUrl = process.env.NEXT_PUBLIC_APP_URL;
-      if (appUrl) {
-        // Validate it's not a preview URL
-        if (appUrl.match(/-[a-z0-9]+-gordons-projects/)) {
-          console.error(`[Cron] ❌ ERROR: NEXT_PUBLIC_APP_URL is set to a preview URL: ${appUrl}`);
-          appUrl = undefined; // Reject it
-        } else {
-          console.log(`[Cron] Using NEXT_PUBLIC_APP_URL: ${appUrl}`);
-        }
-      }
-    }
-    
-    // Final fallback - use request URL to determine if we're on localhost, otherwise use production
-    if (!appUrl || appUrl.match(/-[a-z0-9]+-gordons-projects/)) {
-      // Detect if we're in local development by checking the request URL
-      const requestUrl = request.url || '';
-      const requestHost = request.headers.get('host') || '';
-      if (requestUrl.includes('localhost') || requestHost.includes('localhost')) {
-        appUrl = `http://localhost:3000`;
-        console.log(`[Cron] ✅ Detected local development (host: ${requestHost}), using: ${appUrl}`);
+
+    // Helper: detect Vercel preview deployments by their URL pattern
+    // Preview URLs contain random hashes like: project-abc123-team.vercel.app
+    const isVercelPreview = (url: string) => /\.vercel\.app$/.test(url) && /^[^.]*-[a-z0-9]{6,}/.test(url);
+
+    // 1. Prefer NEXT_PUBLIC_APP_URL (explicitly configured production domain)
+    if (process.env.NEXT_PUBLIC_APP_URL) {
+      const envUrl = process.env.NEXT_PUBLIC_APP_URL;
+      if (isVercelPreview(envUrl.replace(/^https?:\/\//, ''))) {
+        console.error(`[Cron] NEXT_PUBLIC_APP_URL is a preview URL: ${envUrl}. Set this to your production domain.`);
       } else {
-        appUrl = 'https://ai-agent-iota-pearl.vercel.app';
-        console.warn(`[Cron] ⚠️ Using hardcoded production URL as fallback: ${appUrl}`);
+        appUrl = envUrl;
+        console.log(`[Cron] Using NEXT_PUBLIC_APP_URL: ${appUrl}`);
       }
     }
-    
+
+    // 2. Fallback to request host (reliable when cron runs on production)
+    if (!appUrl && host) {
+      if (host.includes('localhost')) {
+        appUrl = `http://localhost:3000`;
+        console.log(`[Cron] Detected local development, using: ${appUrl}`);
+      } else if (!isVercelPreview(host)) {
+        appUrl = `https://${host}`;
+        console.log(`[Cron] Using request host as app URL: ${appUrl}`);
+      }
+    }
+
+    // 3. No valid URL found - fail explicitly
+    if (!appUrl) {
+      console.error(`[Cron] CRITICAL: Cannot determine production URL. Set NEXT_PUBLIC_APP_URL to your production domain.`);
+      return NextResponse.json(
+        { error: "NEXT_PUBLIC_APP_URL not configured" },
+        { status: 500 }
+      );
+    }
+
     // Ensure URL has protocol
     if (!appUrl.startsWith('http://') && !appUrl.startsWith('https://')) {
       appUrl = `https://${appUrl}`;
-    }
-    
-    // Final validation - reject any preview URLs
-    if (appUrl.match(/-[a-z0-9]+-gordons-projects/)) {
-      console.error(`[Cron] ❌ CRITICAL: Detected preview URL, forcing production URL`);
-      appUrl = 'https://ai-agent-iota-pearl.vercel.app';
     }
     
     const internalApiKey = process.env.INTERNAL_API_KEY || process.env.CRON_SECRET || '';
@@ -142,13 +136,7 @@ export async function GET(request: NextRequest) {
       console.warn(`[Cron] ⚠️ WARNING: INTERNAL_API_KEY or CRON_SECRET not set! Tick endpoint may reject internal calls.`);
     }
     
-    console.log(`[Cron] ✅ Using app URL: ${appUrl} (Internal API Key: ${internalApiKey ? 'SET' : 'NOT SET'})`);
-    
-    // Final validation - ensure we're not using a preview URL
-    if (appUrl.match(/-[a-z0-9]+-gordons-projects/)) {
-      console.error(`[Cron] ❌ CRITICAL ERROR: Still using preview URL: ${appUrl}`);
-      console.error(`[Cron] ❌ This will cause 401 errors. Please check NEXT_PUBLIC_APP_URL environment variable.`);
-    }
+    console.log(`[Cron] Using app URL: ${appUrl} (Internal API Key: ${internalApiKey ? 'SET' : 'NOT SET'})`);
 
     // Filter sessions that need ticking first (to reduce parallel processing)
     // Filter sessions that need ticking
@@ -261,31 +249,11 @@ export async function GET(request: NextRequest) {
       return shouldTick;
     });
 
-    // Process remaining sessions that don't need ticking yet
-    const sessionsToSkip = runningSessions.filter((session) => {
-      const strategy = Array.isArray(session.strategies) ? session.strategies[0] : session.strategies;
-      const strategyFilters = (strategy as any)?.filters || {};
-      let cadenceSeconds = strategyFilters.cadenceSeconds;
-      if (!cadenceSeconds || cadenceSeconds <= 0) {
-        cadenceSeconds = session.cadence_seconds || 30;
-      }
-      cadenceSeconds = Number(cadenceSeconds); // Convert to number explicitly
-      
-      if (isNaN(cadenceSeconds) || cadenceSeconds <= 0) {
-        cadenceSeconds = 30;
-      }
-      
-      const cadenceMs = cadenceSeconds * 1000;
-
-      const lastTickAt = session.last_tick_at 
-        ? new Date(session.last_tick_at).getTime() 
-        : session.started_at 
-        ? new Date(session.started_at).getTime() 
-        : now;
-
-      const timeSinceLastTick = now - lastTickAt;
-      return timeSinceLastTick < cadenceMs;
-    });
+    // BUGFIX: Use the complement of sessionsToTick to avoid sessions appearing in both lists.
+    // Previously used a different threshold (cadenceMs vs cadenceMs - toleranceMs), causing
+    // sessions in the tolerance window to appear in both lists.
+    const tickSessionIds = new Set(sessionsToTick.map(s => s.id));
+    const sessionsToSkip = runningSessions.filter(s => !tickSessionIds.has(s.id));
 
     sessionsToSkip.forEach((session) => {
       const strategy = Array.isArray(session.strategies) ? session.strategies[0] : session.strategies;
@@ -344,10 +312,9 @@ export async function GET(request: NextRequest) {
             
             if (internalApiKey) {
               headers["X-Internal-API-Key"] = internalApiKey;
-              console.log(`[Cron] Sending X-Internal-API-Key header (first 8 chars: ${internalApiKey.substring(0, 8)}...)`);
+              // API key header attached
             } else {
-              console.error(`[Cron] ❌ CRITICAL: No internal API key set! INTERNAL_API_KEY and CRON_SECRET are both missing.`);
-              console.error(`[Cron] ❌ This will cause 401 errors. Please set INTERNAL_API_KEY in Vercel environment variables.`);
+              console.error(`[Cron] No internal API key set. Set INTERNAL_API_KEY in environment variables.`);
             }
             
             const tickResponse = await fetch(tickUrl, {

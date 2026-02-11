@@ -67,12 +67,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ received: true });
   } catch (error: any) {
     console.error(`[Stripe Webhook] Error handling ${event.type}:`, error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: "Webhook processing failed" }, { status: 500 });
   }
 }
 
 /**
  * Handle completed checkout session (balance top-ups)
+ *
+ * Uses atomic database operations with idempotency to prevent:
+ * 1. Race conditions from concurrent webhook calls
+ * 2. Duplicate processing of the same event
  */
 async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   const { user_id, package_id, amount_cents, type } = session.metadata || {};
@@ -88,9 +92,29 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     return;
   }
 
-  const amountCents = parseInt(amount_cents, 10);
-  if (isNaN(amountCents) || amountCents <= 0) {
-    console.error("[Stripe Webhook] Invalid amount_cents:", amount_cents);
+  const amountCents = Number(amount_cents);
+
+  // Validate amount bounds to prevent overflow and invalid values
+  const MAX_PAYMENT_CENTS = 100_000_000; // $1,000,000 max
+  const MIN_PAYMENT_CENTS = 100; // $1 minimum
+
+  if (!Number.isFinite(amountCents) || !Number.isInteger(amountCents)) {
+    console.error("[Stripe Webhook] Invalid amount_cents (not a finite integer):", amount_cents);
+    return;
+  }
+
+  if (amountCents <= 0) {
+    console.error("[Stripe Webhook] Invalid amount_cents (not positive):", amount_cents);
+    return;
+  }
+
+  if (amountCents > MAX_PAYMENT_CENTS) {
+    console.error("[Stripe Webhook] Amount exceeds maximum ($1M):", amountCents);
+    return;
+  }
+
+  if (amountCents < MIN_PAYMENT_CENTS) {
+    console.error("[Stripe Webhook] Amount below minimum ($1):", amountCents);
     return;
   }
 
@@ -98,86 +122,47 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
 
   const serviceClient = createFreshServiceClient();
 
-  // Get current balance (try new table first, fallback to legacy)
-  let currentBalance = 0;
-  const { data: currentBalanceData, error: fetchError } = await serviceClient
-    .from("user_balance")
-    .select("balance_cents")
-    .eq("user_id", user_id)
-    .single();
+  // Use the event ID (session.id) as idempotency key
+  const eventId = `checkout_${session.id}`;
 
-  if (fetchError && fetchError.code !== "PGRST116") {
-    // Table might not exist yet, try legacy table
-    const { data: legacyData, error: legacyError } = await serviceClient
-      .from("user_credits")
-      .select("credits_balance")
-      .eq("user_id", user_id)
-      .single();
-
-    if (legacyError && legacyError.code !== "PGRST116") {
-      console.error("[Stripe Webhook] Error fetching current balance:", legacyError);
-      throw legacyError;
-    }
-    currentBalance = legacyData?.credits_balance || 0;
-  } else {
-    currentBalance = currentBalanceData?.balance_cents || 0;
-  }
-
-  const newBalance = currentBalance + amountCents;
-
-  // Update balance (try new table first, fallback to legacy)
-  const { error: updateError } = await serviceClient
-    .from("user_balance")
-    .upsert({
-      user_id,
-      balance_cents: newBalance,
-    }, { onConflict: "user_id" });
-
-  if (updateError) {
-    // Fallback to legacy table
-    const { error: legacyUpdateError } = await serviceClient
-      .from("user_credits")
-      .upsert({
-        user_id,
-        credits_balance: newBalance,
-      }, { onConflict: "user_id" });
-
-    if (legacyUpdateError) {
-      console.error("[Stripe Webhook] Error updating balance:", legacyUpdateError);
-      throw legacyUpdateError;
-    }
-  }
-
-  // Log transaction (try new table first, fallback to legacy)
-  const transactionData = {
-    user_id,
-    amount: amountCents,           // Column name is 'amount', not 'amount_cents'
-    balance_after: newBalance,     // Column name is 'balance_after', not 'balance_after_cents'
-    transaction_type: "topup",
-    description: `Added $${(amountCents / 100).toFixed(2)} to balance`,
-    metadata: {
+  // Use atomic balance increment with idempotency checking
+  const { data: result, error: rpcError } = await serviceClient.rpc('increment_user_balance', {
+    p_user_id: user_id,
+    p_amount_cents: amountCents,
+    p_event_id: eventId,
+    p_event_type: 'checkout.session.completed',
+    p_description: `Added $${(amountCents / 100).toFixed(2)} to balance`,
+    p_metadata: {
       stripe_session_id: session.id,
       package_id,
       amount_paid_cents: session.amount_total,
     },
-  };
+  });
 
-  const { error: txError } = await serviceClient.from("balance_transactions").insert(transactionData);
-
-  if (txError) {
-    // Fallback to legacy table
-    console.error("[Stripe Webhook] Error logging to balance_transactions:", txError);
-    await serviceClient.from("credit_transactions").insert({
-      user_id,
-      amount: amountCents,
-      balance_after: newBalance,
-      transaction_type: "topup",
-      description: `Added $${(amountCents / 100).toFixed(2)} to balance`,
-      metadata: transactionData.metadata,
-    });
+  if (rpcError) {
+    // Atomic RPC function is required for production - do NOT fall back to unsafe legacy code
+    if (rpcError.message?.includes('function') && rpcError.message?.includes('does not exist')) {
+      console.error("[Stripe Webhook] CRITICAL: increment_user_balance RPC function does not exist. Run the required migration before deploying to production.");
+    }
+    console.error("[Stripe Webhook] Error calling increment_user_balance:", rpcError);
+    throw rpcError;
   }
 
-  console.log(`[Stripe Webhook] Successfully added $${(amountCents / 100).toFixed(2)} to user ${user_id}. New balance: $${(newBalance / 100).toFixed(2)}`);
+  // Check the result of the atomic operation
+  if (result && typeof result === 'object') {
+    if (result.error === 'duplicate_event') {
+      console.log(`[Stripe Webhook] Event ${eventId} already processed, skipping`);
+      return;
+    }
+
+    if (result.success) {
+      console.log(`[Stripe Webhook] Successfully added $${(amountCents / 100).toFixed(2)} to user ${user_id}. New balance: $${(result.new_balance / 100).toFixed(2)}`);
+      return;
+    }
+  }
+
+  console.error("[Stripe Webhook] Unexpected result from increment_user_balance:", result);
+  throw new Error("Unexpected result from balance increment");
 }
 
 /**
@@ -337,6 +322,10 @@ async function handleSubscriptionUpdate(subscription: Stripe.Subscription) {
 
 /**
  * Handle subscription cancellation
+ *
+ * Stripe fires customer.subscription.deleted when the subscription is fully terminated.
+ * If the user canceled (cancel_at_period_end), this fires AFTER the period ends.
+ * Only clear plan_id when the subscription period has actually ended.
  */
 async function handleSubscriptionCanceled(subscription: Stripe.Subscription) {
   const subscriptionId = subscription.id;
@@ -357,20 +346,42 @@ async function handleSubscriptionCanceled(subscription: Stripe.Subscription) {
 
   const serviceClient = createFreshServiceClient();
 
-  // Mark subscription as canceled
-  const { error } = await serviceClient
-    .from("user_subscriptions")
-    .update({
-      status: "canceled",
-      plan_id: null,
-      cancel_at_period_end: false,
-    })
-    .eq("user_id", userId);
+  // Check if the subscription period has actually ended
+  const sub = subscription as any;
+  const periodEnd = sub.current_period_end ? sub.current_period_end * 1000 : 0;
+  const now = Date.now();
+  const periodEnded = periodEnd > 0 && now >= periodEnd;
 
-  if (error) {
-    console.error("[Stripe Webhook] Error canceling subscription:", error);
-    throw error;
+  if (periodEnded) {
+    // Period has ended - fully clear the plan
+    const { error } = await serviceClient
+      .from("user_subscriptions")
+      .update({
+        status: "canceled",
+        plan_id: null,
+        cancel_at_period_end: false,
+      })
+      .eq("user_id", userId);
+
+    if (error) {
+      console.error("[Stripe Webhook] Error canceling subscription:", error);
+      throw error;
+    }
+    console.log(`[Stripe Webhook] Subscription fully terminated for user ${userId} (period ended)`);
+  } else {
+    // Period hasn't ended yet - keep plan_id so user retains tier pricing until period end
+    const { error } = await serviceClient
+      .from("user_subscriptions")
+      .update({
+        status: "canceled",
+        cancel_at_period_end: true,
+      })
+      .eq("user_id", userId);
+
+    if (error) {
+      console.error("[Stripe Webhook] Error updating subscription:", error);
+      throw error;
+    }
+    console.log(`[Stripe Webhook] Subscription marked canceled for user ${userId} (plan retained until period end)`);
   }
-
-  console.log(`[Stripe Webhook] Marked subscription as canceled for user ${userId}`);
 }

@@ -4,15 +4,17 @@
  * This module defines the actual API pricing for different AI models
  * and provides functions to calculate costs based on tiered subscription markups.
  *
- * Pricing as of January 2025 (per 1M tokens)
+ * Pricing as of February 2026 (per 1M tokens)
+ * Sources: OpenAI, Anthropic, DeepSeek, Google, xAI, Qwen official pricing pages
  *
  * BILLING SYSTEM:
  * - Balance stored in cents (integer) for precision
- * - Tiered markup based on subscription tier
- * - On-demand: 100% markup (2× cost)
- * - Pro ($19/mo): 60% markup → 25% more AI usage
- * - Pro+ ($89/mo): 48% markup → 35% more AI usage
- * - Ultra ($249/mo): 33% markup → 50% more AI usage
+ * - These are INTERNAL costs (what Corebound pays to providers)
+ * - Users pay marked-up prices based on their tier:
+ *   - On-demand: 2.0× (100% markup)
+ *   - Pro ($19/mo): 1.6× (60% markup) → 25% more AI usage
+ *   - Pro+ ($89/mo): 1.48× (48% markup) → 35% more AI usage
+ *   - Ultra ($249/mo): 1.33× (33% markup) → 50% more AI usage
  */
 
 // ============================================
@@ -88,8 +90,56 @@ export function calculateChargedCents(
 // ============================================
 
 // Actual API pricing from providers (per 1 million tokens)
-export const API_PRICING = {
+// These are INTERNAL costs - users pay marked-up prices based on tier
+export const API_PRICING: Record<string, { input_per_1m: number; output_per_1m: number }> = {
+  // ============================================
+  // OpenAI models
+  // ============================================
+  'gpt-4o': {
+    input_per_1m: 2.50,
+    output_per_1m: 10.00,
+  },
+  'gpt-4o-mini': {
+    input_per_1m: 0.15,
+    output_per_1m: 0.60,
+  },
+  'gpt-5': {
+    input_per_1m: 1.25,
+    output_per_1m: 10.00,
+  },
+  'gpt-5.2': {
+    input_per_1m: 1.25,
+    output_per_1m: 10.00,
+  },
+  'gpt-4-turbo': {
+    input_per_1m: 10.00,
+    output_per_1m: 30.00,
+  },
+  'o1': {
+    input_per_1m: 15.00,
+    output_per_1m: 60.00,
+  },
+  'o1-mini': {
+    input_per_1m: 3.00,
+    output_per_1m: 12.00,
+  },
+
+  // ============================================
   // Anthropic Claude models
+  // ============================================
+  'claude-opus-4.5': {
+    input_per_1m: 5.00,
+    output_per_1m: 25.00,
+  },
+  'claude-sonnet-4.5': {
+    input_per_1m: 3.00,
+    output_per_1m: 15.00,
+  },
+  'claude-3-5-haiku': {
+    input_per_1m: 0.80,
+    output_per_1m: 4.00,
+  },
+  // Legacy model names
   'claude-opus-4': {
     input_per_1m: 15.00,
     output_per_1m: 75.00,
@@ -103,42 +153,82 @@ export const API_PRICING = {
     output_per_1m: 15.00,
   },
 
-  // OpenAI models
-  'gpt-4o': {
-    input_per_1m: 5.00,
-    output_per_1m: 15.00,
-  },
-  'gpt-4o-mini': {
-    input_per_1m: 0.15,
-    output_per_1m: 0.60,
-  },
-  'gpt-4-turbo': {
-    input_per_1m: 10.00,
-    output_per_1m: 30.00,
-  },
-
-  // DeepSeek
+  // ============================================
+  // DeepSeek models
+  // ============================================
   'deepseek-chat': {
-    input_per_1m: 0.14,
-    output_per_1m: 0.28,
+    input_per_1m: 0.28,
+    output_per_1m: 0.42,
+  },
+  'deepseek-reasoner': {
+    input_per_1m: 0.28,
+    output_per_1m: 0.42,
+  },
+  'deepseek-v3': {
+    input_per_1m: 0.28,
+    output_per_1m: 0.42,
   },
 
-  // Google Gemini
-  'gemini-pro': {
-    input_per_1m: 0.50,
-    output_per_1m: 1.50,
+  // ============================================
+  // Google Gemini models
+  // ============================================
+  'gemini-2.0-flash': {
+    input_per_1m: 0.10,
+    output_per_1m: 0.40,
+  },
+  'gemini-2.0-flash-exp': {
+    input_per_1m: 0.10,
+    output_per_1m: 0.40,
   },
   'gemini-1.5-pro': {
     input_per_1m: 1.25,
     output_per_1m: 5.00,
   },
+  'gemini-1.5-flash': {
+    input_per_1m: 0.075,
+    output_per_1m: 0.30,
+  },
+  'gemini-pro': {
+    input_per_1m: 0.50,
+    output_per_1m: 1.50,
+  },
 
-  // xAI
+  // ============================================
+  // xAI Grok models
+  // ============================================
+  'grok-4': {
+    input_per_1m: 3.00,
+    output_per_1m: 15.00,
+  },
+  'grok-4-1-fast-reasoning': {
+    input_per_1m: 0.20,
+    output_per_1m: 0.50,
+  },
+  'grok-2': {
+    input_per_1m: 2.00,
+    output_per_1m: 10.00,
+  },
   'grok-beta': {
     input_per_1m: 5.00,
     output_per_1m: 15.00,
   },
-} as const;
+
+  // ============================================
+  // Qwen models (Alibaba)
+  // ============================================
+  'qwen-max': {
+    input_per_1m: 1.20,
+    output_per_1m: 6.00,
+  },
+  'qwen-plus': {
+    input_per_1m: 0.40,
+    output_per_1m: 2.00,
+  },
+  'qwen-turbo': {
+    input_per_1m: 0.05,
+    output_per_1m: 0.20,
+  },
+};
 
 // Fallback pricing for unknown models (conservative estimate based on GPT-4o)
 const FALLBACK_PRICING = {
@@ -160,9 +250,9 @@ export function calculateCost(
   outputTokens: number
 ): number {
   // Get pricing for the model, or use fallback
-  const pricing = API_PRICING[model as keyof typeof API_PRICING] || FALLBACK_PRICING;
+  const pricing = API_PRICING[model] || FALLBACK_PRICING;
 
-  if (!API_PRICING[model as keyof typeof API_PRICING]) {
+  if (!API_PRICING[model]) {
     console.warn(`[apiCosts] Unknown model pricing for "${model}", using fallback (GPT-4o equivalent)`);
   }
 

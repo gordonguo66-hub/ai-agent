@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerClient } from "@supabase/ssr";
 import { createServiceRoleClient } from "@/lib/supabase/server";
+import { getUserFromRequest } from "@/lib/api/serverAuth";
+import { requireValidOrigin } from "@/lib/api/csrfProtection";
+import { checkRateLimit } from "@/lib/api/rateLimit";
 import { resolveStrategyApiKey } from "@/lib/ai/resolveApiKey";
 import { openAICompatibleIntentCall, normalizeBaseUrl } from "@/lib/ai/openaiCompatible";
 
@@ -17,23 +19,39 @@ const PROVIDER_BASE_URLS: Record<string, string> = {
   perplexity: "https://api.perplexity.ai",
   fireworks: "https://api.fireworks.ai/inference/v1",
   meta: "https://api.together.xyz/v1",
-  qwen: "https://api.together.xyz/v1",
-  glm: "https://api.together.xyz/v1",
+  qwen: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+  glm: "https://open.bigmodel.cn/api/paas/v4",
 };
 
 export async function POST(request: NextRequest) {
   try {
+    const csrfCheck = requireValidOrigin(request);
+    if (csrfCheck) return csrfCheck;
+
+    // Authenticate user - prevent unauthenticated access
+    const user = await getUserFromRequest(request);
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized - Please sign in" }, { status: 401 });
+    }
+
+    // Rate limit: 5 paper runs per user per minute (triggers AI API calls)
+    const rateCheck = checkRateLimit(`paper-run:${user.id}`, 5, 60_000);
+    if (rateCheck.limited) {
+      return NextResponse.json(
+        { error: "Too many requests. Please wait before running another paper trade." },
+        { status: 429, headers: { "Retry-After": String(Math.ceil((rateCheck.retryAfterMs || 60_000) / 1000)) } }
+      );
+    }
+
     const formData = await request.formData();
     const strategyId = formData.get("strategy_id") as string;
-    const userIdFromClient = formData.get("user_id") as string;
 
     if (!strategyId) {
       return NextResponse.json({ error: "Strategy ID required" }, { status: 400 });
     }
 
-    if (!userIdFromClient) {
-      return NextResponse.json({ error: "User ID required" }, { status: 400 });
-    }
+    // Use authenticated user's ID, not client-submitted user_id
+    const userId = user.id;
 
     // Use service role client to verify strategy ownership (bypasses RLS)
     const serviceClient = createServiceRoleClient();
@@ -41,26 +59,32 @@ export async function POST(request: NextRequest) {
       .from("strategies")
       .select("*")
       .eq("id", strategyId)
-      .eq("user_id", userIdFromClient)
+      .eq("user_id", userId)
       .single();
 
     if (strategyError || !strategy) {
       return NextResponse.json({ error: "Strategy not found" }, { status: 404 });
     }
 
-    // Resolve and decrypt API key (checks saved key first, then fallback to strategy's own key)
+    // Resolve API key (always uses Corebound platform keys)
     let apiKey: string;
+    let baseUrl: string;
     try {
-      apiKey = await resolveStrategyApiKey(strategy);
+      const resolvedKey = await resolveStrategyApiKey({
+        id: strategy.id,
+        model_provider: strategy.model_provider,
+      });
+      apiKey = resolvedKey.apiKey;
+      baseUrl = resolvedKey.baseUrl || PROVIDER_BASE_URLS[strategy.model_provider] || "";
     } catch (error: any) {
+      console.error("[paper-run] Failed to resolve API key:", error.message);
       return NextResponse.json(
-        { error: `Failed to resolve API key: ${error.message}` },
+        { error: "Failed to resolve API key for this provider. Please try a different AI provider." },
         { status: 500 }
       );
     }
 
-    // Get base URL for the provider
-    const baseUrl = PROVIDER_BASE_URLS[strategy.model_provider] || "";
+    // Validate base URL
     if (!baseUrl) {
       return NextResponse.json(
         { error: `Unknown provider: ${strategy.model_provider}. Cannot determine API base URL.` },
@@ -93,8 +117,9 @@ export async function POST(request: NextRequest) {
       tokenUsage = aiResponse.usage;
       modelUsed = aiResponse.model;
     } catch (error: any) {
+      console.error("[paper-run] AI model call failed:", error.message);
       return NextResponse.json(
-        { error: `AI model call failed: ${error.message}` },
+        { error: "AI model call failed. Please try again or use a different model." },
         { status: 500 }
       );
     }
@@ -107,7 +132,7 @@ export async function POST(request: NextRequest) {
     const { data: run, error: insertError } = await serviceClient
       .from("paper_runs")
       .insert({
-        user_id: userIdFromClient,
+        user_id: userId,
         strategy_id: strategyId,
         started_at: new Date().toISOString(),
         ended_at: new Date().toISOString(),
@@ -118,13 +143,19 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (insertError) {
-      return NextResponse.json({ error: insertError.message }, { status: 500 });
+      console.error("[paper-run] Error inserting paper run:", insertError.message);
+      return NextResponse.json({ error: "Failed to save paper run" }, { status: 500 });
     }
 
-    return NextResponse.json({ run_id: run.id }, { status: 200 });
+    return NextResponse.json({
+      run_id: run.id,
+      is_simulated: true,
+      disclaimer: "This is a simulated projection, not a historical backtest. Results are illustrative only and should not be used as the sole basis for live trading decisions.",
+    }, { status: 200 });
   } catch (error: any) {
+    console.error("[paper-run] Unexpected error:", error.message);
     return NextResponse.json(
-      { error: error.message || "Internal server error" },
+      { error: "Internal server error" },
       { status: 500 }
     );
   }

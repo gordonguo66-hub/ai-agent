@@ -1,8 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceRoleClient } from "@/lib/supabase/server";
+import { requireAdmin } from "@/lib/api/adminAuth";
 
+/**
+ * Check account state and verify cash balance calculations
+ *
+ * REQUIRES ADMIN AUTHENTICATION
+ */
 export async function GET(request: NextRequest) {
+  // Verify admin authentication
+  const { authorized, user, response } = await requireAdmin(request);
+  if (!authorized) return response;
+
   const accountId = request.nextUrl.searchParams.get("account_id");
+  console.log(`[Admin Check] Admin ${user?.id} checking account ${accountId}`);
   
   if (!accountId) {
     return NextResponse.json({ error: "account_id required" }, { status: 400 });

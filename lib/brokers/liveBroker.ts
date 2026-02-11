@@ -82,7 +82,7 @@ export async function getOrCreateLiveAccount(
     try {
       const apiKey = connection.api_key;
       const apiSecret = decryptCredential(connection.api_secret_encrypted);
-      console.log(`[liveBroker] Decrypted Coinbase credentials for API key ${apiKey.substring(0, 20)}...`);
+      console.log(`[liveBroker] Coinbase credentials decrypted successfully`);
 
       const client = new CoinbaseClient();
       client.initialize(apiKey, apiSecret);
@@ -131,10 +131,7 @@ export async function syncPositionsFromHyperliquid(
     const accountState = await hyperliquidClient.getAccountState(walletAddress);
     const assetPositions = accountState.positions || [];  // Use .positions, not .assetPositions!
 
-    console.log(`[liveBroker] 📊 Fetched ${assetPositions.length} positions from Hyperliquid`);
-    if (assetPositions.length > 0) {
-      console.log(`[liveBroker] Raw positions data:`, JSON.stringify(assetPositions, null, 2));
-    }
+    console.log(`[liveBroker] Fetched ${assetPositions.length} positions from Hyperliquid`);
 
     // CRITICAL FIX: Use upsert + selective delete instead of delete-all + re-insert.
     // The old approach (delete all, then insert) created a race condition window where
@@ -245,7 +242,7 @@ export async function updateAccountEquity(
     const totalEquityData = await hyperliquidClient.getTotalEquity(walletAddress);
 
     let equity = totalEquityData.totalEquity;
-    let cashBalance = totalEquityData.perpEquity; // Cash available for trading (perp margin only)
+    let cashBalance = totalEquityData.spotUsdcBalance - totalEquityData.marginUsed; // Available cash = spot USDC minus pledged margin
 
     console.log(`[liveBroker] 💰 Total equity from Hyperliquid - Perp: $${totalEquityData.perpEquity.toFixed(2)}, Spot USDC: $${totalEquityData.spotUsdcBalance.toFixed(2)}, Combined: $${equity.toFixed(2)}`);
 
@@ -459,6 +456,21 @@ export async function recordLiveTrade(
   const supabase = createServiceRoleClient();
 
   console.log(`[liveBroker] Recording live trade: ${trade.action} ${trade.size} ${trade.market} @ $${trade.price} (leverage: ${trade.leverage || 1}x)`);
+
+  // BUGFIX: Check for duplicate trade by venue_order_id to prevent double-recording
+  // from network retries or webhook re-delivery
+  if (trade.venue_order_id) {
+    const { data: existing } = await supabase
+      .from("live_trades")
+      .select("id")
+      .eq("venue_order_id", trade.venue_order_id)
+      .maybeSingle();
+
+    if (existing) {
+      console.log(`[liveBroker] Trade with venue_order_id ${trade.venue_order_id} already recorded, skipping duplicate`);
+      return;
+    }
+  }
 
   const { error } = await supabase
     .from("live_trades")
@@ -985,6 +997,24 @@ export async function updateCoinbaseAccountEquity(
     console.log(
       `[liveBroker] 💰 Coinbase equity: $${totalEquity.toFixed(2)}, Available Cash: $${cashBalance.toFixed(2)}`
     );
+
+    // SAFEGUARD: Prevent updating to $0 if starting equity was significantly higher
+    // This catches cases where Coinbase API returns invalid/empty data (matching Hyperliquid safeguard)
+    if (totalEquity === 0) {
+      const { data: currentAccount } = await supabase
+        .from("live_accounts")
+        .select("equity, starting_equity")
+        .eq("id", accountId)
+        .single();
+
+      if (currentAccount && Number(currentAccount.starting_equity) > 10) {
+        console.error(`[liveBroker] Coinbase returned $0 equity but starting was $${currentAccount.starting_equity}. Using fallback.`);
+        return {
+          equity: Number(currentAccount.equity),
+          cashBalance: Number(currentAccount.equity),
+        };
+      }
+    }
 
     const { error: updateError } = await supabase
       .from("live_accounts")

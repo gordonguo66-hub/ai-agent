@@ -4,6 +4,7 @@
  */
 
 import { createServiceRoleClient } from "@/lib/supabase/server";
+import { roundTo } from "@/lib/utils/safeNumbers";
 
 export interface PlaceOrderParams {
   account_id: string;
@@ -14,6 +15,7 @@ export interface PlaceOrderParams {
   notionalUsd: number;
   slippageBps?: number; // Basis points (e.g., 5 = 0.05%)
   feeBps?: number; // Basis points (e.g., 5 = 0.05%)
+  currentPrice?: number; // Pre-fetched price (avoids hardcoded Hyperliquid fetch for non-HL venues)
 }
 
 export interface Account {
@@ -187,6 +189,7 @@ export async function placeMarketOrder(params: PlaceOrderParams): Promise<{
     notionalUsd,
     slippageBps = DEFAULT_SLIPPAGE_BPS,
     feeBps = DEFAULT_FEE_BPS,
+    currentPrice: presetPrice,
   } = params;
 
   const serviceClient = createServiceRoleClient();
@@ -198,11 +201,14 @@ export async function placeMarketOrder(params: PlaceOrderParams): Promise<{
       return { success: false, error: "Account not found" };
     }
 
-    // Get current price (should be passed in, but we'll fetch if needed)
-    // For now, we'll assume price is fetched before calling this
-    // In practice, price should be passed as a parameter
-    const { getMidPrice } = await import("@/lib/hyperliquid/prices");
-    const midPrice = await getMidPrice(market);
+    // Use pre-fetched price if available, otherwise fall back to Hyperliquid
+    let midPrice: number;
+    if (presetPrice && presetPrice > 0) {
+      midPrice = presetPrice;
+    } else {
+      const { getMidPrice } = await import("@/lib/hyperliquid/prices");
+      midPrice = await getMidPrice(market);
+    }
 
     // Calculate fill price with slippage
     const slippageMultiplier = 1 + (side === "buy" ? 1 : -1) * (slippageBps / 10000);
@@ -211,9 +217,8 @@ export async function placeMarketOrder(params: PlaceOrderParams): Promise<{
     // Calculate size
     const size = notionalUsd / fillPrice;
 
-    // Calculate fee for this order
-    // Note: For flips, we'll calculate fees separately for closing and opening
-    const fee = (notionalUsd * feeBps) / 10000;
+    // Calculate fee for this order (use roundTo to prevent floating point accumulation)
+    const fee = roundTo((notionalUsd * feeBps) / 10000, 6);
 
     // Get existing position for this market
     const { data: existingPosition } = await serviceClient
@@ -272,6 +277,10 @@ export async function placeMarketOrder(params: PlaceOrderParams): Promise<{
         // CASH-SETTLED PERP MODEL: Opening a position does NOT move notional in/out of cash
         // Only deduct fee (fee is a cost that reduces cash/equity)
         newCashBalance -= fee;
+        if (newCashBalance < 0) {
+          console.warn(`[virtualBroker] Cash balance would go negative ($${newCashBalance.toFixed(2)}) after fee. Clamping to 0.`);
+          newCashBalance = 0;
+        }
         // Note: realizedPnl remains 0 for open actions
       } else {
         // Opposite direction - CLOSE or REDUCE only (never flip)
@@ -315,11 +324,15 @@ export async function placeMarketOrder(params: PlaceOrderParams): Promise<{
           // CASH-SETTLED PERP MODEL:
           // - Add realized PnL to cash (this is the profit/loss from closing)
           // - Deduct fee for closing the existing position (proportional to existingSize)
-          const closingFee = (existingSize * fillPrice * feeBps) / 10000;
-          
+          const closingFee = roundTo((existingSize * fillPrice * feeBps) / 10000, 6);
+
           newCashBalance += realizedPnl; // Add realized PnL
           newCashBalance -= closingFee; // Fee for closing existing position
-          
+          if (newCashBalance < 0) {
+            console.warn(`[virtualBroker] Cash balance would go negative ($${newCashBalance.toFixed(2)}) after close fee. Clamping to 0.`);
+            newCashBalance = 0;
+          }
+
           // ASSERTION: Position should be deleted, not flipped
           console.log(`[virtualBroker] Position ${existingPosition.market} (${existingSide}) fully closed. Size was ${existingSize}, close size was ${size} (clamped to ${closeSize}). Position deleted.`);
         } else {
@@ -368,9 +381,13 @@ export async function placeMarketOrder(params: PlaceOrderParams): Promise<{
           // CASH-SETTLED PERP MODEL:
           // - Add realized PnL to cash (this is the profit/loss from closing)
           // - Deduct fee for closing (proportional to closeSize)
-          const closingFee = (closeSize * fillPrice * feeBps) / 10000;
+          const closingFee = roundTo((closeSize * fillPrice * feeBps) / 10000, 6);
           newCashBalance += realizedPnl; // Add realized PnL
           newCashBalance -= closingFee; // Fee for closing
+          if (newCashBalance < 0) {
+            console.warn(`[virtualBroker] Cash balance would go negative ($${newCashBalance.toFixed(2)}) after reduce fee. Clamping to 0.`);
+            newCashBalance = 0;
+          }
         }
       }
     } else {
@@ -391,6 +408,10 @@ export async function placeMarketOrder(params: PlaceOrderParams): Promise<{
       // CASH-SETTLED PERP MODEL: Opening a position does NOT move notional in/out of cash
       // Only deduct fee (fee is a cost that reduces cash/equity)
       newCashBalance -= fee;
+      if (newCashBalance < 0) {
+        console.warn(`[virtualBroker] Cash balance would go negative ($${newCashBalance.toFixed(2)}) after new position fee. Clamping to 0.`);
+        newCashBalance = 0;
+      }
       // Note: realizedPnl remains 0 for open actions
     }
 

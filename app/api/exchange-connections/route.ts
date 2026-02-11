@@ -2,12 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import { encryptCredential, isEncryptionConfigured } from "@/lib/crypto/credentials";
 import { getUserFromRequest } from "@/lib/api/serverAuth";
+import { requireValidOrigin } from "@/lib/api/csrfProtection";
 import { hyperliquidClient } from "@/lib/hyperliquid/client";
 import { CoinbaseClient } from "@/lib/coinbase/client";
 import { Venue } from "@/lib/engine/types";
 
 export async function POST(request: NextRequest) {
   try {
+    const csrfCheck = requireValidOrigin(request);
+    if (csrfCheck) return csrfCheck;
+
     // SECURITY: Verify encryption is configured before accepting any credentials
     if (!isEncryptionConfigured()) {
       console.error("[SECURITY] Encryption key not configured - refusing to store credentials");

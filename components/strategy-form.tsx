@@ -12,64 +12,53 @@ import { Select, SelectItem } from "./ui/select";
 import { Badge } from "./ui/badge";
 import { createClient } from "@/lib/supabase/browser";
 
-// Model configurations by provider (Jan 2026) - Using actual API model identifiers
+// Model configurations by provider (Feb 2026)
+// Only providers with Corebound platform keys are listed
 const MODELS_BY_PROVIDER: Record<string, { id: string; name: string; description?: string }[]> = {
   openai: [
-    { id: "gpt-5.2", name: "GPT-5.2 (Thinking)", description: "Deeper reasoning, coding, long documents" },
-    { id: "gpt-5.2-pro", name: "GPT-5.2 Pro", description: "Highest performance, precision over speed" },
-    { id: "gpt-5.2-chat-latest", name: "GPT-5.2 Instant", description: "Fast everyday chat and quick tasks" },
-    { id: "gpt-4o", name: "GPT-4o", description: "Previous generation, still available" },
+    { id: "gpt-5.2", name: "GPT-5.2", description: "Latest flagship model" },
+    { id: "gpt-5", name: "GPT-5", description: "Previous flagship" },
+    { id: "gpt-4o", name: "GPT-4o", description: "Fast multimodal model" },
     { id: "gpt-4o-mini", name: "GPT-4o Mini", description: "Cost-efficient variant" },
+    { id: "o1", name: "o1", description: "Advanced reasoning model" },
+    { id: "o1-mini", name: "o1 Mini", description: "Fast reasoning variant" },
   ],
   anthropic: [
-    { id: "claude-opus-4-5", name: "Claude Opus 4.5", description: "Frontier intelligence, complex coding" },
-    { id: "claude-sonnet-4-5", name: "Claude Sonnet 4.5", description: "Strong coding and agentic tasks" },
-    { id: "claude-3-5-sonnet-20241022", name: "Claude 3.5 Sonnet", description: "Balanced variant" },
-    { id: "claude-3-5-haiku-20241022", name: "Claude 3.5 Haiku", description: "Fast, efficient variant" },
-    { id: "claude-3-opus-20240229", name: "Claude 3 Opus", description: "High-performance variant" },
-  ],
-  google: [
-    { id: "gemini-3-pro-preview", name: "Gemini 3 Pro Preview", description: "Most powerful agentic & multimodal" },
-    { id: "gemini-3-pro-image-preview", name: "Gemini 3 Pro Image", description: "Image generation & editing" },
-    { id: "gemini-2.0-flash-exp", name: "Gemini 2.0 Flash", description: "Fast variant" },
-    { id: "gemini-1.5-pro", name: "Gemini 1.5 Pro", description: "Previous generation, stable" },
-  ],
-  xai: [
-    { id: "grok-4", name: "Grok-4", description: "Latest major release (256K context)" },
-    { id: "grok-4-latest", name: "Grok-4 Latest", description: "Alias for latest Grok-4" },
-    { id: "grok-2-1212", name: "Grok-2", description: "Previous generation" },
+    { id: "claude-opus-4.5", name: "Claude Opus 4.5", description: "Frontier intelligence, complex tasks" },
+    { id: "claude-sonnet-4.5", name: "Claude Sonnet 4.5", description: "Strong coding and agentic tasks" },
+    { id: "claude-3-5-haiku", name: "Claude 3.5 Haiku", description: "Fast, efficient variant" },
+    { id: "claude-3-5-sonnet-20241022", name: "Claude 3.5 Sonnet", description: "Previous generation" },
   ],
   deepseek: [
-    { id: "deepseek-chat", name: "DeepSeek Chat", description: "V3.2 non-thinking mode" },
-    { id: "deepseek-reasoner", name: "DeepSeek Reasoner", description: "V3.2 thinking mode for complex reasoning" },
+    { id: "deepseek-chat", name: "DeepSeek Chat", description: "Fast general-purpose chat" },
+    { id: "deepseek-reasoner", name: "DeepSeek Reasoner", description: "Complex reasoning tasks" },
+    { id: "deepseek-v3", name: "DeepSeek V3", description: "Latest version" },
   ],
-  meta: [
-    { id: "llama-3.1-70b-versatile", name: "LLaMA 3.1 70B", description: "Latest open ecosystem model" },
-    { id: "llama-3.1-8b-instruct", name: "LLaMA 3.1 8B", description: "Smaller, faster variant" },
+  google: [
+    { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash", description: "Fast multimodal model" },
+    { id: "gemini-2.0-flash-exp", name: "Gemini 2.0 Flash Exp", description: "Experimental variant" },
+    { id: "gemini-1.5-pro", name: "Gemini 1.5 Pro", description: "Long context window" },
+    { id: "gemini-1.5-flash", name: "Gemini 1.5 Flash", description: "Fast variant" },
+  ],
+  xai: [
+    { id: "grok-4", name: "Grok-4", description: "Latest flagship (256K context)" },
+    { id: "grok-4-1-fast-reasoning", name: "Grok-4-1 Fast Reasoning", description: "Quick reasoning tasks" },
   ],
   qwen: [
-    { id: "qwen-2.5-72b-instruct", name: "Qwen 2.5 72B", description: "Latest version" },
-    { id: "qwen-2.5-32b-instruct", name: "Qwen 2.5 32B", description: "Mid-size variant" },
-  ],
-  glm: [
-    { id: "glm-4-9b-chat", name: "GLM-4 9B", description: "Latest version" },
-  ],
-  perplexity: [
-    { id: "sonar", name: "Perplexity Sonar", description: "Search + summarization" },
-    { id: "sonar-pro", name: "Perplexity Sonar Pro", description: "Enhanced search variant" },
+    { id: "qwen-max", name: "Qwen Max", description: "Highest capability" },
+    { id: "qwen-plus", name: "Qwen Plus", description: "Balanced performance" },
+    { id: "qwen-turbo", name: "Qwen Turbo", description: "Fast and efficient" },
   ],
 };
 
+// Only providers with Corebound platform API keys
 const PROVIDERS = [
   { id: "openai", name: "OpenAI" },
   { id: "anthropic", name: "Anthropic" },
-  { id: "google", name: "Google / DeepMind Gemini" },
-  { id: "xai", name: "xAI (Grok)" },
   { id: "deepseek", name: "DeepSeek" },
-  { id: "meta", name: "Meta (LLaMA)" },
-  { id: "qwen", name: "Qwen" },
-  { id: "glm", name: "GLM" },
-  { id: "perplexity", name: "Perplexity" },
+  { id: "google", name: "Google Gemini" },
+  { id: "xai", name: "xAI (Grok)" },
+  { id: "qwen", name: "Qwen (Alibaba)" },
 ];
 
 const CADENCE_OPTIONS = [
@@ -147,19 +136,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
   const [name, setName] = useState("");
   const [modelProvider, setModelProvider] = useState("deepseek");
   const [modelName, setModelName] = useState("");
-  const [apiKey, setApiKey] = useState("");
   const [prompt, setPrompt] = useState("");
-  
-  // Saved API Keys
-  const [savedKeys, setSavedKeys] = useState<Array<{
-    id: string;
-    provider: string;
-    label: string;
-    key_preview: string;
-  }>>([]);
-  const [selectedSavedKeyId, setSelectedSavedKeyId] = useState<string>("");
-  const [useManualKey, setUseManualKey] = useState(false);
-  const [loadingKeys, setLoadingKeys] = useState(false);
   
   // Markets
   const [availableMarkets, setAvailableMarkets] = useState<Array<{ symbol: string; display: string }>>([]);
@@ -374,8 +351,6 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
       setModelProvider(initialData.model_provider || "deepseek");
       setModelName(initialData.model_name || "");
       setPrompt(initialData.prompt || "");
-      // Don't load API key for security - user must re-enter if they want to change it
-      setApiKey("");
 
       // Load filters
       const filters = initialData.filters || {};
@@ -636,85 +611,10 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
     fetchMarkets();
   }, [venue]);
 
-  // Load saved API keys when provider changes
-  useEffect(() => {
-    const loadSavedKeys = async () => {
-      if (!modelProvider) {
-        setSavedKeys([]);
-        return;
-      }
-
-      try {
-        setLoadingKeys(true);
-        const supabase = createClient();
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-
-        if (!session?.access_token) {
-          console.warn("No session token available");
-          return;
-        }
-
-        const response = await fetch("/api/settings/api-keys", {
-          headers: {
-            Authorization: `Bearer ${session.access_token}`,
-          },
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          // Filter keys for the current provider
-          const keysForProvider = (data.keys || []).filter(
-            (k: any) => k.provider === modelProvider
-          );
-          setSavedKeys(keysForProvider);
-          
-          // If editing and strategy has a saved_api_key_id, select it
-          if (isEditMode && initialData?.saved_api_key_id) {
-            const matchingKey = keysForProvider.find(
-              (k: any) => k.id === initialData.saved_api_key_id
-            );
-            if (matchingKey) {
-              setSelectedSavedKeyId(matchingKey.id);
-              setUseManualKey(false);
-            } else {
-              // Saved key was deleted, fall back to manual
-              setSelectedSavedKeyId("");
-              setUseManualKey(true);
-            }
-          } else if (!isEditMode && keysForProvider.length > 0) {
-            // For new strategy, default to first saved key if available
-            setSelectedSavedKeyId(keysForProvider[0].id);
-            setUseManualKey(false);
-          } else {
-            // No saved keys, use manual
-            setSelectedSavedKeyId("");
-            setUseManualKey(true);
-          }
-        }
-      } catch (err) {
-        console.error("Failed to load saved keys:", err);
-      } finally {
-        setLoadingKeys(false);
-      }
-    };
-
-    loadSavedKeys();
-  }, [modelProvider, isEditMode, initialData?.saved_api_key_id]);
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
-
-    // Validate required fields (API key only required for new strategies)
-    // Either saved key or manual key must be provided
-    if (!isEditMode && !selectedSavedKeyId && (!apiKey || !apiKey.trim())) {
-      setError("API Key is required - either select a saved key or enter one manually");
-      setLoading(false);
-      return;
-    }
 
     if (!name || !name.trim()) {
       setError("Strategy Name is required");
@@ -978,20 +878,8 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
       model_name: modelName,
       prompt,
       filters,
+      use_platform_key: true, // Always use platform keys
     };
-
-    // Handle API key: either saved key reference or manual key
-    if (!useManualKey && selectedSavedKeyId) {
-      // Use saved key reference
-      body.saved_api_key_id = selectedSavedKeyId;
-      // Clear api_key to indicate we're using saved key
-      body.api_key = null;
-    } else if (apiKey && apiKey.trim()) {
-      // Use manual key (only include if provided for edit mode, or required for create mode)
-      body.api_key = apiKey.trim();
-      // Clear saved_api_key_id to indicate we're using manual key
-      body.saved_api_key_id = null;
-    }
 
     const response = await fetch(url, {
       method,
@@ -1246,96 +1134,6 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                         </option>
                       ))}
                     </select>
-                  </div>
-
-                  {/* API Key Selection - Saved or Manual */}
-                  <div className="space-y-3 p-4 border rounded-md bg-muted/50">
-                    <div className="flex items-center justify-between">
-                      <label className="text-sm font-semibold">
-                        API Key {!isEditMode && "*"}
-                      </label>
-                      <a
-                        href="/settings"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-xs text-blue-600 hover:underline"
-                      >
-                        Manage saved keys →
-                      </a>
-                    </div>
-
-                    {loadingKeys ? (
-                      <div className="text-sm text-muted-foreground py-2">Loading saved keys...</div>
-                    ) : (
-                      <>
-                        {savedKeys.length > 0 && (
-                          <div className="space-y-2">
-                            <label htmlFor="saved_key_dropdown" className="text-sm font-medium">
-                              Use Saved API Key
-                            </label>
-                            <select
-                              id="saved_key_dropdown"
-                              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                              value={useManualKey ? "__manual__" : selectedSavedKeyId}
-                              onChange={(e) => {
-                                const value = e.target.value;
-                                if (value === "__manual__") {
-                                  setUseManualKey(true);
-                                  setSelectedSavedKeyId("");
-                                } else {
-                                  setUseManualKey(false);
-                                  setSelectedSavedKeyId(value);
-                                  setApiKey(""); // Clear manual key when switching to saved
-                                }
-                              }}
-                            >
-                              {savedKeys.map((key) => (
-                                <option key={key.id} value={key.id}>
-                                  {key.label} ({key.key_preview})
-                                </option>
-                              ))}
-                              <option value="__manual__">✎ Manual / Paste Key</option>
-                            </select>
-                            <p className="text-xs text-muted-foreground">
-                              Select a saved key or choose "Manual" to paste a key directly
-                            </p>
-                          </div>
-                        )}
-
-                        {(useManualKey || savedKeys.length === 0) && (
-                          <div className="space-y-2">
-                            <label htmlFor="api_key" className="text-sm font-medium">
-                              {savedKeys.length > 0 ? "Manual API Key" : "API Key"} {!isEditMode && "*"}
-                            </label>
-                            <Input
-                              id="api_key"
-                              type="password"
-                              value={apiKey}
-                              onChange={(e) => setApiKey(e.target.value)}
-                              placeholder={isEditMode ? "Leave blank to keep existing key" : "sk-..."}
-                              required={!isEditMode && (useManualKey || savedKeys.length === 0)}
-                              className="h-10"
-                            />
-                            <p className="text-xs text-muted-foreground">
-                              {isEditMode 
-                                ? "Leave blank to keep existing key, or enter new key to update"
-                                : savedKeys.length === 0
-                                ? `No saved keys for ${modelProvider}. Save keys in Settings to reuse them.`
-                                : "Paste your API key directly"}
-                            </p>
-                          </div>
-                        )}
-
-                        {!useManualKey && selectedSavedKeyId && (
-                          <div className="flex items-center gap-2 text-xs text-green-600 dark:text-green-400">
-                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd"/>
-                            </svg>
-                            <span>Using saved key - no need to paste</span>
-                          </div>
-                        )}
-                      </>
-                    )}
                   </div>
 
                   <div className="space-y-2">

@@ -76,6 +76,7 @@ export interface TotalEquity {
   perpEquity: number;      // Unrealized PnL from perp positions (NOT margin, to avoid double-counting)
   spotUsdcBalance: number; // USDC in spot wallet (base equity)
   totalEquity: number;     // spotUsdcBalance + unrealizedPnL (avoids double-counting cross-margin)
+  marginUsed: number;      // Total margin pledged for perp positions
 }
 
 export class HyperliquidClient {
@@ -208,13 +209,7 @@ export class HyperliquidClient {
       }
 
       const data = await response.json();
-      
-      // Log the full response for debugging
-      console.log(`[Hyperliquid API] Full response for wallet ${walletAddress}:`, JSON.stringify(data, null, 2));
-      console.log(`[Hyperliquid API] marginSummary:`, data.marginSummary);
-      console.log(`[Hyperliquid API] accountValue:`, data.marginSummary?.accountValue);
-      console.log(`[Hyperliquid API] assetPositions:`, data.assetPositions);
-      
+
       // Hyperliquid returns clearinghouse state with positions and margin
       return {
         positions: data.assetPositions || [],
@@ -231,88 +226,25 @@ export class HyperliquidClient {
   }
 
   /**
-   * Place a market order
-   * WARNING: This places REAL orders. Only call in live mode.
-   * 
-   * @param walletAddress - User's wallet address
-   * @param privateKey - User's private key (for signing)
-   * @param market - Market symbol (e.g., "BTC-PERP")
-   * @param side - "buy" or "sell"
-   * @param size - Order size (in base currency units)
+   * @deprecated DO NOT USE - This method has incomplete order signing.
+   * Use placeMarketOrder from lib/hyperliquid/orderExecution.ts instead,
+   * which uses the @nktkas/hyperliquid SDK with proper signing.
+   *
+   * This method is intentionally disabled to prevent accidental use.
+   * It will throw an error if called.
    */
   async placeMarketOrder(
-    walletAddress: string,
-    privateKey: string,
-    market: string,
-    side: "buy" | "sell",
-    size: number
+    _walletAddress: string,
+    _privateKey: string,
+    _market: string,
+    _side: "buy" | "sell",
+    _size: number
   ): Promise<PlaceOrderResponse> {
-    // SAFETY: Validate inputs
-    if (!walletAddress || !privateKey || !market || !side || !size || size <= 0) {
-      throw new Error("Invalid order parameters");
-    }
-
-    // TODO: Implement proper Hyperliquid order signing
-    // For MVP, this is a placeholder that shows the structure
-    // In production, you need to:
-    // 1. Create order action with nonce
-    // 2. Sign with private key using Hyperliquid's signing scheme
-    // 3. Send to /exchange endpoint
-    
-    try {
-      const nonce = Date.now();
-      const isBuy = side === "buy";
-      
-      // Hyperliquid order structure
-      const orderAction = {
-        type: "order",
-        orders: [
-          {
-            a: size, // amount
-            b: isBuy, // isBuy
-            p: "0", // price (0 for market orders)
-            r: false, // reduceOnly
-            s: market, // symbol
-            t: { limit: { tif: "Ioc" } }, // order type: immediate or cancel
-          },
-        ],
-        grouping: "na",
-      };
-
-      // TODO: Sign the order with private key
-      // For MVP, we'll throw an error to prevent accidental real orders
-      // until proper signing is implemented
-      throw new Error(
-        "Order signing not yet implemented. This is a safety check to prevent accidental real orders."
-      );
-
-      // Once signing is implemented, uncomment:
-      /*
-      const signature = await this.signOrder(orderAction, nonce, privateKey);
-      
-      const response = await fetch(`${this.apiBase}/exchange`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          action: orderAction,
-          nonce,
-          signature,
-          vaultAddress: null,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(`Order placement failed: ${JSON.stringify(errorData)}`);
-      }
-
-      return await response.json();
-      */
-    } catch (error: any) {
-      throw new Error(`Failed to place order: ${error.message}`);
-    }
+    throw new Error(
+      "DEPRECATED: This method has incomplete order signing and cannot be used. " +
+      "Use placeMarketOrder from lib/hyperliquid/orderExecution.ts instead, " +
+      "which uses the @nktkas/hyperliquid SDK with proper signing."
+    );
   }
 
   /**
@@ -408,6 +340,7 @@ export class HyperliquidClient {
       perpEquity,
       spotUsdcBalance,
       totalEquity,
+      marginUsed,
     };
   }
 }

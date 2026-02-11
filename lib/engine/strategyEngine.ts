@@ -504,7 +504,9 @@ export function evaluateStrategy(input: StrategyEngineInput): StrategyDecision {
 
     if (exitEval.shouldExit) {
       const exitSide = currentPosition.side === "long" ? "sell" : "buy";
-      const positionValue = currentPosition.avgEntry * currentPosition.size;
+      // BUGFIX: Use current market price for exit notional, not entry price.
+      // Using avgEntry would create incorrect close sizes if price moved significantly.
+      const positionValue = marketSnapshot.price * currentPosition.size;
 
       orders.push({
         market,
@@ -592,6 +594,24 @@ export function evaluateStrategy(input: StrategyEngineInput): StrategyDecision {
   // Apply confidence scaling if enabled
   if (config.entryExit.confidenceControl?.confidenceScaling) {
     positionNotional = positionNotional * aiIntent.confidence;
+  }
+
+  // Guard against zero or sub-minimum notional (e.g., no leverage room or confidence scaling to ~0)
+  const MIN_ENTRY_NOTIONAL = 10; // $10 minimum to avoid rejected orders
+  if (positionNotional < MIN_ENTRY_NOTIONAL) {
+    console.warn(`[StrategyEngine] Position notional $${positionNotional.toFixed(2)} below minimum $${MIN_ENTRY_NOTIONAL}, skipping entry`);
+    return {
+      timestamp,
+      intent: aiIntent,
+      confidence: aiIntent.confidence,
+      action: "skip",
+      actionSummary: `Entry skipped: notional $${positionNotional.toFixed(2)} below $${MIN_ENTRY_NOTIONAL} minimum`,
+      orders,
+      riskResult: { passed: true, reason: "Notional below minimum" },
+      indicators,
+      marketSnapshot,
+      filterResults,
+    };
   }
 
   // ---- CREATE ENTRY ORDER ----

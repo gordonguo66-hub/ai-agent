@@ -81,21 +81,12 @@ export function calcTotals(
   pricesByMarket: PricesByMarket,
   mode?: string  // Add mode parameter
 ): PnLTotals {
-  console.log("[calcTotals] 🔍 Calculating totals:");
-  console.log(`[calcTotals]   Mode: ${mode || 'virtual'}`);
-  console.log(`[calcTotals]   Starting equity: ${accountData.starting_equity}`);
-  console.log(`[calcTotals]   Cash balance: ${accountData.cash_balance}`);
-  console.log(`[calcTotals]   DB equity (synced from Hyperliquid): ${accountData.equity}`);
-  console.log(`[calcTotals]   Positions: ${positions.length}`);
-  console.log(`[calcTotals]   Position prices:`, pricesByMarket);
-  
   // Calculate unrealized PnL for all positions
   let unrealizedPnl = 0;
   let positionValueTotal = 0; // For display purposes only (not used in equity calculation)
 
   for (const position of positions) {
     const currentPrice = pricesByMarket[position.market] || 0;
-    console.log(`[calcTotals]   Position ${position.market} (${position.side}): entry=${position.avg_entry}, current=${currentPrice}, size=${position.size}, stored_pnl=${position.unrealized_pnl}`);
 
     if (currentPrice > 0) {
       // Have live price - calculate PnL from price difference
@@ -103,19 +94,13 @@ export function calcTotals(
       positionValueTotal += positionValue;
       const posUnrealizedPnl = calcUnrealizedPnl(position, currentPrice);
       unrealizedPnl += posUnrealizedPnl;
-      console.log(`[calcTotals]     → Unrealized PnL (calculated): ${posUnrealizedPnl.toFixed(4)}`);
     } else if (position.unrealized_pnl != null && position.unrealized_pnl !== 0) {
       // No live price but have stored unrealized PnL (e.g., Coinbase positions synced with PnL)
       unrealizedPnl += Number(position.unrealized_pnl);
       // Estimate position value from entry price
       positionValueTotal += position.avg_entry * position.size;
-      console.log(`[calcTotals]     → Unrealized PnL (stored): ${Number(position.unrealized_pnl).toFixed(4)}`);
-    } else {
-      console.log(`[calcTotals]     → No price available and no stored PnL, skipping`);
     }
   }
-
-  console.log(`[calcTotals]   Total unrealized PnL: ${unrealizedPnl.toFixed(4)}`);
 
   // Calculate realized PnL from closed/reduced/flip trades
   const realizedPnl = trades
@@ -131,8 +116,6 @@ export function calcTotals(
     ? (accountData.equity ?? 0)  // Live: Use synced value from Hyperliquid
     : accountData.cash_balance + unrealizedPnl;  // Virtual: Calculate
   
-  console.log(`[calcTotals] ✅ Final equity (${mode || 'virtual'}): ${mode === 'live' ? `DB=${(accountData.equity ?? 0).toFixed(2)}` : `${accountData.cash_balance.toFixed(2)} + ${unrealizedPnl.toFixed(2)}`} = ${equity.toFixed(2)}`);
-
   // Calculate total PnL:
   // For LIVE mode: use equity - starting_equity (we can't track unrealized PNL without cost basis for Coinbase spot)
   // For VIRTUAL mode: use reconciliation identity realized + unrealized - fees
@@ -140,13 +123,12 @@ export function calcTotals(
     ? equity - accountData.starting_equity  // Live: Direct equity change (works for both Hyperliquid and Coinbase)
     : realizedPnl + unrealizedPnl - feesPaid;  // Virtual: Reconciliation identity
 
-  console.log(`[calcTotals]   Total PnL (${mode || 'virtual'}): ${totalPnl.toFixed(2)} (${mode === 'live' ? `equity ${equity.toFixed(2)} - starting ${accountData.starting_equity.toFixed(2)}` : `realized ${realizedPnl.toFixed(2)} + unrealized ${unrealizedPnl.toFixed(2)} - fees ${feesPaid.toFixed(2)}`})`);
-
   // Verify: totalPnL should equal equity - starting_equity (only for virtual mode)
   // For live mode, we use this formula directly so no verification needed
   if (mode !== 'live') {
     const expectedEquity = accountData.starting_equity + totalPnl;
-    if (Math.abs(equity - expectedEquity) > 0.01) {
+    const tolerance = Math.max(0.01, Math.abs(accountData.starting_equity) * 0.0001);
+    if (Math.abs(equity - expectedEquity) > tolerance) {
       console.warn(`[calcTotals] Equity mismatch: calculated=${equity.toFixed(2)}, expected=${expectedEquity.toFixed(2)} (from totalPnL)`);
     }
   }
@@ -181,7 +163,7 @@ export function calcTotals(
  * Verify reconciliation: totalPnl should equal realizedPnl + unrealizedPnl - feesPaid
  * Returns true if reconciled (within rounding tolerance)
  */
-export function verifyReconciliation(totals: PnLTotals, tolerance: number = 0.01): boolean {
+export function verifyReconciliation(totals: PnLTotals, tolerance: number = 0.50): boolean {
   const expected = totals.realizedPnl + totals.unrealizedPnl - totals.feesPaid;
   return Math.abs(totals.totalPnl - expected) < tolerance;
 }

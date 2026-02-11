@@ -40,7 +40,7 @@ function StrategyDetailContent() {
       // Fetch strategy
       const { data, error } = await supabase
         .from("strategies")
-        .select("id, user_id, name, model_provider, model_name, prompt, filters, api_key_ciphertext, saved_api_key_id, created_at")
+        .select("id, user_id, name, model_provider, model_name, prompt, filters, api_key_ciphertext, saved_api_key_id, use_platform_key, created_at")
         .eq("id", strategyId)
         .eq("user_id", user.id)
         .single();
@@ -213,7 +213,11 @@ function StrategyDetailContent() {
                   <Badge variant="secondary">AI Model</Badge>
                   <span className="text-muted-foreground">{strategy.model_provider} / {strategy.model_name}</span>
                 </div>
-                {(!strategy.api_key_ciphertext || strategy.api_key_ciphertext === "stored_in_ai_connections") && !strategy.saved_api_key_id ? (
+                {strategy.use_platform_key ? (
+                  <p className="text-xs text-muted-foreground">
+                    ✓ Using Corebound platform AI (billed to your credit balance)
+                  </p>
+                ) : (!strategy.api_key_ciphertext || strategy.api_key_ciphertext === "stored_in_ai_connections") && !strategy.saved_api_key_id ? (
                   <p className="text-xs text-muted-foreground">
                     This strategy needs an API key. Edit the strategy to add your API key.
                   </p>
@@ -224,7 +228,7 @@ function StrategyDetailContent() {
                 )}
               </div>
               {(() => {
-                const noApiKey = (!strategy.api_key_ciphertext || strategy.api_key_ciphertext === "stored_in_ai_connections") && !strategy.saved_api_key_id;
+                const noApiKey = !strategy.use_platform_key && (!strategy.api_key_ciphertext || strategy.api_key_ciphertext === "stored_in_ai_connections") && !strategy.saved_api_key_id;
                 const atSessionLimit = sessionLimit?.limit !== null && sessionLimit && sessionLimit.count >= sessionLimit.limit;
                 const isDisabled = !!(busy || noApiKey || atSessionLimit);
                 return (

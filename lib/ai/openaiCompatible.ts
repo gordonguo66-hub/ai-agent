@@ -117,27 +117,146 @@ export async function openAICompatibleIntentCall(args: {
     "- If you HAVE an open position: choose 'hold', 'close', or the OPPOSITE direction to reverse",
     "- If you have NO open position: choose 'long', 'short', or 'neutral'",
     "",
-    "WHEN TO USE 'hold':",
-    "1. Position is moving in your favor and the trend is intact - let it run",
-    "2. Market is consolidating but your thesis hasn't changed",
-    "3. Not enough evidence to justify closing or reversing",
+    "⚠️ ENTRY LOGIC - WHEN TO OPEN POSITIONS:",
+    "Only enter HIGH CONVICTION setups. Every entry requires a clear THESIS you'll validate later.",
     "",
-    "WHEN TO USE 'close' (IMPORTANT FOR POSITION MANAGEMENT):",
-    "1. PROFIT TAKING: Position is profitable and you see signs of reversal (overbought RSI, momentum slowing, resistance levels)",
-    "2. RISK REDUCTION: Market conditions becoming uncertain or volatile, better to flatten and wait",
-    "3. CAPITAL EFFICIENCY: Position has been open a while with minimal movement, capital could be better deployed",
-    "4. STOP LOSS: Position is losing and conditions suggest further losses ahead",
-    "5. TECHNICAL SIGNALS: Your analysis suggests the move is exhausted even if you're still directionally biased",
+    "✅ ENTER (long/short) when ALL of these align:",
+    "1. Clear trend direction established (not choppy/ranging)",
+    "   - Price showing consistent higher highs/lows (uptrend) or lower highs/lows (downtrend)",
+    "   - Trend should be >30 minutes old, not a 5-minute spike",
+    "2. Multiple indicators confirm (need 2-3 of these):",
+    "   - RSI: In trend zone (>55 for long, <45 for short) with momentum",
+    "   - Volume: Increasing on trend moves, decreasing on pullbacks",
+    "   - Price action: Breaking through levels with follow-through",
+    "3. Good entry timing (not chasing):",
+    "   - Entering on pullback/consolidation within trend (not at extremes)",
+    "   - Risk/reward favorable (room to run, logical stop placement)",
+    "4. Document ENTRY THESIS in your reasoning:",
+    "   - 'LONG: Strong uptrend + RSI 65 with momentum + volume surge on breakout'",
+    "   - This thesis will be checked later - only exit if INVALIDATED",
+    "",
+    "❌ DO NOT ENTER on weak signals:",
+    "- Single indicator alone (e.g., just RSI overbought)",
+    "- Choppy/ranging market (no clear trend structure)",
+    "- Price at extreme high/low (bad risk/reward, likely reversal)",
+    "- Marginal setup (low conviction, unclear direction)",
+    "- Conflicting signals (RSI says long, volume says short)",
+    "- FOMO or 'need to be in position' feeling",
+    "- After 3+ consecutive losses (take a break, reassess)",
+    "",
+    "ENTRY CONVICTION SCALE:",
+    "- High conviction (0.7-1.0): 3+ indicators align, clear trend, good timing",
+    "- Medium conviction (0.5-0.7): 2 indicators, trend present but not strong",
+    "- Low conviction (<0.5): Choose 'neutral' instead - DO NOT enter weak setups",
+    "",
+    "⚠️ UNDERSTANDING 'SIGNAL' EXIT MODE (CRITICAL):",
+    "When you're in a position, your ONLY job is to predict if the TREND will continue or REVERSE.",
+    "- You are NOT managing take-profit or stop-loss levels (that's a separate exit mode)",
+    "- You are NOT managing time-based exits (that's a separate exit mode)",
+    "- You ARE predicting: will this trend continue, or is it genuinely reversing?",
+    "",
+    "NOISE vs. TREND REVERSAL:",
+    "1. NOISE (HOLD): Temporary price fluctuations within an intact trend",
+    "   - Price moves <0.5% in 5-15 minutes without breaking trend structure = NOISE",
+    "   - RSI retraces within trend zone (uptrend: stays >50, downtrend: stays <50) without divergence = NOISE",
+    "   - Single candle against trend without follow-through = NOISE",
+    "   - Trend structure intact (uptrend: higher lows, downtrend: lower highs) = NOISE",
+    "   - Being <1% underwater after 15-30 minutes with thesis unchanged = NORMAL NOISE",
+    "",
+    "2. TREND REVERSAL (CLOSE): Fundamental change in market structure",
+    "   - Price breaks >1% through key level with strong momentum",
+    "   - Multiple timeframes showing reversal (not just 1-min chart)",
+    "   - Volume spike + price reversal (real buying/selling pressure)",
+    "   - RSI crosses 50 with price breaking trend structure (uptrend→downtrend or vice versa)",
+    "   - Major divergence (price makes new high/low but RSI doesn't confirm)",
+    "",
+    "YOUR CONVICTION:",
+    "1. When you opened this position, you had a REASON (check your recent decisions)",
+    "2. Has that reason FUNDAMENTALLY changed? Or just temporary noise?",
+    "3. If you opened SHORT because 'bearish momentum + RSI overbought', ask:",
+    "   - Is momentum still bearish? (yes = HOLD)",
+    "   - Did RSI reverse to oversold with bullish momentum? (yes = CLOSE)",
+    "   - Or did price just wiggle 0.3-0.5% for 15 minutes? (just noise = HOLD)",
+    "",
+    "TIME CONTEXT:",
+    "1. Trends develop over 30-120 minutes, not 5-15 minutes",
+    "2. If you opened 15 minutes ago and price moved against you slightly, that's EXPECTED noise",
+    "3. Check: 'How long has this been open?' If <30 min, ask: 'Is this TRULY a reversal, or noise?'",
+    "4. Being slightly underwater early in a trade is NORMAL - don't panic",
+    "",
+    "THE TEST:",
+    "Before saying 'close', ask yourself:",
+    "- If I close now and the trend continues as I predicted, would I regret it?",
+    "- Am I closing because of real trend reversal, or because I'm nervous about noise?",
+    "- Would a skilled trader see this as a reversal, or just a pullback in the trend?",
+    "",
+    "WHEN TO USE 'close' IN SIGNAL MODE:",
+    "✅ CLOSE when you predict TREND REVERSAL:",
+    "1. Market structure changed: trend line broken, new trend forming opposite direction",
+    "2. Momentum shifted: indicators (RSI, MACD, volume) show sustained reversal",
+    "3. Multiple timeframes confirm: not just 1-min noise, but 5min/15min also reversing",
+    "4. Your entry thesis is INVALIDATED: the reason you entered is no longer true",
+    "",
+    "❌ DO NOT CLOSE just because:",
+    "- Price moved 0.3-0.5% against you in 5-15 minutes without breaking structure (NOISE)",
+    "- You're <1% underwater with trend structure intact (normal fluctuation)",
+    "- Single red/green candle against your position (noise)",
+    "- RSI retraced modestly but stayed in trend zone (not a reversal)",
+    "- You're nervous but trend structure is intact (trust your thesis)",
+    "- It's been 'a while' but trend hasn't reversed (hold as long as trend continues)",
+    "",
+    "REMEMBER:",
+    "- A SHORT position expects price to go DOWN over time (with noise along the way)",
+    "- A LONG position expects price to go UP over time (with noise along the way)",
+    "- Temporary moves AGAINST your position are NORMAL - don't exit unless trend reverses",
+    "- You can hold for hours or days if the trend continues - there's no time limit",
     "",
     "NOTE: 'close' and 'hold' are ONLY for when a position exists. If no position exists, use 'long', 'short', or 'neutral'.",
-    "NOTE: Saying 'short' while holding a long (or vice versa) will also close the position, but 'close' is clearer for profit-taking.",
+    "NOTE: Saying 'short' while holding a long (or vice versa) will also close the position, but 'close' is clearer when exiting.",
   ].join("\n");
 
-  // Build position context string for clearer AI understanding
+  // Build position context string with TIME awareness for clearer AI understanding
   const currentPosition = args.context.currentMarketPosition;
-  const positionContext = currentPosition 
-    ? `CURRENT POSITION: ${currentPosition.side.toUpperCase()} ${currentPosition.size} units @ $${currentPosition.avg_entry?.toFixed(2) || 'N/A'} entry, Unrealized PnL: $${currentPosition.unrealized_pnl?.toFixed(2) || '0'}`
-    : "CURRENT POSITION: None (flat)";
+  let positionContext: string;
+
+  if (currentPosition) {
+    // Calculate time since entry if we have recent trades
+    let timeSinceEntry: string | null = null;
+    if (args.context.recentTrades && args.context.recentTrades.length > 0) {
+      // Find the most recent "open" trade for this market
+      const openTrade = args.context.recentTrades.find(
+        t => t.market === args.context.market && t.action === "open"
+      );
+
+      if (openTrade) {
+        const entryTime = new Date(openTrade.timestamp).getTime();
+        const now = Date.now();
+        const minutesSinceEntry = Math.floor((now - entryTime) / 60000);
+
+        if (minutesSinceEntry < 60) {
+          timeSinceEntry = `${minutesSinceEntry} minutes ago`;
+        } else if (minutesSinceEntry < 1440) {
+          const hours = Math.floor(minutesSinceEntry / 60);
+          const mins = minutesSinceEntry % 60;
+          timeSinceEntry = `${hours}h ${mins}m ago`;
+        } else {
+          const days = Math.floor(minutesSinceEntry / 1440);
+          timeSinceEntry = `${days} days ago`;
+        }
+      }
+    }
+
+    const unrealizedPnl = currentPosition.unrealized_pnl?.toFixed(2) || '0';
+    const pnlPct = currentPosition.avg_entry && currentPosition.unrealized_pnl
+      ? ((currentPosition.unrealized_pnl / (currentPosition.avg_entry * currentPosition.size)) * 100).toFixed(2)
+      : '0';
+
+    positionContext = timeSinceEntry
+      ? `CURRENT POSITION: ${currentPosition.side.toUpperCase()} ${currentPosition.size} units @ $${currentPosition.avg_entry?.toFixed(2) || 'N/A'} entry (opened ${timeSinceEntry}), Unrealized PnL: $${unrealizedPnl} (${pnlPct}%)`
+      : `CURRENT POSITION: ${currentPosition.side.toUpperCase()} ${currentPosition.size} units @ $${currentPosition.avg_entry?.toFixed(2) || 'N/A'} entry, Unrealized PnL: $${unrealizedPnl} (${pnlPct}%)`;
+  } else {
+    positionContext = "CURRENT POSITION: None (flat)";
+  }
 
   // Build indicators context if available
   const indicators = args.context.indicators;
@@ -166,23 +285,50 @@ export async function openAICompatibleIntentCall(args: {
     }
   }
 
-  // Build recent decisions context if available
+  // Build recent decisions context with TIME awareness
   const recentDecisions = args.context.recentDecisions;
   const recentDecisionsContext = recentDecisions && recentDecisions.length > 0
-    ? `RECENT DECISIONS (your last ${recentDecisions.length} decisions for context - use this to maintain consistency and learn from past choices):\n${recentDecisions.map((d, i) =>
-        `${i + 1}. [${d.timestamp}] Bias: ${d.bias}, Confidence: ${(d.confidence * 100).toFixed(0)}%${d.reasoning ? `, Reason: ${d.reasoning}` : ''} → ${d.actionSummary}`
-      ).join('\n')}`
+    ? `RECENT DECISIONS (learn from these - look for patterns, avoid flip-flops):\n${recentDecisions.map((d, i) => {
+        const timestamp = new Date(d.timestamp).toLocaleString();
+        const minsAgo = Math.floor((Date.now() - new Date(d.timestamp).getTime()) / 60000);
+        const timeAgoStr = minsAgo < 60 ? `${minsAgo}min ago` : `${Math.floor(minsAgo/60)}h ${minsAgo%60}m ago`;
+
+        return `${i + 1}. [${timestamp}] (${timeAgoStr}) Bias: ${d.bias}, Confidence: ${(d.confidence * 100).toFixed(0)}%${d.reasoning ? `, Reason: ${d.reasoning}` : ''} → ${d.actionSummary}`;
+      }).join('\n')}\n\n⚠️ ANALYZE: Did you flip-flop recently? Did trend actually reverse, or just noise?`
     : null;
 
-  // Build recent trades context if available
+  // Build recent trades context with HOLD TIME analysis
   const recentTrades = args.context.recentTrades;
   const recentTradesContext = recentTrades && recentTrades.length > 0
-    ? `RECENT TRADES (last ${recentTrades.length} executed trades - learn from actual outcomes):\n${recentTrades.map((t, i) => {
+    ? `RECENT TRADES (actual executions - see how long positions lasted):\n${recentTrades.map((t, i) => {
+        const timestamp = new Date(t.timestamp).toLocaleString();
+        const minsAgo = Math.floor((Date.now() - new Date(t.timestamp).getTime()) / 60000);
+        const timeAgoStr = minsAgo < 60 ? `${minsAgo}min ago` : `${Math.floor(minsAgo/60)}h ago`;
+
         const pnlStr = t.realizedPnl !== null
           ? ` → PnL: ${t.realizedPnl >= 0 ? '+' : ''}$${t.realizedPnl.toFixed(2)}`
           : '';
-        return `${i + 1}. [${t.timestamp}] ${t.action.toUpperCase()} ${t.side} ${t.market} @ $${t.price.toFixed(2)} (size: ${t.size.toFixed(6)})${pnlStr}`;
-      }).join('\n')}`
+
+        // For "close" actions, try to calculate hold time
+        let holdTimeStr = '';
+        if (t.action === 'close' && i < recentTrades.length - 1) {
+          const openTrade = recentTrades.slice(i + 1).find(
+            prev => prev.market === t.market && prev.action === 'open'
+          );
+          if (openTrade) {
+            const holdMinutes = Math.floor((new Date(t.timestamp).getTime() - new Date(openTrade.timestamp).getTime()) / 60000);
+            if (holdMinutes < 30) {
+              holdTimeStr = ` [⚠️ QUICK EXIT after ${holdMinutes} min]`;
+            } else if (holdMinutes < 60) {
+              holdTimeStr = ` [held ${holdMinutes} min]`;
+            } else {
+              holdTimeStr = ` [held ${Math.floor(holdMinutes/60)}h ${holdMinutes%60}m]`;
+            }
+          }
+        }
+
+        return `${i + 1}. [${timestamp}] (${timeAgoStr}) ${t.action.toUpperCase()} ${t.side} ${t.market} @ $${t.price.toFixed(2)}${pnlStr}${holdTimeStr}`;
+      }).join('\n')}\n\n⚠️ NOTICE: Exits <30min often due to noise, not real reversals.`
     : null;
 
   const userParts = [

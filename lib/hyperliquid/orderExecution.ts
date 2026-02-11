@@ -95,6 +95,9 @@ export async function placeMarketOrder(
     // This ensures the position uses the strategy's configured leverage
     if (!reduceOnly && leverage >= 1) {
       const leverageToSet = Math.max(1, Math.floor(leverage)); // Must be integer >= 1
+      if (leverageToSet !== leverage) {
+        console.warn(`[Hyperliquid Order] ⚠️ Leverage floored from ${leverage}x to ${leverageToSet}x (Hyperliquid requires integer leverage)`);
+      }
       console.log(`[Hyperliquid Order] Setting leverage to ${leverageToSet}x for ${market} (cross margin)`);
       try {
         await exchangeClient.updateLeverage({

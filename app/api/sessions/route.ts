@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import { getUserFromRequest } from "@/lib/api/serverAuth";
+import { requireValidOrigin } from "@/lib/api/csrfProtection";
 import { getOrCreateLiveAccount } from "@/lib/brokers/liveBroker";
 import { getMidPrices } from "@/lib/hyperliquid/prices";
 
@@ -135,6 +136,9 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const csrfCheck = requireValidOrigin(request);
+    if (csrfCheck) return csrfCheck;
+
     const user = await getUserFromRequest(request);
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

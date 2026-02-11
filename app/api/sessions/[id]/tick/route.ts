@@ -45,8 +45,8 @@ const PROVIDER_BASE_URLS: Record<string, string> = {
   perplexity: "https://api.perplexity.ai",
   fireworks: "https://api.fireworks.ai/inference/v1",
   meta: "https://api.together.xyz/v1",
-  qwen: "https://api.together.xyz/v1",
-  glm: "https://api.together.xyz/v1",
+  qwen: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+  glm: "https://open.bigmodel.cn/api/paas/v4",
 };
 
 // Helper to get table names based on session mode
@@ -187,7 +187,31 @@ async function placeMarketOrder(params: {
               );
             }
           } catch (dbError: any) {
-            console.error(`[Order Execution] ❌ Failed to record Coinbase trade:`, dbError);
+            console.error(`[CRITICAL] Live Coinbase trade executed but DB recording failed. Manual intervention required.`);
+            console.error(`[CRITICAL] Trade details:`, JSON.stringify({
+              account_id: orderParams.account_id,
+              session_id: orderParams.session_id,
+              market: orderParams.market,
+              side: orderParams.side,
+              orderId: result.orderId,
+              fillPrice: result.fillPrice,
+              fillSize: result.fillSize,
+              error: dbError.message,
+            }));
+
+            // Pause the session to prevent further trading with corrupted state
+            try {
+              const pauseClient = createServiceRoleClient();
+              await pauseClient
+                .from("strategy_sessions")
+                .update({
+                  status: "paused",
+                  error_message: `CRITICAL: Coinbase trade executed (Order: ${result.orderId}) but failed to record in database. Manual review required.`,
+                })
+                .eq("id", orderParams.session_id);
+            } catch (pauseErr) {
+              console.error(`[CRITICAL] Also failed to pause session after trade recording failure`);
+            }
           }
 
           return {
@@ -273,7 +297,33 @@ async function placeMarketOrder(params: {
             );
             console.log(`[Order Execution] ✅ Trade recorded: ${tradeSize.toFixed(4)} ${coin} @ $${tradePrice.toFixed(2)}, PnL: $${realizedPnl.toFixed(4)} (${leverage}x leverage)`);
           } catch (dbError: any) {
-            console.error(`[Order Execution] ❌ Failed to record trade in database:`, dbError);
+            console.error(`[CRITICAL] Live Hyperliquid trade executed but DB recording failed. Manual intervention required.`);
+            console.error(`[CRITICAL] Trade details:`, JSON.stringify({
+              account_id: orderParams.account_id,
+              session_id: orderParams.session_id,
+              market: orderParams.market,
+              side: orderParams.side,
+              coin,
+              orderId: result.orderId,
+              fillPrice: result.fillPrice,
+              fillSize: result.fillSize,
+              leverage,
+              error: dbError.message,
+            }));
+
+            // Pause the session to prevent further trading with corrupted state
+            try {
+              const pauseClient = createServiceRoleClient();
+              await pauseClient
+                .from("strategy_sessions")
+                .update({
+                  status: "paused",
+                  error_message: `CRITICAL: Hyperliquid trade executed (Order: ${result.orderId}) but failed to record in database. Manual review required.`,
+                })
+                .eq("id", orderParams.session_id);
+            } catch (pauseErr) {
+              console.error(`[CRITICAL] Also failed to pause session after trade recording failure`);
+            }
           }
 
           return {
@@ -321,12 +371,7 @@ export async function POST(
     const cronSecret = process.env.INTERNAL_API_KEY || process.env.CRON_SECRET;
     
     // Debug logging
-    if (internalApiKey) {
-      console.log(`[Tick API] Received X-Internal-API-Key header (first 8 chars: ${internalApiKey.substring(0, 8)}...)`);
-    } else {
-      console.log(`[Tick API] No X-Internal-API-Key header received`);
-    }
-    console.log(`[Tick API] Environment INTERNAL_API_KEY/CRON_SECRET: ${cronSecret ? `${cronSecret.substring(0, 8)}...` : 'NOT SET'}`);
+    console.log(`[Tick API] Auth: X-Internal-API-Key=${!!internalApiKey}, env secret=${!!cronSecret}`);
     let user = null;
     let isInternalCall = false;
     
@@ -726,7 +771,7 @@ export async function POST(
       }
     } catch (error: any) {
       console.error("Error fetching prices:", error);
-      return NextResponse.json({ error: `Failed to fetch market prices: ${error.message}` }, { status: 500 });
+      return NextResponse.json({ error: "Failed to fetch market prices" }, { status: 500 });
     }
 
     // Mark existing positions to market (virtual/arena mode only, not live)
@@ -762,14 +807,17 @@ export async function POST(
       // Calculate unrealized PnL as percentage
       const unrealizedPnlPct = entryPrice > 0 && size > 0 ? (unrealizedPnl / (entryPrice * size)) * 100 : 0;
       
-      // Get when position was opened (from first trade for this position)
+      // Get when position was opened (from MOST RECENT open trade for this position)
+      // BUGFIX: Use descending order to get the most recent open trade.
+      // ascending: true would return the first-ever open for this market, which is wrong
+      // if the position was closed and reopened (makes position appear older, bypassing min hold time).
       const { data: firstTrade } = await serviceClient
         .from(tables.trades)
         .select("created_at")
         .eq("account_id", account.id)
         .eq("market", position.market)
         .eq("action", "open")
-        .order("created_at", { ascending: true })
+        .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
       
@@ -1130,15 +1178,17 @@ export async function POST(
           console.log(`[Tick] Derived behaviors from entry.mode="${mode}":`, entry.behaviors);
         }
 
-        // Resolve and decrypt API key (checks saved key first, then fallback to strategy's own key)
-        console.log(`[Tick] 🔑 Resolving API key for strategy ${strategy.id}:`, {
-          has_saved_key_id: !!strategy.saved_api_key_id,
-          saved_key_id: strategy.saved_api_key_id,
-          has_direct_key: !!strategy.api_key_ciphertext,
+        // Resolve API key (always uses Corebound platform keys)
+        console.log(`[Tick] 🔑 Resolving platform key for strategy ${strategy.id}, provider: ${strategy.model_provider}`);
+        const resolvedKey = await resolveStrategyApiKey({
+          id: strategy.id,
+          model_provider: strategy.model_provider,
         });
-        const apiKey = await resolveStrategyApiKey(strategy);
-        console.log(`[Tick] ✅ API key resolved successfully`);
-        const baseUrl = PROVIDER_BASE_URLS[strategy.model_provider] || "";
+        const apiKey = resolvedKey.apiKey;
+        console.log(`[Tick] ✅ Platform key resolved for ${strategy.model_provider}`);
+
+        // Use platform base URL if available, otherwise fall back to provider mapping
+        const baseUrl = resolvedKey.baseUrl || PROVIDER_BASE_URLS[strategy.model_provider] || "";
 
         if (!baseUrl) {
           throw new Error(`Unknown provider: ${strategy.model_provider}`);
@@ -1274,40 +1324,43 @@ export async function POST(
         intent = aiResponse.intent;
         confidence = intent.confidence || 0;
 
-        // Deduct from balance based on actual API usage with tiered markup
-        try {
-          const { calculateCost, calculateChargedCents, getMarkupForTier } = await import("@/lib/pricing/apiCosts");
+        // Check if user is admin (skip billing for platform owner)
+        const adminUserIds = (process.env.ADMIN_USER_IDS || "").split(",").map(id => id.trim()).filter(Boolean);
+        const isAdmin = adminUserIds.includes(user.id);
 
-          // Get user's subscription tier for tiered markup (use fresh client to avoid caching issues)
-          const freshClient = createFreshServiceClient();
-          const { data: userSub } = await freshClient
-            .from("user_subscriptions")
-            .select("plan_id, status")
-            .eq("user_id", user.id)
-            .single();
+        if (isAdmin) {
+          console.log(`[Tick ${sessionId}] Admin user - skipping billing`);
+        } else {
+          // Deduct from balance based on actual API usage with tiered markup
+          try {
+            const { calculateCost, calculateChargedCents, getMarkupForTier } = await import("@/lib/pricing/apiCosts");
 
-          // Determine tier: active subscription = plan_id, otherwise on_demand
-          const tier = (userSub?.status === "active" && userSub?.plan_id) ? userSub.plan_id : "on_demand";
-          const markup = getMarkupForTier(tier);
+            // Get user's subscription tier for tiered markup (use fresh client to avoid caching issues)
+            const freshClient = createFreshServiceClient();
+            const { data: userSub } = await freshClient
+              .from("user_subscriptions")
+              .select("plan_id, status")
+              .eq("user_id", user.id)
+              .single();
 
-          const actualCostUsd = calculateCost(
-            aiResponse.model,
-            aiResponse.usage.inputTokens,
-            aiResponse.usage.outputTokens
-          );
-          const chargedCents = calculateChargedCents(actualCostUsd, tier);
+            // Determine tier: active subscription = plan_id, otherwise on_demand
+            const tier = (userSub?.status === "active" && userSub?.plan_id) ? userSub.plan_id : "on_demand";
+            const markup = getMarkupForTier(tier);
 
-          const bearer = request.headers.get("Authorization");
-          const deductRes = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/credits/usage`, {
-            method: "POST",
-            headers: {
-              "Authorization": bearer || "",
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              amount_cents: chargedCents,
-              description: `AI decision (${aiResponse.model})`,
-              metadata: {
+            const actualCostUsd = calculateCost(
+              aiResponse.model,
+              aiResponse.usage.inputTokens,
+              aiResponse.usage.outputTokens
+            );
+            const chargedCents = calculateChargedCents(actualCostUsd, tier);
+
+            // Deduct balance directly via RPC (not HTTP) to avoid auth issues with cron-triggered ticks
+            const deductClient = createFreshServiceClient();
+            const { data: deductResult, error: deductError } = await deductClient.rpc('decrement_user_balance', {
+              p_user_id: user.id,
+              p_amount_cents: chargedCents,
+              p_description: `AI decision (${aiResponse.model})`,
+              p_metadata: {
                 session_id: sessionId,
                 model: aiResponse.model,
                 input_tokens: aiResponse.usage.inputTokens,
@@ -1320,44 +1373,53 @@ export async function POST(
                 tier: tier,
                 bias: intent.bias,
               },
-            }),
-          });
-
-          if (!deductRes.ok) {
-            if (deductRes.status === 402) {
-              // Insufficient balance - pause session
-              console.error(`[Tick ${sessionId}] Insufficient balance, pausing session`);
-              await serviceClient
-                .from("trading_sessions")
-                .update({
-                  status: "paused",
-                  error_message: "Insufficient balance to continue trading. Please add funds to resume."
-                })
-                .eq("id", sessionId);
-
-              return NextResponse.json(
-                { error: "Insufficient balance to continue trading" },
-                { status: 402 }
-              );
-            }
-            const errorText = await deductRes.text();
-            console.error(`[Tick ${sessionId}] Balance deduction failed:`, errorText);
-          } else {
-            const deductData = await deductRes.json();
-            console.log(`[Tick ${sessionId}] Balance deducted:`, {
-              tier: tier,
-              markup: `${(markup * 100).toFixed(0)}%`,
-              chargedCents: chargedCents,
-              chargedUsd: (chargedCents / 100).toFixed(4),
-              newBalanceCents: deductData.new_balance_cents,
-              model: aiResponse.model,
-              tokens: aiResponse.usage.totalTokens,
-              actualCostUsd: actualCostUsd.toFixed(6),
             });
+
+            if (deductError) {
+              console.error(`[Tick ${sessionId}] Balance deduction RPC error:`, deductError.message);
+            } else if (deductResult && typeof deductResult === 'object') {
+              if (deductResult.error === 'insufficient_balance' || deductResult.error === 'no_balance') {
+                // Insufficient balance - pause session
+                console.error(`[Tick ${sessionId}] Insufficient balance, pausing session`);
+                await serviceClient
+                  .from("strategy_sessions")
+                  .update({
+                    status: "paused",
+                    error_message: "Insufficient balance to continue trading. Please add funds to resume."
+                  })
+                  .eq("id", sessionId);
+
+                return NextResponse.json(
+                  { error: "Insufficient balance to continue trading" },
+                  { status: 402 }
+                );
+              }
+              if (deductResult.success) {
+                console.log(`[Tick ${sessionId}] Balance deducted:`, {
+                  tier: tier,
+                  markup: `${(markup * 100).toFixed(0)}%`,
+                  chargedCents: chargedCents,
+                  chargedUsd: (chargedCents / 100).toFixed(4),
+                  newBalanceCents: deductResult.new_balance_cents,
+                  model: aiResponse.model,
+                  tokens: aiResponse.usage.totalTokens,
+                  actualCostUsd: actualCostUsd.toFixed(6),
+                });
+              }
+            }
+          } catch (billingError: any) {
+            // BUGFIX: Billing must work in production. Pause session on billing failure
+            // to prevent unbilled AI usage. Without this, users trade for free if billing breaks.
+            console.error(`[Tick ${sessionId}] Balance deduction failed - pausing session:`, billingError.message);
+            await serviceClient
+              .from("strategy_sessions")
+              .update({
+                status: "paused",
+                error_message: "Billing system error. Session paused to prevent unbilled usage. Please try again or contact support.",
+              })
+              .eq("id", sessionId);
+            return NextResponse.json({ error: "Billing system error" }, { status: 500 });
           }
-        } catch (billingError: any) {
-          // Log but don't fail the tick - billing system should not block trading
-          console.error(`[Tick ${sessionId}] Balance deduction failed (non-fatal):`, billingError.message);
         }
 
         // AI-DRIVEN EXIT FOR "SIGNAL" MODE
@@ -1398,14 +1460,15 @@ export async function POST(
             const minHoldMsAI = minHoldMinutesAI * 60 * 1000;
             const nowForAIExit = new Date(); // Local timestamp for this check
             
-            // Get when position was opened
+            // Get when position was opened (MOST RECENT open trade)
+            // BUGFIX: Use descending to get most recent open, not first-ever open for this market
             const { data: positionOpenTradeAI } = await serviceClient
               .from(tables.trades)
               .select("created_at")
               .eq("account_id", account.id)
               .eq("market", market)
               .eq("action", "open")
-              .order("created_at", { ascending: true })
+              .order("created_at", { ascending: false })
               .limit(1)
               .maybeSingle();
             
@@ -2269,9 +2332,8 @@ export async function POST(
       name: error.name,
       cause: error.cause,
     });
-    return NextResponse.json({ 
-      error: error.message || "Internal server error",
-      details: process.env.NODE_ENV === "development" ? error.stack : undefined,
+    return NextResponse.json({
+      error: "Internal server error",
     }, { status: 500 });
   }
 }

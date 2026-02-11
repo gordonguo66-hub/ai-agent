@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { createClient } from "@/lib/supabase/browser";
+import { sanitizeReturnUrl } from "@/lib/utils/urlValidation";
 
 export default function AuthPage() {
   const [email, setEmail] = useState("");
@@ -34,9 +35,8 @@ export default function AuthPage() {
     const nextParam = urlParams.get("next");
     const tabParam = urlParams.get("tab");
     
-    if (nextParam && nextParam.startsWith("/")) {
-      setReturnUrl(nextParam);
-    }
+    // Validate and sanitize return URL to prevent open redirect attacks
+    setReturnUrl(sanitizeReturnUrl(nextParam));
     
     if (tabParam === "signup") {
       setIsSignUp(true);
@@ -79,7 +79,8 @@ export default function AuthPage() {
           if (!loading && !success) {
             const urlParams = new URLSearchParams(window.location.search);
             const nextParam = urlParams.get("next");
-            const redirectTo = nextParam && nextParam.startsWith("/") ? nextParam : "/dashboard";
+            // Validate return URL to prevent open redirect attacks
+            const redirectTo = sanitizeReturnUrl(nextParam);
             router.push(redirectTo);
           }
           return;
@@ -124,7 +125,8 @@ export default function AuthPage() {
           return;
         }
         setShowResendOption(false);
-        window.location.href = returnUrl;
+        // Use router.push for client-side navigation (safer than window.location.href)
+        router.push(sanitizeReturnUrl(returnUrl));
       } else {
         setError("Sign in failed. Please try again.");
         setLoading(false);
@@ -320,7 +322,8 @@ export default function AuthPage() {
         // Supabase will send the verification email when "Confirm email" is enabled.
         // If it's disabled (dev), Supabase may return a session and the user can continue immediately.
         if (data.session?.user && data.user.email_confirmed_at) {
-          window.location.href = returnUrl;
+          // Use router.push for client-side navigation (safer than window.location.href)
+          router.push(sanitizeReturnUrl(returnUrl));
           return;
         }
 

@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import { getUserFromRequest } from "@/lib/api/serverAuth";
+import { requireValidOrigin } from "@/lib/api/csrfProtection";
 
 export async function PATCH(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
+    const csrfCheck = requireValidOrigin(request);
+    if (csrfCheck) return csrfCheck;
+
     const user = await getUserFromRequest(request);
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

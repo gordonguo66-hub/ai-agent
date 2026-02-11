@@ -38,90 +38,71 @@ export async function POST(request: NextRequest) {
 
     const serviceClient = createFreshServiceClient();
 
-    // Get current balance
-    const { data: currentBalance, error: fetchError } = await serviceClient
-      .from("user_balance")
-      .select("balance_cents, lifetime_spent_cents")
-      .eq("user_id", user.id)
-      .single();
-
-    if (fetchError) {
-      console.error("[POST /api/credits/usage] Error fetching balance:", fetchError);
-      return NextResponse.json(
-        { error: "Failed to fetch current balance" },
-        { status: 500 }
-      );
-    }
-
-    const currentBalanceCents = currentBalance?.balance_cents || 0;
-    const currentLifetimeSpent = currentBalance?.lifetime_spent_cents || 0;
-
-    // Check if user has sufficient balance
-    if (currentBalanceCents < deductAmount) {
-      return NextResponse.json(
-        {
-          error: "Insufficient balance",
-          message: "Please add funds to continue.",
-          current_balance_cents: currentBalanceCents,
-          current_balance_usd: (currentBalanceCents / 100).toFixed(2),
-          required_cents: deductAmount,
-          required_usd: (deductAmount / 100).toFixed(2),
-          // Legacy field
-          current_balance: currentBalanceCents,
-          required: deductAmount,
-        },
-        { status: 402 } // Payment Required
-      );
-    }
-
-    const newBalanceCents = currentBalanceCents - deductAmount;
-    const newLifetimeSpent = currentLifetimeSpent + deductAmount;
-
-    // Update balance
-    const { error: updateError } = await serviceClient
-      .from("user_balance")
-      .update({
-        balance_cents: newBalanceCents,
-        lifetime_spent_cents: newLifetimeSpent,
-      })
-      .eq("user_id", user.id);
-
-    if (updateError) {
-      console.error("[POST /api/credits/usage] Error updating balance:", updateError);
-      return NextResponse.json(
-        { error: "Failed to update balance" },
-        { status: 500 }
-      );
-    }
-
-    // Log the transaction
-    const { error: logError } = await serviceClient
-      .from("balance_transactions")
-      .insert({
-        user_id: user.id,
-        amount: -deductAmount,
-        balance_after: newBalanceCents,
-        transaction_type: "usage",
-        description: description || "AI model usage",
-        metadata: metadata || {},
-      });
-
-    if (logError) {
-      console.error("[POST /api/credits/usage] Error logging transaction:", logError);
-      // Don't fail the request, just log the error
-    }
-
-    return NextResponse.json({
-      success: true,
-      // New fields
-      amount_deducted_cents: deductAmount,
-      amount_deducted_usd: (deductAmount / 100).toFixed(4),
-      new_balance_cents: newBalanceCents,
-      new_balance_usd: (newBalanceCents / 100).toFixed(2),
-      // Legacy fields for backwards compatibility
-      credits_used: deductAmount,
-      new_balance: newBalanceCents,
+    // Use atomic RPC function to check balance and deduct in a single transaction
+    // This prevents race conditions where concurrent ticks could both pass the balance check
+    const { data: result, error: rpcError } = await serviceClient.rpc('decrement_user_balance', {
+      p_user_id: user.id,
+      p_amount_cents: deductAmount,
+      p_description: description || "AI model usage",
+      p_metadata: metadata || {},
     });
+
+    if (rpcError) {
+      // Atomic RPC function is required for production - do NOT fall back to unsafe legacy code
+      if (rpcError.message?.includes('function') && rpcError.message?.includes('does not exist')) {
+        console.error("[POST /api/credits/usage] CRITICAL: decrement_user_balance RPC function does not exist. Run the required migration before deploying to production.");
+      }
+      console.error("[POST /api/credits/usage] Error calling decrement_user_balance:", rpcError);
+      return NextResponse.json(
+        { error: "Failed to process balance deduction" },
+        { status: 500 }
+      );
+    }
+
+    // Handle result from atomic operation
+    if (result && typeof result === 'object') {
+      if (result.error === 'insufficient_balance') {
+        return NextResponse.json(
+          {
+            error: "Insufficient balance",
+            message: "Please add funds to continue.",
+            current_balance_cents: result.current_balance_cents,
+            current_balance_usd: ((result.current_balance_cents || 0) / 100).toFixed(2),
+            required_cents: deductAmount,
+            required_usd: (deductAmount / 100).toFixed(2),
+            current_balance: result.current_balance_cents,
+            required: deductAmount,
+          },
+          { status: 402 }
+        );
+      }
+
+      if (result.error === 'no_balance') {
+        return NextResponse.json(
+          { error: "No balance record found. Please add funds first." },
+          { status: 402 }
+        );
+      }
+
+      if (result.success) {
+        const newBalanceCents = result.new_balance_cents;
+        return NextResponse.json({
+          success: true,
+          amount_deducted_cents: deductAmount,
+          amount_deducted_usd: (deductAmount / 100).toFixed(4),
+          new_balance_cents: newBalanceCents,
+          new_balance_usd: (newBalanceCents / 100).toFixed(2),
+          credits_used: deductAmount,
+          new_balance: newBalanceCents,
+        });
+      }
+    }
+
+    console.error("[POST /api/credits/usage] Unexpected result from decrement_user_balance:", result);
+    return NextResponse.json(
+      { error: "Unexpected error processing balance deduction" },
+      { status: 500 }
+    );
   } catch (error: any) {
     console.error("[POST /api/credits/usage] Unexpected error:", error);
     return NextResponse.json(

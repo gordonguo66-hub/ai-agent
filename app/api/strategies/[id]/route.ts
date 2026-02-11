@@ -1,25 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import { getUserFromRequest } from "@/lib/api/serverAuth";
-import { encryptCredential } from "@/lib/crypto/credentials";
-import { validateOpenAICompatibleKey, normalizeBaseUrl } from "@/lib/ai/openaiCompatible";
-
-// Provider to base URL mapping for API key validation
-const PROVIDER_BASE_URLS: Record<string, string> = {
-  openai: "https://api.openai.com/v1",
-  anthropic: "https://api.anthropic.com/v1",
-  google: "https://generativelanguage.googleapis.com/v1beta/openai",
-  xai: "https://api.x.ai/v1",
-  deepseek: "https://api.deepseek.com/v1",
-  openrouter: "https://openrouter.ai/api/v1",
-  together: "https://api.together.xyz/v1",
-  groq: "https://api.groq.com/openai/v1",
-  perplexity: "https://api.perplexity.ai",
-  fireworks: "https://api.fireworks.ai/inference/v1",
-  meta: "https://api.together.xyz/v1",
-  qwen: "https://api.together.xyz/v1",
-  glm: "https://api.together.xyz/v1",
-};
+import { requireValidOrigin } from "@/lib/api/csrfProtection";
 
 export async function GET(
   request: NextRequest,
@@ -59,6 +41,9 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   try {
+    const csrfCheck = requireValidOrigin(request);
+    if (csrfCheck) return csrfCheck;
+
     const user = await getUserFromRequest(request);
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -66,7 +51,7 @@ export async function PATCH(
 
     const strategyId = params.id;
     const body = await request.json();
-    const { name, model_provider, model_name, prompt, filters, api_key, saved_api_key_id } = body;
+    const { name, model_provider, model_name, prompt, filters } = body;
 
     const serviceClient = createServiceRoleClient();
 
@@ -112,75 +97,11 @@ export async function PATCH(
       updateData.filters = filters;
     }
 
-    // Handle API key update (either saved key or manual key)
-    // If saved_api_key_id is explicitly provided (even if null), update it
-    if (saved_api_key_id !== undefined) {
-      if (saved_api_key_id === null) {
-        // Explicitly clearing saved key
-        updateData.saved_api_key_id = null;
-      } else {
-        // Verify saved key belongs to user and matches provider
-        const { data: savedKey, error: keyError } = await serviceClient
-          .from("user_api_keys")
-          .select("id, user_id, provider")
-          .eq("id", saved_api_key_id)
-          .eq("user_id", user.id)
-          .maybeSingle();
-
-        if (keyError || !savedKey) {
-          return NextResponse.json(
-            { error: "Invalid saved API key or key does not belong to you" },
-            { status: 400 }
-          );
-        }
-
-        const provider = model_provider || existingStrategy.model_provider;
-        if (savedKey.provider !== provider) {
-          return NextResponse.json(
-            { error: `Saved key is for ${savedKey.provider}, but strategy uses ${provider}` },
-            { status: 400 }
-          );
-        }
-
-        updateData.saved_api_key_id = saved_api_key_id;
-        // When using saved key, clear the manual key
-        updateData.api_key_ciphertext = null;
-      }
-    }
-
-    // Handle manual API key update (only if provided and not using saved key)
-    if (api_key !== undefined && api_key !== null && api_key.trim() !== "") {
-      // Validate API key if provider is provided
-      const provider = model_provider || existingStrategy.model_provider;
-      const baseUrl = PROVIDER_BASE_URLS[provider];
-      
-      if (baseUrl) {
-        try {
-          if (provider === "anthropic") {
-            // Anthropic doesn't have a /models endpoint, skip validation
-          } else {
-            await validateOpenAICompatibleKey({
-              baseUrl: normalizeBaseUrl(baseUrl),
-              apiKey: api_key.trim(),
-            });
-          }
-        } catch (validationError: any) {
-          console.warn(`API key validation failed for provider ${provider}:`, validationError.message);
-          // Still allow update - validation will happen on actual use
-        }
-      }
-
-      // Encrypt and update API key
-      updateData.api_key_ciphertext = encryptCredential(api_key.trim());
-      // When using manual key, clear saved key reference
-      updateData.saved_api_key_id = null;
-    }
+    // Always use platform keys (no user API keys)
+    updateData.use_platform_key = true;
 
     // Update strategy
-    console.log(`[Strategy PATCH] 🔄 Updating strategy ${strategyId} with:`, {
-      ...updateData,
-      api_key_ciphertext: updateData.api_key_ciphertext ? '***encrypted***' : undefined,
-    });
+    console.log(`[Strategy PATCH] 🔄 Updating strategy ${strategyId} with:`, updateData);
 
     const { data, error } = await serviceClient
       .from("strategies")
@@ -215,6 +136,9 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
+    const csrfCheck = requireValidOrigin(request);
+    if (csrfCheck) return csrfCheck;
+
     const user = await getUserFromRequest(request);
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
