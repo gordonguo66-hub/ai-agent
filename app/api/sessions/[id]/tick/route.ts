@@ -353,8 +353,8 @@ async function placeMarketOrder(params: {
     // VIRTUAL/ARENA MODE: Use virtual broker (simulation)
     // Arena is virtual-only ($100k competition), so it uses the same virtual broker as regular virtual mode
     const modeLabel = sessionMode === "arena" ? "ARENA (virtual)" : "VIRTUAL";
-    console.log(`[Order Execution] 🟢 ${modeLabel} MODE: Simulating order`);
-    return await placeVirtualOrder(orderParams);
+    console.log(`[Order Execution] 🟢 ${modeLabel} MODE: Simulating order (${leverage}x leverage)`);
+    return await placeVirtualOrder({ ...orderParams, leverage });
   }
 }
 
@@ -951,6 +951,7 @@ export async function POST(
           isExit: true,
           exitPosition: { side: position.side as "long" | "short", avgEntry: entryPrice },
           exitPositionSize: size, // Exact position size for complete closes
+          leverage: position.leverage || 1, // Record position's leverage on exit trade
         });
 
         if (exitResult.success) {
@@ -1524,6 +1525,7 @@ export async function POST(
               isExit: true,
               exitPosition: { side: positionSide as "long" | "short", avgEntry: entryPrice },
               exitPositionSize: posSize, // Exact position size for complete closes
+              leverage: marketPosition?.leverage || 1, // Record position's leverage on exit trade
             });
 
             if (exitResult.success) {
@@ -1839,6 +1841,11 @@ export async function POST(
           }
         }
 
+          // AI's per-trade leverage choice (computed early to inform position sizing)
+          // AI outputs leverage directly (1 to maxLeverage), cap at user's maxLeverage setting
+          const aiLeverage = intent.leverage ?? 1;
+          const actualLeverage = Math.max(1, Math.min(Math.round(aiLeverage), maxLeverage));
+
           // 4. RISK LIMITS - Strictly enforce max position size, leverage, and daily loss
           if (riskResult.passed !== false) {
             const maxPositionUsd = risk.maxPositionUsd ?? 10000;
@@ -1897,8 +1904,11 @@ export async function POST(
           const totalCurrentExposure = allPositions.reduce((sum, p) => {
             return sum + (Number(p.avg_entry) * Number(p.size));
           }, 0);
-          const maxExposureAllowed = Number(account.equity) * maxLeverage * 0.99; // 1% safety margin
-          const remainingLeverageRoom = Math.max(0, maxExposureAllowed - totalCurrentExposure);
+          // AI's leverage choice determines target exposure; maxLeverage is the hard ceiling
+          const aiTargetExposure = Number(account.equity) * actualLeverage * 0.99; // AI's target
+          const maxExposureAllowed = Number(account.equity) * maxLeverage * 0.99; // Hard ceiling
+          const effectiveExposureCeiling = Math.min(aiTargetExposure, maxExposureAllowed);
+          const remainingLeverageRoom = Math.max(0, effectiveExposureCeiling - totalCurrentExposure);
           
           // Position size is the minimum of: user's maxPositionUsd OR remaining leverage room
           let positionNotional = Math.min(maxPositionUsd, remainingLeverageRoom);
@@ -1915,7 +1925,7 @@ export async function POST(
             }
           }
 
-          console.log(`[Tick] 📊 Position sizing: equity=$${Number(account.equity).toFixed(2)}, maxLeverage=${maxLeverage}x, maxExposure=$${maxExposureAllowed.toFixed(2)}, currentExposure=$${totalCurrentExposure.toFixed(2)}, remainingRoom=$${remainingLeverageRoom.toFixed(2)}, maxPositionUsd=$${maxPositionUsd}${sessionVenue === "coinbase" ? `, cash=$${Number(account.cash_balance || 0).toFixed(2)}` : ""}, result=$${positionNotional.toFixed(2)}`);
+          console.log(`[Tick] 📊 Position sizing: equity=$${Number(account.equity).toFixed(2)}, aiLeverage=${actualLeverage}x, maxLeverage=${maxLeverage}x, aiTarget=$${aiTargetExposure.toFixed(2)}, maxExposure=$${maxExposureAllowed.toFixed(2)}, effectiveCeiling=$${effectiveExposureCeiling.toFixed(2)}, currentExposure=$${totalCurrentExposure.toFixed(2)}, remainingRoom=$${remainingLeverageRoom.toFixed(2)}, maxPositionUsd=$${maxPositionUsd}${sessionVenue === "coinbase" ? `, cash=$${Number(account.cash_balance || 0).toFixed(2)}` : ""}, result=$${positionNotional.toFixed(2)}`);
           
           if (confidenceControl.confidenceScaling && confidence > minConfidence) {
             // Scale position size based on confidence (higher confidence = larger position, up to max)
@@ -2066,9 +2076,7 @@ export async function POST(
             const entryTiming = entryExit.entry?.timing || {};
             const slippageBps = entryTiming.maxSlippagePct ? Math.min(entryTiming.maxSlippagePct * 100, 100) : 30; // Default 30bps, cap at 100bps (1%)
 
-            // AI outputs leverage directly (1 to maxLeverage), cap at user's maxLeverage setting
-            const aiLeverage = intent.leverage ?? 1; // Default to 1x if AI doesn't specify
-            const actualLeverage = Math.max(1, Math.min(Math.round(aiLeverage), maxLeverage));
+            // actualLeverage and aiLeverage already computed earlier (before position sizing)
 
             console.log(`[Tick] 💰 Placing order: ${side} ${market} for $${positionNotional.toFixed(2)} (confidence: ${confidence.toFixed(2)}, leverage: ${actualLeverage}x, AI requested: ${aiLeverage}x, max allowed: ${maxLeverage}x)`);
 

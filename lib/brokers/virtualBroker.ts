@@ -16,6 +16,7 @@ export interface PlaceOrderParams {
   slippageBps?: number; // Basis points (e.g., 5 = 0.05%)
   feeBps?: number; // Basis points (e.g., 5 = 0.05%)
   currentPrice?: number; // Pre-fetched price (avoids hardcoded Hyperliquid fetch for non-HL venues)
+  leverage?: number; // Leverage for this trade (1x default)
 }
 
 export interface Account {
@@ -190,6 +191,7 @@ export async function placeMarketOrder(params: PlaceOrderParams): Promise<{
     slippageBps = DEFAULT_SLIPPAGE_BPS,
     feeBps = DEFAULT_FEE_BPS,
     currentPrice: presetPrice,
+    leverage: orderLeverage = 1,
   } = params;
 
   const serviceClient = createServiceRoleClient();
@@ -264,6 +266,7 @@ export async function placeMarketOrder(params: PlaceOrderParams): Promise<{
             .update({
               size: totalSize,
               avg_entry: newAvgEntry,
+              leverage: orderLeverage,
               updated_at: new Date().toISOString(),
             })
             .eq("id", existingPosition.id);
@@ -403,6 +406,7 @@ export async function placeMarketOrder(params: PlaceOrderParams): Promise<{
         avg_entry: fillPrice,
         unrealized_pnl: 0,
         peak_price: fillPrice, // Initialize for trailing stop tracking
+        leverage: orderLeverage,
       });
 
       // CASH-SETTLED PERP MODEL: Opening a position does NOT move notional in/out of cash
@@ -447,6 +451,7 @@ export async function placeMarketOrder(params: PlaceOrderParams): Promise<{
       price: Number(fillPrice),
       fee: Number(feeToRecord),
       realized_pnl: Number(realizedPnl),
+      leverage: orderLeverage,
     };
 
     // session_id is optional but should be included if provided
@@ -471,7 +476,7 @@ export async function placeMarketOrder(params: PlaceOrderParams): Promise<{
       };
     }
 
-    console.log(`[virtualBroker] ✅ Trade recorded successfully. ID: ${trade.id}, Action: ${action}, Market: ${market}, Size: ${executedSize}, Price: ${fillPrice}`);
+    console.log(`[virtualBroker] ✅ Trade recorded successfully. ID: ${trade.id}, Action: ${action}, Market: ${market}, Size: ${executedSize}, Price: ${fillPrice}, Leverage: ${orderLeverage}x`);
 
     // BUGFIX VERIFICATION: For fully closed positions, ensure close size matches position size
     // and does NOT equal abs(realized_pnl)/price (which would indicate PnL-inflated size bug)
