@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { Suspense } from "react";
-import { Analytics } from "@vercel/analytics/react";
 import "./globals.css";
 import { Nav } from "@/components/nav";
 import { ErrorLogger } from "@/components/error-logger";
@@ -10,6 +9,7 @@ import { Footer } from "@/components/footer";
 import { LegalGate } from "@/components/legal-gate";
 import { AuthGateProvider } from "@/components/auth-gate-provider";
 import { AdminIdentifier } from "@/components/admin-identifier";
+import { AnalyticsWrapper } from "@/components/analytics-wrapper";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -55,15 +55,7 @@ export default function RootLayout({
             </LegalGate>
           </AuthGateProvider>
         </TimezoneProvider>
-        <Analytics
-          beforeSend={(event) => {
-            if (typeof window !== 'undefined' &&
-                localStorage.getItem('exclude_from_analytics') === 'true') {
-              return null; // Don't track this user
-            }
-            return event; // Track normally
-          }}
-        />
+        <AnalyticsWrapper />
       </body>
     </html>
   );
