@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Coins, Lock, WalletMinimal, Power, ListChecks, Brain, ShieldCheck, Cpu, GitBranch, Settings, Clock } from "lucide-react";
 import { useAuthGate } from "@/components/auth-gate-provider";
+import { AnimatedStrategyBuilder } from "@/components/animated-strategy-builder";
 import { useEffect, useRef, useState } from "react";
 
 // Crypto logo SVG components
@@ -100,7 +101,7 @@ function FloatingCryptoLogos() {
       do {
         x = 5 + Math.random() * 90;  // 5-95% of screen width
         y = 5 + Math.random() * 90;  // 5-95% of screen height
-      } while (x > 21 && x < 79 && y > 27 && y < 70); // Retry if inside red box
+      } while (x > 10 && x < 90 && y > 25 && y < 72); // Retry if inside content area
 
       // Random direction
       const angle = Math.random() * Math.PI * 2;
@@ -142,10 +143,10 @@ function FloatingCryptoLogos() {
 
     // Rectangular avoidance zone (center content area within first dark section)
     // Values are percentages of full page container - matching the user's red box
-    const avoidLeft = 21;    // Left edge of content area
-    const avoidRight = 79;   // Right edge of content area
-    const avoidTop = 27;     // Just above headline
-    const avoidBottom = 70;  // Just below CTA buttons
+    const avoidLeft = 10;    // Left edge of content area
+    const avoidRight = 90;   // Right edge of content area
+    const avoidTop = 25;     // Just above headline
+    const avoidBottom = 72;  // Just below animated builder
     const speed = 0.04; // Slow, gentle movement
 
     const animate = () => {
@@ -351,9 +352,9 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] bg-[#070d1a] relative overflow-hidden">
+    <div className="min-h-[calc(100vh-4rem)] bg-[#040810] relative overflow-hidden">
       {/* Animated Background Grid with Fade */}
-      <div className="absolute inset-0 bg-gradient-to-br from-blue-950/20 via-[#070d1a] to-blue-950/20">
+      <div className="absolute inset-0 bg-gradient-to-br from-blue-950/15 via-[#040810] to-blue-950/15">
         <div className="absolute inset-0" style={{
           backgroundImage: `
             linear-gradient(to right, rgba(30, 58, 138, 0.1) 1px, transparent 1px),
@@ -425,42 +426,47 @@ export default function Home() {
         `}</style>
       
       <div className="container mx-auto px-4 sm:px-6 lg:px-8 relative z-10 pt-20 pb-24">
-        <div className="max-w-5xl mx-auto space-y-32">
+        <div className="max-w-7xl mx-auto space-y-32">
           
           {/* Hero Section */}
-          <div className="text-center space-y-12 pt-20">
-            {/* Headline with decorative lines */}
-            <div className="flex justify-center w-full">
-              <div className="relative inline-block max-w-full">
-                {/* Decorative vertical lines - hidden on mobile */}
-                <div className="hidden sm:block absolute -left-16 top-0 bottom-0 w-px bg-gradient-to-b from-transparent via-blue-500/50 to-transparent"></div>
-                <div className="hidden sm:block absolute -right-16 top-0 bottom-0 w-px bg-gradient-to-b from-transparent via-blue-500/50 to-transparent"></div>
-
-                <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-light text-white leading-tight px-4 text-center">
-                  AI executes. You set the boundaries.
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 pt-20 items-center">
+            {/* Left: Text content */}
+            <div className="space-y-6 text-center lg:text-left">
+              <div className="relative space-y-5">
+                {/* Decorative vertical line - left side only */}
+                <div className="hidden lg:block absolute -left-12 top-0 bottom-0 w-px bg-gradient-to-b from-transparent via-blue-500/50 to-transparent"></div>
+                <h1 className="text-5xl sm:text-6xl md:text-7xl lg:text-6xl xl:text-7xl font-semibold text-white leading-[1.1] tracking-tight">
+                  AI executes.{" "}
+                  <span className="bg-gradient-to-r from-blue-400 via-blue-300 to-blue-500 bg-clip-text text-transparent">You define the edge.</span>
                 </h1>
+
+                <p className="text-lg sm:text-xl text-gray-400 leading-relaxed max-w-xl mx-auto lg:mx-0">
+                  Build rule-based strategies, set risk limits, and let AI handle every trade — 24/7, with no emotion.
+                </p>
+              </div>
+
+              <div className="flex flex-row items-center gap-3 sm:gap-4 justify-center lg:justify-start pt-2">
+                <Button
+                  size="lg"
+                  onClick={handleBuildStrategy}
+                  className="group px-6 py-3 sm:px-10 sm:py-4.5 text-sm sm:text-lg font-medium bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white rounded-xl shadow-[0_0_20px_rgba(59,130,246,0.4)] hover:shadow-[0_0_30px_rgba(59,130,246,0.5)] transition-all duration-200 hover:scale-[1.02]"
+                >
+                  Start Building
+                  <svg className="inline-block ml-2 w-4 h-4 transition-transform group-hover:translate-x-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                  </svg>
+                </Button>
+                <Link href="/arena">
+                  <Button size="lg" variant="outline" className="px-6 py-3 sm:px-10 sm:py-4.5 text-sm sm:text-lg font-medium bg-white/[0.03] border border-white/[0.12] text-white/80 hover:text-white hover:border-white/25 hover:bg-white/[0.06] rounded-xl transition-all duration-200 backdrop-blur-sm">
+                    Explore the Arena
+                  </Button>
+                </Link>
               </div>
             </div>
-            
-            {/* Subheadline (outside brackets) */}
-            <p className="text-sm sm:text-base md:text-lg lg:text-xl text-gray-300 leading-relaxed max-w-4xl mx-auto">
-              Design rule-based strategies, define risk constraints, and let AI execute <br className="hidden sm:block" />
-              within them.
-            </p>
-            
-            <div className="flex flex-row gap-3 sm:gap-6 justify-center pt-4">
-              <Button
-                size="lg"
-                onClick={handleBuildStrategy}
-                className="px-4 py-2.5 sm:px-16 sm:py-7 text-xs sm:text-base md:text-lg lg:text-xl bg-blue-600 hover:bg-blue-700 text-white rounded-xl sm:rounded-2xl shadow-[0_0_40px_rgba(37,99,235,0.5)] hover:shadow-[0_0_50px_rgba(37,99,235,0.6)] transition-all hover:scale-105"
-              >
-                Build a Strategy
-              </Button>
-              <Link href="/arena">
-                <Button size="lg" variant="outline" className="px-4 py-2.5 sm:px-16 sm:py-7 text-xs sm:text-base md:text-lg lg:text-xl bg-transparent border-2 border-gray-700 text-white hover:text-white hover:border-gray-600 hover:bg-gray-800/20 rounded-xl sm:rounded-2xl transition-all">
-                  View Arena
-                </Button>
-              </Link>
+
+            {/* Right: Animated Strategy Builder */}
+            <div className="flex justify-center lg:justify-end">
+              <AnimatedStrategyBuilder />
             </div>
           </div>
 

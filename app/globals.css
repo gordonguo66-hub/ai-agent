@@ -271,4 +271,26 @@
   .avatar-shine {
     animation: avatarShine 0.8s ease-in-out;
   }
+
+  /* Subtle elevated section panels */
+  .glass-section {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 0.5rem;
+  }
+
+  /* Enhanced input styling for dark mode */
+  .dark input[type="number"],
+  .dark input[type="text"],
+  .dark textarea {
+    background: rgba(15, 19, 31, 0.8);
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .dark input[type="number"]:focus,
+  .dark input[type="text"]:focus,
+  .dark textarea:focus {
+    border-color: rgba(59, 130, 246, 0.5);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1), 0 0 15px rgba(59, 130, 246, 0.08);
+  }
 }

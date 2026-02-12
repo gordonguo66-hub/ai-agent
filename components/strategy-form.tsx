@@ -8,9 +8,11 @@ import { Textarea } from "./ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "./ui/tabs";
 import { Switch } from "./ui/switch";
-import { Select, SelectItem } from "./ui/select";
 import { Badge } from "./ui/badge";
 import { createClient } from "@/lib/supabase/browser";
+import { CustomSelect, type SelectOption } from "./ui/custom-select";
+import { ProviderLogos } from "./provider-logos";
+import { Zap, Globe, Brain, Target, Shield, ArrowUpRight, ArrowDownRight, Timer, Gauge } from "lucide-react";
 
 // Model configurations by provider (Feb 2026)
 // Only providers with Corebound platform keys are listed
@@ -994,9 +996,10 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
       <div className="lg:col-span-2">
-        <Card>
+        <Card className="overflow-hidden">
+          <div className="h-0.5 bg-gradient-to-r from-blue-600 via-blue-500 to-cyan-400" />
           <CardHeader className="pb-4">
-            <CardTitle className="text-2xl">Strategy Builder</CardTitle>
+            <CardTitle className="text-2xl font-bold">Strategy Builder</CardTitle>
             <CardDescription className="text-base">
               {isEditMode ? "Update your AI trading strategy settings" : "Configure your AI trading strategy with advanced settings"}
             </CardDescription>
@@ -1011,16 +1014,16 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
 
               <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
                 <TabsList className="grid w-full grid-cols-5">
-                  <TabsTrigger value="basics">Basics</TabsTrigger>
-                  <TabsTrigger value="markets">Markets</TabsTrigger>
-                  <TabsTrigger value="ai">AI Inputs</TabsTrigger>
-                  <TabsTrigger value="entry">Entry/Exit</TabsTrigger>
-                  <TabsTrigger value="risk">Risk</TabsTrigger>
+                  <TabsTrigger value="basics"><Zap size={14} className="mr-1.5 hidden sm:inline" />Basics</TabsTrigger>
+                  <TabsTrigger value="markets"><Globe size={14} className="mr-1.5 hidden sm:inline" />Markets</TabsTrigger>
+                  <TabsTrigger value="ai"><Brain size={14} className="mr-1.5 hidden sm:inline" />AI Inputs</TabsTrigger>
+                  <TabsTrigger value="entry"><Target size={14} className="mr-1.5 hidden sm:inline" />Entry/Exit</TabsTrigger>
+                  <TabsTrigger value="risk"><Shield size={14} className="mr-1.5 hidden sm:inline" />Risk</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="basics" className="space-y-6 mt-6">
                   {/* Venue Selection */}
-                  <div className="space-y-3 p-4 border rounded-md bg-muted/30">
+                  <div className="space-y-3 p-4 glass-section">
                     <label className="text-sm font-semibold">
                       Exchange Venue *
                     </label>
@@ -1034,10 +1037,10 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                             // Reset markets when changing venue
                             setSelectedMarkets([]);
                           }}
-                          className={`p-4 border rounded-lg text-left transition-colors ${
+                          className={`p-4 border rounded-lg text-left transition-all duration-200 ${
                             venue === v.id
-                              ? "border-primary bg-primary/5 ring-2 ring-primary/20"
-                              : "border-border hover:border-muted-foreground/50"
+                              ? "border-primary bg-primary/10 ring-2 ring-primary/30 shadow-[0_0_15px_rgba(59,130,246,0.15)]"
+                              : "border-border hover:border-muted-foreground/50 hover:bg-white/[0.02]"
                           }`}
                         >
                           <div className="font-semibold">{v.name}</div>
@@ -1093,47 +1096,41 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                     <label htmlFor="model_provider" className="text-sm font-semibold">
                       Model Provider *
                     </label>
-                    <select
-                      id="model_provider"
+                    <CustomSelect
+                      options={PROVIDERS.map((p) => ({
+                        value: p.id,
+                        label: p.name,
+                        icon: ProviderLogos[p.id],
+                      }))}
                       value={modelProvider}
-                      onChange={(e) => {
-                        setModelProvider(e.target.value);
+                      onValueChange={(val) => {
+                        setModelProvider(val);
                         setModelName("");
                       }}
-                      className="flex h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                      required
-                    >
-                      {PROVIDERS.map((provider) => (
-                        <option key={provider.id} value={provider.id}>
-                          {provider.name}
-                        </option>
-                      ))}
-                    </select>
+                      placeholder="Select a provider..."
+                    />
                   </div>
 
                   <div className="space-y-2">
                     <label htmlFor="model_name" className="text-sm font-semibold">
                       Model Name *
                     </label>
-                    <select
-                      id="model_name"
+                    <CustomSelect
+                      options={(MODELS_BY_PROVIDER[modelProvider] || []).map((m) => ({
+                        value: m.id,
+                        label: m.name,
+                        description: m.description,
+                        icon: ProviderLogos[modelProvider],
+                      }))}
                       value={modelName}
-                      onChange={(e) => setModelName(e.target.value)}
-                      className="flex h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                      required
+                      onValueChange={setModelName}
+                      placeholder={
+                        modelProvider
+                          ? `Select a ${PROVIDERS.find((p) => p.id === modelProvider)?.name || "provider"} model...`
+                          : "Select a provider first..."
+                      }
                       disabled={!modelProvider || (MODELS_BY_PROVIDER[modelProvider] || []).length === 0}
-                    >
-                      <option value="">
-                        {modelProvider
-                          ? `Select a ${PROVIDERS.find(p => p.id === modelProvider)?.name || 'provider'} model...`
-                          : "Select a provider first..."}
-                      </option>
-                      {(MODELS_BY_PROVIDER[modelProvider] || []).map((model) => (
-                        <option key={model.id} value={model.id}>
-                          {model.name}
-                        </option>
-                      ))}
-                    </select>
+                    />
                   </div>
 
                   <div className="space-y-2">
@@ -1494,7 +1491,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
 
                     {/* Market Processing Mode - only show when multiple markets selected */}
                     {selectedMarkets.length > 1 && (
-                      <div className="space-y-3 p-4 border rounded-md bg-muted/30">
+                      <div className="space-y-3 p-4 glass-section">
                         <label className="text-sm font-semibold">
                           Market Processing Mode
                         </label>
@@ -1563,7 +1560,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
 
                 <TabsContent value="ai" className="space-y-6 mt-6">
                   <div className="space-y-4">
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between p-3 rounded-lg border border-transparent hover:border-border/50 hover:bg-white/[0.02] transition-colors">
                       <div>
                         <label className="text-sm font-semibold">Candles Data</label>
                         <p className="text-xs text-muted-foreground">Historical price candles</p>
@@ -1610,7 +1607,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                         </div>
                         <div className="space-y-1">
                           <label className="text-sm font-medium">Candle Timeframe</label>
-                          <Select
+                          <CustomSelect
                             value={aiInputs.candles.timeframe}
                             onValueChange={(value) =>
                               setAiInputs(prev => ({
@@ -1618,28 +1615,24 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                                 candles: { ...prev.candles, timeframe: value },
                               }))
                             }
-                          >
-                            <optgroup label="Minutes">
-                              <option value="1m">1 minute</option>
-                              <option value="3m">3 minutes</option>
-                              <option value="5m">5 minutes (default)</option>
-                              <option value="15m">15 minutes</option>
-                              <option value="30m">30 minutes</option>
-                            </optgroup>
-                            <optgroup label="Hours">
-                              <option value="1h">1 hour</option>
-                              <option value="2h">2 hours</option>
-                              <option value="4h">4 hours</option>
-                              <option value="8h">8 hours</option>
-                              <option value="12h">12 hours</option>
-                            </optgroup>
-                            <optgroup label="Days & More">
-                              <option value="1d">1 day</option>
-                              <option value="3d">3 days</option>
-                              <option value="1w">1 week</option>
-                              <option value="1M">1 month</option>
-                            </optgroup>
-                          </Select>
+                            options={[
+                              { value: "1m", label: "1 minute" },
+                              { value: "3m", label: "3 minutes" },
+                              { value: "5m", label: "5 minutes (default)" },
+                              { value: "15m", label: "15 minutes" },
+                              { value: "30m", label: "30 minutes" },
+                              { value: "1h", label: "1 hour" },
+                              { value: "2h", label: "2 hours" },
+                              { value: "4h", label: "4 hours" },
+                              { value: "8h", label: "8 hours" },
+                              { value: "12h", label: "12 hours" },
+                              { value: "1d", label: "1 day" },
+                              { value: "3d", label: "3 days" },
+                              { value: "1w", label: "1 week" },
+                              { value: "1M", label: "1 month" },
+                            ]}
+                            placeholder="Select timeframe..."
+                          />
                           <p className="text-xs text-muted-foreground">
                             Volatility is measured between these candles
                           </p>
@@ -1647,7 +1640,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                       </div>
                     )}
 
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between p-3 rounded-lg border border-transparent hover:border-border/50 hover:bg-white/[0.02] transition-colors">
                       <div>
                         <label className="text-sm font-semibold">Orderbook (L2)</label>
                         <p className="text-xs text-muted-foreground">Depth levels from the order book</p>
@@ -1928,7 +1921,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between p-3 rounded-lg border border-transparent hover:border-border/50 hover:bg-white/[0.02] transition-colors">
                       <div>
                         <label className="text-sm font-semibold">Include Position State</label>
                         <p className="text-xs text-muted-foreground">Current open positions</p>
@@ -1941,7 +1934,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                       />
                     </div>
 
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between p-3 rounded-lg border border-transparent hover:border-border/50 hover:bg-white/[0.02] transition-colors">
                       <div>
                         <label className="text-sm font-semibold">Include Recent Decisions</label>
                         <p className="text-xs text-muted-foreground">Previous AI decisions</p>
@@ -1982,7 +1975,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
 
                   {/* Recent Trades */}
                   <div className="space-y-2">
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between p-3 rounded-lg border border-transparent hover:border-border/50 hover:bg-white/[0.02] transition-colors">
                       <div className="space-y-0.5">
                         <label className="text-sm font-semibold">Include Recent Trades</label>
                         <p className="text-xs text-muted-foreground">Past trade executions with PnL</p>
@@ -2024,9 +2017,9 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
 
                 <TabsContent value="entry" className="space-y-6 mt-6">
                   {/* Entry Configuration */}
-                  <Card>
+                  <Card className="border-l-2 border-l-emerald-500/30">
                     <CardHeader>
-                      <CardTitle>Entry Configuration</CardTitle>
+                      <CardTitle className="text-lg flex items-center gap-2"><ArrowUpRight size={18} className="text-emerald-500" /> Entry Configuration</CardTitle>
                       <CardDescription>Control when and how trades are entered</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
@@ -2294,29 +2287,30 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                   </Card>
 
                   {/* Exit Configuration */}
-                  <Card>
+                  <Card className="border-l-2 border-l-rose-500/30">
                     <CardHeader>
-                      <CardTitle>Exit Configuration</CardTitle>
+                      <CardTitle className="text-lg flex items-center gap-2"><ArrowDownRight size={18} className="text-rose-500" /> Exit Configuration</CardTitle>
                       <CardDescription>Control when and how positions are closed</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
                       <div className="space-y-2">
                         <label className="text-sm font-semibold">Exit Mode *</label>
-                        <Select
+                        <CustomSelect
                           value={entryExit.exit.mode}
-                          onValueChange={(v: any) =>
+                          onValueChange={(v) =>
                             setEntryExit(prev => ({
                               ...prev,
-                              exit: { ...prev.exit, mode: v },
+                              exit: { ...prev.exit, mode: v as "signal" | "tp_sl" | "trailing" | "time" },
                             }))
                           }
-                          className="h-11"
-                        >
-                          <SelectItem value="signal">Signal (AI-driven)</SelectItem>
-                          <SelectItem value="tp_sl">Take Profit / Stop Loss</SelectItem>
-                          <SelectItem value="trailing">Trailing Stop</SelectItem>
-                          <SelectItem value="time">Time-Based</SelectItem>
-                        </Select>
+                          options={[
+                            { value: "signal", label: "Signal (AI-driven)" },
+                            { value: "tp_sl", label: "Take Profit / Stop Loss" },
+                            { value: "trailing", label: "Trailing Stop" },
+                            { value: "time", label: "Time-Based" },
+                          ]}
+                          placeholder="Select exit mode..."
+                        />
                         <p className="text-xs text-muted-foreground">
                           How positions are automatically closed
                         </p>
@@ -2536,9 +2530,9 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                   </Card>
 
                   {/* Trade Control */}
-                  <Card>
+                  <Card className="border-l-2 border-l-amber-500/30">
                     <CardHeader>
-                      <CardTitle>Trade Control</CardTitle>
+                      <CardTitle className="text-lg flex items-center gap-2"><Timer size={18} className="text-amber-500" /> Trade Control</CardTitle>
                       <CardDescription>Limit trade frequency and prevent overtrading</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
@@ -2700,9 +2694,9 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                   </Card>
 
                   {/* Confidence Control */}
-                  <Card>
+                  <Card className="border-l-2 border-l-blue-500/30">
                     <CardHeader>
-                      <CardTitle>Confidence Control</CardTitle>
+                      <CardTitle className="text-lg flex items-center gap-2"><Gauge size={18} className="text-blue-500" /> Confidence Control</CardTitle>
                       <CardDescription>Control AI decision confidence thresholds</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
@@ -2919,7 +2913,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                   type="submit"
                   disabled={loading}
                   size="lg"
-                  className="flex-1"
+                  className="flex-1 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 shadow-lg shadow-blue-600/25 transition-all duration-200"
                 >
                   {loading ? (isEditMode ? "Updating..." : "Creating...") : (isEditMode ? "Update Strategy" : "Create Strategy")}
                 </Button>
@@ -2937,28 +2931,37 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
         </Card>
       </div>
 
-      <div className="lg:col-span-1">
-        <Card>
+      <div className="lg:col-span-1 lg:sticky lg:top-24 lg:self-start">
+        <Card className="overflow-hidden">
+          <div className="h-0.5 bg-gradient-to-r from-blue-600 via-blue-500 to-cyan-400" />
           <CardHeader>
-            <CardTitle className="text-lg">Summary</CardTitle>
+            <CardTitle className="text-lg font-bold">Summary</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4 text-sm">
-            <div>
-              <div className="text-muted-foreground">Exchange</div>
-              <div className="font-medium">
+          <CardContent className="space-y-0 text-sm divide-y divide-border/50">
+            <div className="pb-3">
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <span className="h-1.5 w-1.5 rounded-full bg-blue-500" />
+                Exchange
+              </div>
+              <div className="font-medium mt-0.5 pl-3.5">
                 {venue === "coinbase"
                   ? (coinbaseIntxEnabled ? "Coinbase INTX (Spot + Perps)" : "Coinbase (Spot)")
+                  : venue === "virtual" ? "Virtual (Paper)"
+                  : venue === "arena" ? "Arena (Competition)"
                   : "Hyperliquid (Perps)"}
               </div>
               {venue === "coinbase" && !coinbaseIntxEnabled && (
-                <div className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                <div className="text-xs text-blue-600 dark:text-blue-400 mt-1 pl-3.5">
                   Spot Only
                 </div>
               )}
             </div>
-            <div>
-              <div className="text-muted-foreground">Markets</div>
-              <div className="font-medium">
+            <div className="py-3">
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                Markets
+              </div>
+              <div className="font-medium mt-0.5 pl-3.5">
                 {useManualInput
                   ? manualMarketsInput.trim()
                     ? `${parseManualMarkets(manualMarketsInput).length} markets (manual)`
@@ -2968,20 +2971,26 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                   : "None selected"}
               </div>
               {!useManualInput && selectedMarkets.length > 0 && selectedMarkets.length <= 5 && (
-                <div className="text-xs text-muted-foreground mt-1">
+                <div className="text-xs text-muted-foreground mt-1 pl-3.5">
                   {selectedMarkets.join(", ")}
                 </div>
               )}
             </div>
-            <div>
-              <div className="text-muted-foreground">Cadence</div>
-              <div className="font-medium">
+            <div className="py-3">
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                Cadence
+              </div>
+              <div className="font-medium mt-0.5 pl-3.5">
                 {getTotalCadenceSeconds() > 0 ? formatCadenceDisplay() : "Not set"}
               </div>
             </div>
-            <div>
-              <div className="text-muted-foreground">Entry Behaviors</div>
-              <div className="font-medium">
+            <div className="py-3">
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                Entry Behaviors
+              </div>
+              <div className="font-medium mt-0.5 pl-3.5">
                 {[
                   entryExit.entry.behaviors.trend && "Trend",
                   entryExit.entry.behaviors.breakout && "Breakout",
@@ -2991,46 +3000,58 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                   .join(", ") || "None (No entries allowed)"}
               </div>
             </div>
-            <div>
-              <div className="text-muted-foreground">Exit Strategy</div>
-              <div className="font-medium">
+            <div className="py-3">
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <span className="h-1.5 w-1.5 rounded-full bg-rose-500" />
+                Exit Strategy
+              </div>
+              <div className="font-medium mt-0.5 pl-3.5">
                 {entryExit.exit.mode === "signal" && "AI-Driven"}
                 {entryExit.exit.mode === "tp_sl" && `TP/SL: ${entryExit.exit.takeProfitPct}% / ${entryExit.exit.stopLossPct}%`}
                 {entryExit.exit.mode === "trailing" && `Trailing: ${entryExit.exit.trailingStopPct || 0}%`}
                 {entryExit.exit.mode === "time" && `Time: ${entryExit.exit.maxHoldMinutes || 0}min`}
               </div>
               {entryExit.exit.mode === "signal" && (entryExit.exit.maxLossProtectionPct || entryExit.exit.maxProfitCapPct) && (
-                <div className="text-xs text-muted-foreground mt-1">
-                  Guardrails: 
+                <div className="text-xs text-muted-foreground mt-1 pl-3.5">
+                  Guardrails:
                   {entryExit.exit.maxLossProtectionPct && ` Max Loss ${entryExit.exit.maxLossProtectionPct}%`}
                   {entryExit.exit.maxProfitCapPct && ` Max Profit ${entryExit.exit.maxProfitCapPct}%`}
                 </div>
               )}
               {entryExit.exit.mode === "trailing" && entryExit.exit.initialStopLossPct && (
-                <div className="text-xs text-muted-foreground mt-1">
+                <div className="text-xs text-muted-foreground mt-1 pl-3.5">
                   Initial Stop: {entryExit.exit.initialStopLossPct}%
                 </div>
               )}
             </div>
-            <div>
-              <div className="text-muted-foreground">Max Position</div>
-              <div className="font-medium">
+            <div className="py-3">
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
+                Max Position
+              </div>
+              <div className="font-medium mt-0.5 pl-3.5">
                 ${typeof risk.maxPositionUsd === "number" ? risk.maxPositionUsd.toLocaleString() : "1,000"}
               </div>
             </div>
-            <div>
-              <div className="text-muted-foreground">Max Leverage</div>
-              <div className="font-medium">
+            <div className="py-3">
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
+                Max Leverage
+              </div>
+              <div className="font-medium mt-0.5 pl-3.5">
                 {venue === "coinbase" && !coinbaseIntxEnabled
                   ? "1x (spot)"
                   : `${typeof risk.maxLeverage === "number" ? risk.maxLeverage : 2}x`}
               </div>
             </div>
-            <div>
-              <div className="text-muted-foreground">Min Confidence</div>
-              <div className="font-medium">
-                {typeof entryExit.confidenceControl.minConfidence === "number" 
-                  ? `${(entryExit.confidenceControl.minConfidence * 100).toFixed(0)}%` 
+            <div className="pt-3">
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <span className="h-1.5 w-1.5 rounded-full bg-blue-400" />
+                Min Confidence
+              </div>
+              <div className="font-medium mt-0.5 pl-3.5">
+                {typeof entryExit.confidenceControl.minConfidence === "number"
+                  ? `${(entryExit.confidenceControl.minConfidence * 100).toFixed(0)}%`
                   : "65%"}
               </div>
             </div>
