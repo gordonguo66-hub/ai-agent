@@ -220,20 +220,16 @@ function DashboardContent() {
               </span>
             </div>
             {strategies.length === 0 ? (
-              <Card className="border-dashed border-blue-900/50 bg-blue-950/20">
-                <CardContent className="pt-12 pb-12">
-                  <div className="text-center max-w-md mx-auto">
-                    <p className="text-gray-200 mb-6 text-base">
-                      No strategies yet. Create your first strategy to get started.
-                    </p>
-                    <Link href="/strategy/new">
-                      <Button className="bg-blue-900 hover:bg-blue-800 text-white border border-blue-700">
-                        Create Your First Strategy
-                      </Button>
-                    </Link>
-                  </div>
-                </CardContent>
-              </Card>
+              <div className="text-center py-12">
+                <p className="text-gray-200 mb-6 text-base">
+                  No strategies yet. Create your first strategy to get started.
+                </p>
+                <Link href="/strategy/new">
+                  <Button className="bg-blue-900 hover:bg-blue-800 text-white border border-blue-700">
+                    Create Your First Strategy
+                  </Button>
+                </Link>
+              </div>
             ) : (
               <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
                 {strategies.map((strategy) => (
@@ -338,18 +334,14 @@ function DashboardContent() {
               )}
             </div>
             {sessions.length === 0 ? (
-              <Card className="border-dashed border-blue-900/50 bg-blue-950/20">
-                <CardContent className="pt-12 pb-12">
-                  <div className="text-center max-w-md mx-auto">
-                    <p className="text-gray-200 mb-1 text-base">
-                      No trading sessions yet.
-                    </p>
-                    <p className="text-sm text-gray-300">
-                      Create a session from a strategy to start dry-run or live trading.
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
+              <div className="text-center py-12">
+                <p className="text-gray-200 mb-1 text-base">
+                  No trading sessions yet.
+                </p>
+                <p className="text-sm text-gray-300">
+                  Create a session from a strategy to start dry-run or live trading.
+                </p>
+              </div>
             ) : (
               <div className="space-y-4">
                 {sessions.map((session: any) => {

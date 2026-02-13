@@ -53,46 +53,56 @@ function formatReturnPct(value: number, decimals: number): string {
   return `${sign}${v.toFixed(decimals)}%`;
 }
 
+// Deterministic muted color per username (like Discord/Binance default avatars)
+function getAvatarColors(name: string) {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = ((hash << 5) - hash + name.charCodeAt(i)) | 0;
+  }
+  const hue = Math.abs(hash) % 360;
+  return {
+    backgroundColor: `hsl(${hue}, 25%, 28%)`,
+    color: `hsl(${hue}, 30%, 65%)`,
+  };
+}
+
 // Avatar component with fallback to initials
 function UserAvatar({ displayName, avatarUrl, size = 24 }: { displayName: string; avatarUrl?: string | null; size?: number }) {
-  const initials = displayName
-    .split(' ')
-    .map(n => n[0])
-    .join('')
-    .toUpperCase()
-    .slice(0, 2) || '?';
-  
+  const initial = (displayName[0] || '?').toUpperCase();
+  const colors = getAvatarColors(displayName);
+
   if (avatarUrl) {
     return (
       <img
         src={avatarUrl}
         alt={displayName}
-        className="rounded-full object-cover"
+        className="rounded-full object-cover ring-1 ring-white/10"
         style={{ width: size, height: size }}
         onError={(e) => {
-          // Fallback to initials if image fails to load
           e.currentTarget.style.display = 'none';
           const parent = e.currentTarget.parentElement;
           if (parent) {
             const fallback = document.createElement('div');
-            fallback.className = 'rounded-full flex items-center justify-center bg-muted text-muted-foreground font-medium';
+            fallback.className = 'rounded-full flex items-center justify-center font-medium';
             fallback.style.width = `${size}px`;
             fallback.style.height = `${size}px`;
-            fallback.style.fontSize = `${size * 0.4}px`;
-            fallback.textContent = initials;
+            fallback.style.fontSize = `${size * 0.42}px`;
+            fallback.style.backgroundColor = colors.backgroundColor;
+            fallback.style.color = colors.color;
+            fallback.textContent = initial;
             parent.appendChild(fallback);
           }
         }}
       />
     );
   }
-  
+
   return (
     <div
-      className="rounded-full flex items-center justify-center bg-muted text-muted-foreground font-medium"
-      style={{ width: size, height: size, fontSize: size * 0.4 }}
+      className="rounded-full flex items-center justify-center font-medium"
+      style={{ width: size, height: size, fontSize: size * 0.42, ...colors }}
     >
-      {initials}
+      {initial}
     </div>
   );
 }
@@ -119,10 +129,11 @@ function ChartAvatarDotInner({ cx, cy, participant, isRefreshing, onProfileClick
     setIsHovered(false);
   };
 
+  const isSeedUser = participant.userId?.startsWith('seed-user-');
   const handleClick = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (onProfileClick) {
+    if (onProfileClick && !isSeedUser) {
       onProfileClick(participant.userId);
     }
   };
@@ -138,12 +149,12 @@ function ChartAvatarDotInner({ cx, cy, participant, isRefreshing, onProfileClick
           borderColor: isHovered ? 'hsl(var(--primary))' : 'white',
           width: size,
           height: size,
-          boxShadow: isHovered 
-            ? '0 4px 12px rgba(0,0,0,0.3)' 
-            : isRefreshing 
-              ? '0 0 12px rgba(59, 130, 246, 0.6), 0 2px 4px rgba(0,0,0,0.2)' 
+          boxShadow: isHovered
+            ? '0 4px 12px rgba(0,0,0,0.3)'
+            : isRefreshing
+              ? '0 0 12px rgba(59, 130, 246, 0.6), 0 2px 4px rgba(0,0,0,0.2)'
               : '0 2px 4px rgba(0,0,0,0.2)',
-          cursor: 'pointer',
+          cursor: isSeedUser ? 'default' : 'pointer',
         }}
       >
         <UserAvatar 
@@ -897,7 +908,7 @@ function ArenaContent() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {virtualLeaderboard.map((entry) => {
+                      {virtualLeaderboard.slice(0, 10).map((entry) => {
                         const emoji = getRankEmoji(entry.rank);
                         const isMe = entry.userId === currentUserId;
                         const isActive = entry.sessionStatus === 'running';
@@ -917,9 +928,15 @@ function ArenaContent() {
                               <span>{entry.rank}</span>
                             </TableCell>
                             <TableCell>
-                              <div 
-                                onClick={() => handleProfileClick(entry.userId)} 
-                                className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity"
+                              <div
+                                onClick={() => {
+                                  if (!entry.userId?.startsWith('seed-user-')) {
+                                    handleProfileClick(entry.userId);
+                                  }
+                                }}
+                                className={`flex items-center gap-3 transition-opacity ${
+                                  entry.userId?.startsWith('seed-user-') ? '' : 'cursor-pointer hover:opacity-80'
+                                }`}
                               >
                                 <UserAvatar
                                   displayName={entry.displayName}

@@ -673,14 +673,29 @@ function ProfileContent({ userId }: { userId: string }) {
 
                   {/* Follower/Following counts */}
                   <div className="flex gap-4 mb-3 text-sm">
-                    <button onClick={() => openFollowsModal("followers")} className="hover:opacity-70 transition-opacity text-left">
-                      <span className="font-semibold">{profile.followers_count || 0}</span>{" "}
-                      <span className="text-muted-foreground">Followers</span>
-                    </button>
-                    <button onClick={() => openFollowsModal("following")} className="hover:opacity-70 transition-opacity text-left">
-                      <span className="font-semibold">{profile.following_count || 0}</span>{" "}
-                      <span className="text-muted-foreground">Following</span>
-                    </button>
+                    {isOwner ? (
+                      <>
+                        <button onClick={() => openFollowsModal("followers")} className="hover:opacity-70 transition-opacity text-left">
+                          <span className="font-semibold">{profile.followers_count || 0}</span>{" "}
+                          <span className="text-muted-foreground">Followers</span>
+                        </button>
+                        <button onClick={() => openFollowsModal("following")} className="hover:opacity-70 transition-opacity text-left">
+                          <span className="font-semibold">{profile.following_count || 0}</span>{" "}
+                          <span className="text-muted-foreground">Following</span>
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <span>
+                          <span className="font-semibold">{profile.followers_count || 0}</span>{" "}
+                          <span className="text-muted-foreground">Followers</span>
+                        </span>
+                        <span>
+                          <span className="font-semibold">{profile.following_count || 0}</span>{" "}
+                          <span className="text-muted-foreground">Following</span>
+                        </span>
+                      </>
+                    )}
                   </div>
 
                   {profile.bio && (
@@ -886,13 +901,9 @@ function ProfileContent({ userId }: { userId: string }) {
               <h2 className="text-lg font-semibold text-white">Posts</h2>
 
               {posts.length === 0 ? (
-              <Card>
-                <CardContent className="py-8 text-center">
-                  <p className="text-muted-foreground">
-                    {isOwner ? "You haven't posted anything yet." : "No posts yet."}
-                  </p>
-                </CardContent>
-              </Card>
+              <p className="text-muted-foreground text-center py-8">
+                {isOwner ? "You haven't posted anything yet." : "No posts yet."}
+              </p>
             ) : (
               posts.map((post) => (
                 <Card key={post.id}>

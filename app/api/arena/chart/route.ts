@@ -4,6 +4,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import { computeReturnSeries } from "@/lib/arena/computeReturn";
+import { isSeedEnabled, getSeedParticipants } from "@/lib/arena/seedData";
 
 /**
  * Arena Chart API
@@ -168,18 +169,22 @@ export async function GET(request: NextRequest) {
     }
 
     if (!arenaEntries || arenaEntries.length === 0) {
-      return NextResponse.json({
-        equityChartData: [],
-        returnChartData: [],
-        participants: [],
-        topN,
-        maxElapsedMs: 0,
-        message: "No active arena participants"
-      });
+      if (!isSeedEnabled()) {
+        return NextResponse.json({
+          equityChartData: [],
+          returnChartData: [],
+          participants: [],
+          topN,
+          maxElapsedMs: 0,
+          message: "No active arena participants"
+        });
+      }
+      // Fall through with empty real data — seed injection below will populate
     }
 
     // Fetch profiles for avatar URLs
-    const userIds = [...new Set(arenaEntries.map((e: any) => e.user_id).filter(Boolean))];
+    const safeArenaEntries = arenaEntries || [];
+    const userIds = [...new Set(safeArenaEntries.map((e: any) => e.user_id).filter(Boolean))];
     const userToProfile = new Map<string, { avatar_url: string | null; username: string | null }>();
 
     if (userIds.length > 0) {
@@ -199,7 +204,7 @@ export async function GET(request: NextRequest) {
     const participants: ParticipantData[] = [];
     const sessionIds: string[] = [];
 
-    for (const entry of arenaEntries) {
+    for (const entry of safeArenaEntries) {
       const session = entry.strategy_sessions as any;
       if (!session) continue;
 
@@ -233,7 +238,7 @@ export async function GET(request: NextRequest) {
     let equityPoints: { session_id: string; equity: number; t: string }[] = [];
     let eqError: any = null;
     let offset = 0;
-    let hasMore = true;
+    let hasMore = sessionIds.length > 0;
 
     while (hasMore) {
       let equityQuery = serviceClient
@@ -323,6 +328,15 @@ export async function GET(request: NextRequest) {
     // Sort by latestEquity descending and take top N (server-enforced)
     participantsWithData.sort((a, b) => b.latestEquity - a.latestEquity);
     const activeParticipants = participantsWithData.slice(0, topN);
+
+    // Inject seed traders if enabled
+    if (isSeedEnabled()) {
+      const seedParticipants = getSeedParticipants();
+      activeParticipants.push(...seedParticipants);
+      // Re-sort and re-slice to maintain topN limit with seed data mixed in
+      activeParticipants.sort((a, b) => b.latestEquity - a.latestEquity);
+      activeParticipants.splice(topN);
+    }
 
     // Keep absolute timestamps so late joiners' lines start later on the x-axis.
     // Inject a baseline point at each participant's actual joinTime if needed.

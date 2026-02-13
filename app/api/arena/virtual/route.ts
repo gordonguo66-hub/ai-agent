@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 import { createServiceRoleClient } from "@/lib/supabase/server";
+import { isSeedEnabled, getSeedLeaderboard } from "@/lib/arena/seedData";
 
 export async function GET(request: NextRequest) {
   try {
@@ -43,6 +44,14 @@ export async function GET(request: NextRequest) {
     }
 
     if (!arenaEntries || arenaEntries.length === 0) {
+      // If seed data is enabled, still return seed entries even with no real users
+      if (isSeedEnabled()) {
+        const seedEntries = getSeedLeaderboard();
+        const seededLeaderboard = seedEntries
+          .sort((a, b) => b.equity - a.equity)
+          .map((row, index) => ({ ...row, rank: index + 1 }));
+        return NextResponse.json({ leaderboard: seededLeaderboard });
+      }
       return NextResponse.json({ leaderboard: [] });
     }
 
@@ -189,6 +198,16 @@ export async function GET(request: NextRequest) {
         ...row,
         rank: index + 1,
       }));
+
+    // Inject seed traders if enabled
+    if (isSeedEnabled()) {
+      const seedEntries = getSeedLeaderboard();
+      leaderboard.push(...seedEntries);
+      // Re-sort by equity descending and re-assign ranks
+      leaderboard.sort((a, b) => b.equity - a.equity);
+      leaderboard.splice(100); // keep top 100
+      leaderboard.forEach((row, index) => { row.rank = index + 1; });
+    }
 
     return NextResponse.json({ leaderboard });
   } catch (error: any) {

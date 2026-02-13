@@ -16,6 +16,11 @@ export async function GET(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // Only allow users to view their own followers list
+    if (user.id !== params.userId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
     const serviceClient = createServiceRoleClient();
 
     // Get IDs of users who follow this user
