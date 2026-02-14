@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/browser";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { AuthGuard } from "@/components/auth-guard";
+import { getBearerToken } from "@/lib/api/clientAuth";
 
 interface ContactSubmission {
   id: string;
@@ -19,15 +21,36 @@ interface ContactSubmission {
 }
 
 function AdminContactMessagesContent() {
+  const router = useRouter();
   const [submissions, setSubmissions] = useState<ContactSubmission[]>([]);
   const [loading, setLoading] = useState(true);
+  const [authorized, setAuthorized] = useState(false);
 
   useEffect(() => {
-    loadSubmissions();
+    verifyAdminAndLoad();
   }, []);
 
-  const loadSubmissions = async () => {
+  const verifyAdminAndLoad = async () => {
     try {
+      const bearer = await getBearerToken();
+      if (!bearer) {
+        router.push("/dashboard");
+        return;
+      }
+
+      // Verify admin access via server-side check
+      const verifyRes = await fetch("/api/admin/verify", {
+        headers: { Authorization: bearer },
+      });
+
+      if (!verifyRes.ok) {
+        router.push("/dashboard");
+        return;
+      }
+
+      setAuthorized(true);
+
+      // Load submissions
       const supabase = createClient();
       const { data, error } = await supabase
         .from("contact_submissions")
@@ -41,12 +64,13 @@ function AdminContactMessagesContent() {
       }
     } catch (error) {
       console.error("Error loading submissions:", error);
+      router.push("/dashboard");
     } finally {
       setLoading(false);
     }
   };
 
-  if (loading) {
+  if (loading || !authorized) {
     return (
       <div className="min-h-screen bg-[#070d1a] flex items-center justify-center">
         <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary"></div>

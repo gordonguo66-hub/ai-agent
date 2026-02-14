@@ -18,6 +18,7 @@ export async function GET(request: NextRequest) {
       .from("subscription_plans")
       .select("*")
       .eq("is_active", true)
+      .gt("price_cents", 0)
       .order("price_cents", { ascending: true })
       .limit(100); // Add limit to force fresh query
 

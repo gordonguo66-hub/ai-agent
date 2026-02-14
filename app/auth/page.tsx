@@ -13,7 +13,6 @@ export default function AuthPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [username, setUsername] = useState("");
   const [agreedToTerms, setAgreedToTerms] = useState(false);
-  const [rememberMe, setRememberMe] = useState(false);
   const [checkingUsername, setCheckingUsername] = useState(false);
   const [usernameError, setUsernameError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -538,16 +537,7 @@ export default function AuthPage() {
                 />
               </div>
 
-              <div className="flex items-center justify-between">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={rememberMe}
-                    onChange={(e) => setRememberMe(e.target.checked)}
-                    className="w-4 h-4 rounded border-slate-300 text-blue-500 focus:ring-blue-400/20"
-                  />
-                  <span className="text-sm text-slate-600">Remember me</span>
-                </label>
+              <div className="flex items-center justify-end">
                 <button
                   type="button"
                   onClick={() => {

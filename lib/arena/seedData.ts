@@ -6,6 +6,10 @@
  * process adds mean-reverting noise so curves look realistic while staying
  * near their intended path.
  *
+ * After the initial waypoint period, equity targets evolve daily based on
+ * real BTC market data from Binance. 8 traders gain and 2 lose each day,
+ * with magnitudes proportional to actual market volatility.
+ *
  * Toggle with env var NEXT_PUBLIC_ARENA_SEED_DATA (defaults to "true").
  * Set to "false" to disable when real users populate the arena.
  */
@@ -46,10 +50,30 @@ function gaussianNoise(rand: () => number): number {
 }
 
 // ---------------------------------------------------------------------------
-// Trader profiles with per-trader waypoints
+// Date anchoring — daysAgo values were designed relative to this date.
+// Each real day after this, traders gain one more day of history with
+// market-driven equity changes.
 // ---------------------------------------------------------------------------
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const REFERENCE_DATE = new Date("2026-02-14T00:00:00Z").getTime();
+
+function daysSinceReference(): number {
+  return Math.max(0, Math.floor((Date.now() - REFERENCE_DATE) / DAY_MS));
+}
+
+function getActualDaysAgo(config: SeedTraderConfig): number {
+  return config.daysAgo + daysSinceReference();
+}
+
+function todayUTCDateKey(): string {
+  const d = new Date();
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+}
+
+// ---------------------------------------------------------------------------
+// Trader profiles with per-trader waypoints
+// ---------------------------------------------------------------------------
 
 interface SeedTraderConfig {
   id: string;
@@ -152,6 +176,168 @@ function getAvatarUrl(config: SeedTraderConfig): string | null {
 }
 
 // ---------------------------------------------------------------------------
+// BTC market data fetcher (Binance public API)
+// ---------------------------------------------------------------------------
+
+let cachedMarketChanges: number[] | null = null;
+let cachedMarketDay = "";
+
+async function getMarketChanges(): Promise<number[]> {
+  const days = daysSinceReference();
+  if (days <= 0) return [];
+
+  const today = todayUTCDateKey();
+  if (cachedMarketChanges && cachedMarketDay === today) {
+    return cachedMarketChanges;
+  }
+
+  try {
+    const res = await fetch(
+      `https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1d&startTime=${REFERENCE_DATE}&limit=${days + 1}`
+    );
+    const klines = await res.json();
+    const closes: number[] = klines.map((k: unknown[]) => parseFloat(k[4] as string));
+
+    // Close-to-close changes, exclude today's in-progress candle
+    const changes: number[] = [];
+    for (let i = 1; i < closes.length - 1; i++) {
+      changes.push((closes[i] - closes[i - 1]) / closes[i - 1]);
+    }
+    // Include today's partial candle only if we have at least 2 closes
+    if (closes.length >= 2) {
+      const lastIdx = closes.length - 1;
+      changes.push((closes[lastIdx] - closes[lastIdx - 1]) / closes[lastIdx - 1]);
+    }
+
+    cachedMarketChanges = changes;
+    cachedMarketDay = today;
+    return changes;
+  } catch {
+    // Fallback: deterministic small random changes
+    const changes = Array.from({ length: days }, (_, i) => {
+      const r = createSeededRandom(`fallback-market-${i}`);
+      return (r() - 0.5) * 0.04; // ±2%
+    });
+    cachedMarketChanges = changes;
+    cachedMarketDay = today;
+    return changes;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Loser selection: deterministically pick exactly 2 losers per day
+// ---------------------------------------------------------------------------
+
+function selectLosers(dayIndex: number): Set<number> {
+  const rand = createSeededRandom(`losers-day-${dayIndex}`);
+  const indices = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+  for (let i = 0; i < 2; i++) {
+    const j = i + Math.floor(rand() * (10 - i));
+    [indices[i], indices[j]] = [indices[j], indices[i]];
+  }
+  return new Set([indices[0], indices[1]]);
+}
+
+// ---------------------------------------------------------------------------
+// Market-driven waypoint extension
+// ---------------------------------------------------------------------------
+
+function getMarketDrivenWaypoints(
+  config: SeedTraderConfig,
+  traderIndex: number,
+  marketChanges: number[]
+): [number, number][] {
+  const waypoints: [number, number][] = [...config.waypoints];
+  if (marketChanges.length === 0) return waypoints;
+
+  const lastDay = waypoints[waypoints.length - 1][0];
+  let equity = waypoints[waypoints.length - 1][1];
+
+  for (let i = 0; i < marketChanges.length; i++) {
+    const day = lastDay + i + 1;
+    const absChange = Math.abs(marketChanges[i]);
+    const isFlat = absChange < 0.005; // <0.5% = flat market
+    const losers = selectLosers(i);
+    const isLoser = losers.has(traderIndex);
+    const rand = createSeededRandom(`${config.id}-market-day-${i}`);
+
+    let dailyChange: number;
+    if (isFlat) {
+      // Flat market: tiny noise only
+      dailyChange = gaussianNoise(rand) * 0.005;
+    } else if (isLoser) {
+      // Loser: moves against the majority
+      const beta = 0.3 + rand() * 1.7;
+      const noise = gaussianNoise(rand) * 0.01;
+      dailyChange = -(absChange * beta * (0.3 + rand() * 0.5) + Math.abs(noise));
+    } else {
+      // Winner: profits from market volatility
+      const beta = 0.3 + rand() * 1.7;
+      const noise = gaussianNoise(rand) * 0.01;
+      dailyChange = absChange * beta + noise;
+    }
+
+    equity *= 1 + dailyChange;
+    equity = Math.max(equity, STARTING_EQUITY * 0.3); // floor at -70%
+    equity = Math.min(equity, STARTING_EQUITY * 5);   // ceiling at +400%
+    waypoints.push([day, Math.round(equity)]);
+  }
+
+  return waypoints;
+}
+
+// ---------------------------------------------------------------------------
+// Stats evolution
+// ---------------------------------------------------------------------------
+
+function getEvolvedStats(
+  config: SeedTraderConfig,
+  actualDaysAgo: number
+): { tradesCount: number; winRate: number } {
+  const extraDays = actualDaysAgo - config.daysAgo;
+  if (extraDays <= 0) {
+    return { tradesCount: config.tradesCount, winRate: config.winRate };
+  }
+
+  let trades = config.tradesCount;
+  let winRate = config.winRate;
+
+  for (let d = 1; d <= extraDays; d++) {
+    const rand = createSeededRandom(`${config.id}-stats-${d}`);
+    trades += Math.floor(rand() * 5) + 2; // +2-6 trades/day
+    winRate += (rand() - 0.5) * 2;        // ±1% drift
+    winRate = Math.max(40, Math.min(80, winRate));
+  }
+
+  return {
+    tradesCount: trades,
+    winRate: Math.round(winRate * 100) / 100,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Max drawdown from equity curve
+// ---------------------------------------------------------------------------
+
+function computeMaxDrawdownFromCurve(
+  points: ChartPoint[],
+  originalMaxDD: number
+): number {
+  if (points.length < 2) return originalMaxDD;
+
+  let peak = points[0].value;
+  let maxDD = 0;
+
+  for (const point of points) {
+    if (point.value > peak) peak = point.value;
+    const drawdown = ((peak - point.value) / peak) * 100;
+    if (drawdown > maxDD) maxDD = drawdown;
+  }
+
+  return Math.round(Math.max(maxDD, originalMaxDD) * 100) / 100;
+}
+
+// ---------------------------------------------------------------------------
 // Waypoint interpolation
 // ---------------------------------------------------------------------------
 
@@ -180,12 +366,17 @@ const STARTING_EQUITY = 100000;
 const INTERVAL_MS = 30 * 60 * 1000; // 30-minute data points
 const REVERSION_STRENGTH = 0.018; // per-step mean reversion (half-life ≈ 0.8 days)
 
-function generateEquityCurve(config: SeedTraderConfig): ChartPoint[] {
-  const now = Date.now();
-  const joinTime = now - config.daysAgo * DAY_MS;
+function generateEquityCurve(
+  config: SeedTraderConfig,
+  extendedWaypoints: [number, number][],
+  actualDaysAgo: number
+): ChartPoint[] {
+  // Generate curve up to start of current UTC day (daily-only updates)
+  const todayStart = new Date(todayUTCDateKey() + "T00:00:00Z").getTime();
+  const joinTime = todayStart - actualDaysAgo * DAY_MS;
   const rand = createSeededRandom(config.id);
 
-  const totalSteps = Math.floor((now - joinTime) / INTERVAL_MS);
+  const totalSteps = Math.floor((todayStart - joinTime) / INTERVAL_MS);
   if (totalSteps <= 0) return [{ time: joinTime, value: STARTING_EQUITY }];
 
   const points: ChartPoint[] = [];
@@ -197,9 +388,9 @@ function generateEquityCurve(config: SeedTraderConfig): ChartPoint[] {
 
     if (i === totalSteps) break;
 
-    // Where the curve "should" be at this point
+    // Where the curve "should" be at this point (uses extended waypoints)
     const dayOffset = (time - joinTime) / DAY_MS;
-    const targetEquity = interpolateWaypoints(config.waypoints, dayOffset);
+    const targetEquity = interpolateWaypoints(extendedWaypoints, dayOffset);
 
     // Mean reversion toward waypoint path
     const deviationPct = (equity - targetEquity) / targetEquity;
@@ -215,20 +406,28 @@ function generateEquityCurve(config: SeedTraderConfig): ChartPoint[] {
     }
 
     equity *= 1 + reversion + noise + jump;
-    equity = Math.max(equity, STARTING_EQUITY * 0.5); // floor at -50%
+    equity = Math.max(equity, STARTING_EQUITY * 0.3); // floor at -70%
   }
 
-  // Tail-only correction: adjust final ~15% of points to hit waypoint target.
-  // Uses a sigmoid so intermediate peaks/troughs are NOT distorted.
-  const targetFinal = config.waypoints[config.waypoints.length - 1][1];
-  const actualFinal = points[points.length - 1].value;
-  if (points.length > 1 && actualFinal > 0) {
-    const ratio = targetFinal / actualFinal;
-    for (let i = 1; i < points.length; i++) {
-      const t = i / (points.length - 1);
-      // Sigmoid: ~0 before t=0.85, ramps to ~1 by t=1.0
-      const w = 1 / (1 + Math.exp(-25 * (t - 0.9)));
-      points[i].value = Math.round(points[i].value * (1 + (ratio - 1) * w) * 100) / 100;
+  // Tail-only correction: adjust final ~15% of points within the ORIGINAL
+  // waypoint period to hit the original target. Extension days are not
+  // corrected — the O-U process naturally tracks extended waypoints.
+  const originalLastDay = config.waypoints[config.waypoints.length - 1][0];
+  const originalLastStep = Math.min(
+    Math.floor((originalLastDay * DAY_MS) / INTERVAL_MS),
+    points.length - 1
+  );
+
+  if (originalLastStep > 1) {
+    const targetFinal = config.waypoints[config.waypoints.length - 1][1];
+    const actualAtEnd = points[originalLastStep].value;
+    if (actualAtEnd > 0) {
+      const ratio = targetFinal / actualAtEnd;
+      for (let i = 1; i <= originalLastStep; i++) {
+        const t = i / originalLastStep;
+        const w = 1 / (1 + Math.exp(-25 * (t - 0.9)));
+        points[i].value = Math.round(points[i].value * (1 + (ratio - 1) * w) * 100) / 100;
+      }
     }
   }
 
@@ -236,22 +435,21 @@ function generateEquityCurve(config: SeedTraderConfig): ChartPoint[] {
 }
 
 // ---------------------------------------------------------------------------
-// Cache with TTL: regenerate every 30 minutes so new data points appear
+// Cache — date-based so data is stable within a single day
 // ---------------------------------------------------------------------------
 
-const CACHE_TTL_MS = INTERVAL_MS; // refresh every 30 min (matches data point interval)
-
 let cachedParticipants: ReturnType<typeof buildSeedParticipants> | null = null;
-let cachedParticipantsAt = 0;
+let cachedParticipantsDay = "";
 let cachedLeaderboard: ReturnType<typeof buildSeedLeaderboard> | null = null;
-let cachedLeaderboardAt = 0;
+let cachedLeaderboardDay = "";
 
-function buildSeedParticipants() {
-  const now = Date.now();
-
-  return SEED_TRADERS.map((config) => {
-    const joinTime = now - config.daysAgo * DAY_MS;
-    const data = generateEquityCurve(config);
+function buildSeedParticipants(marketChanges: number[]) {
+  return SEED_TRADERS.map((config, traderIndex) => {
+    const actualDaysAgo = getActualDaysAgo(config);
+    const extendedWaypoints = getMarketDrivenWaypoints(config, traderIndex, marketChanges);
+    const todayStart = new Date(todayUTCDateKey() + "T00:00:00Z").getTime();
+    const joinTime = todayStart - actualDaysAgo * DAY_MS;
+    const data = generateEquityCurve(config, extendedWaypoints, actualDaysAgo);
     const latestEquity =
       data.length > 0 ? data[data.length - 1].value : STARTING_EQUITY;
     const returnPct = ((latestEquity / STARTING_EQUITY) - 1) * 100;
@@ -272,19 +470,24 @@ function buildSeedParticipants() {
   });
 }
 
-function buildSeedLeaderboard() {
-  const now = Date.now();
-
-  return SEED_TRADERS.map((config) => {
-    const joinTime = now - config.daysAgo * DAY_MS;
-    const data = generateEquityCurve(config);
+function buildSeedLeaderboard(marketChanges: number[]) {
+  return SEED_TRADERS.map((config, traderIndex) => {
+    const actualDaysAgo = getActualDaysAgo(config);
+    const extendedWaypoints = getMarketDrivenWaypoints(config, traderIndex, marketChanges);
+    const todayStart = new Date(todayUTCDateKey() + "T00:00:00Z").getTime();
+    const joinTime = todayStart - actualDaysAgo * DAY_MS;
+    const data = generateEquityCurve(config, extendedWaypoints, actualDaysAgo);
     const latestEquity =
       data.length > 0 ? data[data.length - 1].value : STARTING_EQUITY;
     const pnl = latestEquity - STARTING_EQUITY;
     const pnlPct = (pnl / STARTING_EQUITY) * 100;
 
+    // Evolved stats
+    const evolvedStats = getEvolvedStats(config, actualDaysAgo);
+    const maxDrawdownPct = computeMaxDrawdownFromCurve(data, config.maxDrawdownPct);
+
     const startDate = new Date(joinTime);
-    const nowDate = new Date(now);
+    const nowDate = new Date();
     const startMidnight = new Date(
       startDate.getFullYear(),
       startDate.getMonth(),
@@ -312,9 +515,9 @@ function buildSeedLeaderboard() {
       startingEquity: STARTING_EQUITY,
       pnl,
       pnlPct,
-      tradesCount: config.tradesCount,
-      winRate: config.winRate,
-      maxDrawdownPct: config.maxDrawdownPct,
+      tradesCount: evolvedStats.tradesCount,
+      winRate: evolvedStats.winRate,
+      maxDrawdownPct,
       optedInAt: new Date(joinTime).toISOString(),
       daysSinceStarted,
       arenaStatus: "active",
@@ -325,23 +528,27 @@ function buildSeedLeaderboard() {
 }
 
 // ---------------------------------------------------------------------------
-// Public API
+// Public API (async — fetches market data internally)
 // ---------------------------------------------------------------------------
 
-export function getSeedParticipants() {
-  const now = Date.now();
-  if (!cachedParticipants || now - cachedParticipantsAt > CACHE_TTL_MS) {
-    cachedParticipants = buildSeedParticipants();
-    cachedParticipantsAt = now;
+export async function getSeedParticipants() {
+  const today = todayUTCDateKey();
+  if (cachedParticipants && cachedParticipantsDay === today) {
+    return cachedParticipants;
   }
+  const marketChanges = await getMarketChanges();
+  cachedParticipants = buildSeedParticipants(marketChanges);
+  cachedParticipantsDay = today;
   return cachedParticipants;
 }
 
-export function getSeedLeaderboard() {
-  const now = Date.now();
-  if (!cachedLeaderboard || now - cachedLeaderboardAt > CACHE_TTL_MS) {
-    cachedLeaderboard = buildSeedLeaderboard();
-    cachedLeaderboardAt = now;
+export async function getSeedLeaderboard() {
+  const today = todayUTCDateKey();
+  if (cachedLeaderboard && cachedLeaderboardDay === today) {
+    return cachedLeaderboard;
   }
+  const marketChanges = await getMarketChanges();
+  cachedLeaderboard = buildSeedLeaderboard(marketChanges);
+  cachedLeaderboardDay = today;
   return cachedLeaderboard;
 }

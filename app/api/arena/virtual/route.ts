@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
     if (!arenaEntries || arenaEntries.length === 0) {
       // If seed data is enabled, still return seed entries even with no real users
       if (isSeedEnabled()) {
-        const seedEntries = getSeedLeaderboard();
+        const seedEntries = await getSeedLeaderboard();
         const seededLeaderboard = seedEntries
           .sort((a, b) => b.equity - a.equity)
           .map((row, index) => ({ ...row, rank: index + 1 }));
@@ -201,7 +201,7 @@ export async function GET(request: NextRequest) {
 
     // Inject seed traders if enabled
     if (isSeedEnabled()) {
-      const seedEntries = getSeedLeaderboard();
+      const seedEntries = await getSeedLeaderboard();
       leaderboard.push(...seedEntries);
       // Re-sort by equity descending and re-assign ranks
       leaderboard.sort((a, b) => b.equity - a.equity);

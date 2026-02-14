@@ -331,7 +331,7 @@ export async function GET(request: NextRequest) {
 
     // Inject seed traders if enabled
     if (isSeedEnabled()) {
-      const seedParticipants = getSeedParticipants();
+      const seedParticipants = await getSeedParticipants();
       activeParticipants.push(...seedParticipants);
       // Re-sort and re-slice to maintain topN limit with seed data mixed in
       activeParticipants.sort((a, b) => b.latestEquity - a.latestEquity);

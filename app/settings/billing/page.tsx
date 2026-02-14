@@ -284,7 +284,6 @@ const [topupPackages, setTopupPackages] = useState<TopupPackage[]>(DEFAULT_PACKA
   };
 
   const formatPrice = (cents: number) => {
-    if (cents === 0) return "Free";
     return `$${(cents / 100).toFixed(0)}`;
   };
 

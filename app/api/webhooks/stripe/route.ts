@@ -60,6 +60,12 @@ export async function POST(request: NextRequest) {
         break;
       }
 
+      case "invoice.payment_failed": {
+        const invoice = event.data.object as Stripe.Invoice;
+        await handleInvoicePaymentFailed(invoice);
+        break;
+      }
+
       default:
         console.log(`[Stripe Webhook] Unhandled event type: ${event.type}`);
     }
@@ -384,4 +390,43 @@ async function handleSubscriptionCanceled(subscription: Stripe.Subscription) {
     }
     console.log(`[Stripe Webhook] Subscription marked canceled for user ${userId} (plan retained until period end)`);
   }
+}
+
+/**
+ * Handle failed invoice payment (subscription renewal failures)
+ *
+ * When a subscription renewal payment fails, mark the subscription as past_due.
+ * Stripe will retry the payment according to its retry schedule.
+ */
+async function handleInvoicePaymentFailed(invoice: Stripe.Invoice) {
+  const subscriptionId = (invoice as any).subscription as string | null;
+
+  if (!subscriptionId) {
+    console.log("[Stripe Webhook] Invoice payment failed but not a subscription invoice, skipping");
+    return;
+  }
+
+  const customerId = invoice.customer as string;
+  console.warn(`[Stripe Webhook] Invoice payment failed for subscription ${subscriptionId}, customer ${customerId}`);
+
+  const userId = await getUserIdFromCustomer(customerId);
+  if (!userId) {
+    console.error(`[Stripe Webhook] Cannot find user for failed payment, customer: ${customerId}`);
+    return;
+  }
+
+  const serviceClient = createFreshServiceClient();
+
+  const { error } = await serviceClient
+    .from("user_subscriptions")
+    .update({ status: "past_due" })
+    .eq("user_id", userId)
+    .eq("stripe_subscription_id", subscriptionId);
+
+  if (error) {
+    console.error("[Stripe Webhook] Error updating subscription to past_due:", error);
+    throw error;
+  }
+
+  console.warn(`[Stripe Webhook] Subscription ${subscriptionId} marked as past_due for user ${userId}`);
 }
