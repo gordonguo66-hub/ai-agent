@@ -413,7 +413,7 @@ const [topupPackages, setTopupPackages] = useState<TopupPackage[]>(DEFAULT_PACKA
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-2 mt-auto">
-                    {userData.subscription.current_period_end && (
+                    {userData.subscription.current_period_end && userData.subscription.plan_id && !["free", "on_demand"].includes(userData.subscription.plan_id) && (
                       <div className="text-sm text-gray-500">
                         {userData.subscription.cancel_at_period_end
                           ? <>Cancels: <FormattedDate date={userData.subscription.current_period_end} format="date" /></>
@@ -471,13 +471,14 @@ const [topupPackages, setTopupPackages] = useState<TopupPackage[]>(DEFAULT_PACKA
                       <div className="text-sm text-gray-500">
                         Lifetime spent: <span className="text-gray-700">{formatUsd(userData.credits.lifetime_spent_cents)}</span>
                       </div>
-                      {userData.subscription.plan_id && userData.subscription.plan_id !== "on_demand" ? (
+                      {getSavePercent(userData.subscription.plan_id) > 0 ? (
                         <div className="flex items-center gap-2 text-sm text-green-600">
                           <Sparkles className="w-3.5 h-3.5" />
                           Save {getSavePercent(userData.subscription.plan_id)}% on every AI call
                         </div>
                       ) : (
-                        <div className="text-sm text-gray-500">
+                        <div className="flex items-center gap-2 text-sm text-green-600">
+                          <Sparkles className="w-3.5 h-3.5" />
                           Subscribe to save up to 33% on every AI call
                         </div>
                       )}

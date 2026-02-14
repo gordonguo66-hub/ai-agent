@@ -107,16 +107,18 @@ export function Nav() {
   return (
     <nav className="border-b border-border/50 bg-[#070d1a] backdrop-blur-xl sticky top-0 z-50 shadow-lg shadow-black/50">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex h-16 sm:h-20 items-center justify-between">
+        <div className="flex h-16 sm:h-20 items-center">
           {/* Left: Logo */}
-          <div className="flex-shrink-0">
-            <Link href="/" className="flex items-center gap-2 group cursor-pointer">
-              <img
-                src="/brand/corebound-logo.svg"
-                alt="Corebound"
-                className="h-10 sm:h-14 w-auto transition-opacity group-hover:opacity-90 pointer-events-auto"
-              />
-            </Link>
+          <div className="flex-1 flex items-center">
+            <div className="flex-shrink-0">
+              <Link href="/" className="flex items-center gap-2 group cursor-pointer">
+                <img
+                  src="/brand/corebound-logo.svg"
+                  alt="Corebound"
+                  className="h-10 sm:h-14 w-auto transition-opacity group-hover:opacity-90 pointer-events-auto"
+                />
+              </Link>
+            </div>
           </div>
 
           {/* Center: Desktop Menu Items */}
@@ -152,7 +154,7 @@ export function Nav() {
           </div>
 
           {/* Right: User Section */}
-          <div className="flex items-center gap-2 sm:gap-3">
+          <div className="flex-1 flex items-center justify-end gap-2 sm:gap-3">
             {loading ? (
               <span className="text-xs sm:text-sm text-gray-400">Loading...</span>
             ) : user ? (
