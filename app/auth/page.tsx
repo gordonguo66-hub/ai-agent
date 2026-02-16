@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { createClient } from "@/lib/supabase/browser";
 import { sanitizeReturnUrl } from "@/lib/utils/urlValidation";
+import posthog from "posthog-js";
 
 export default function AuthPage() {
   const [email, setEmail] = useState("");
@@ -313,10 +314,12 @@ export default function AuthPage() {
 
       if (data.user) {
         await supabase.from("profiles").update({ username: username.trim() }).eq("id", data.user.id);
-        
+
         try {
           await fetch("/api/legal/accept", { method: "POST", headers: { "Content-Type": "application/json" } });
         } catch {}
+
+        posthog.capture("user_signed_up", { email, username: username.trim() });
 
         // Supabase will send the verification email when "Confirm email" is enabled.
         // If it's disabled (dev), Supabase may return a session and the user can continue immediately.
