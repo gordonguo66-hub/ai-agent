@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { FormattedDate } from "@/components/formatted-date";
+import { Wallet, ArrowRight, X } from "lucide-react";
 
 function StrategyDetailContent() {
   const params = useParams();
@@ -25,9 +26,11 @@ function StrategyDetailContent() {
 
   const [liveDialogOpen, setLiveDialogOpen] = useState(false);
   const [confirmText, setConfirmText] = useState("");
+  const [balanceDialogOpen, setBalanceDialogOpen] = useState(false);
 
   // Session limit tracking
   const [sessionLimit, setSessionLimit] = useState<{ count: number; limit: number | null; tier: string } | null>(null);
+  const [credits, setCredits] = useState<{ balance_cents: number; plan_id: string | null; plan_status: string } | null>(null);
 
   useEffect(() => {
     const load = async () => {
@@ -83,6 +86,11 @@ function StrategyDetailContent() {
               limit: hasLimit ? 3 : null,
               tier,
             });
+            setCredits({
+              balance_cents: creditsJson.credits?.balance_cents ?? 0,
+              plan_id: creditsJson.subscription?.plan_id ?? null,
+              plan_status: creditsJson.subscription?.status ?? "inactive",
+            });
           }
         }
       } catch (err) {
@@ -94,6 +102,22 @@ function StrategyDetailContent() {
 
     load();
   }, [strategyId]);
+
+  const hasActivePlan = credits?.plan_id && credits.plan_status === "active";
+  const hasInsufficientFunds = credits && !hasActivePlan && credits.balance_cents < 100;
+
+  const handleStartSession = (mode: "virtual" | "live" | "arena") => {
+    if (hasInsufficientFunds) {
+      setBalanceDialogOpen(true);
+      return;
+    }
+    if (mode === "live") {
+      setConfirmText("");
+      setLiveDialogOpen(true);
+      return;
+    }
+    createAndStart(mode);
+  };
 
   const createAndStart = async (mode: "virtual" | "live" | "arena") => {
     setBusy(true);
@@ -235,7 +259,7 @@ function StrategyDetailContent() {
               <div className="flex flex-wrap gap-2">
                 <Button
                   disabled={isDisabled}
-                  onClick={() => createAndStart("virtual")}
+                  onClick={() => handleStartSession("virtual")}
                   className="bg-blue-900 hover:bg-blue-800 text-white border border-blue-700"
                 >
                   {busy ? "Starting..." : "Start Virtual ($100k)"}
@@ -243,7 +267,7 @@ function StrategyDetailContent() {
                 <Button
                   disabled={isDisabled}
                   variant="default"
-                  onClick={() => createAndStart("arena")}
+                  onClick={() => handleStartSession("arena")}
                   className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white"
                 >
                   {busy ? "Starting..." : "Start in Arena 🏆"}
@@ -251,10 +275,7 @@ function StrategyDetailContent() {
                 <Button
                   disabled={isDisabled}
                   variant="destructive"
-                  onClick={() => {
-                    setConfirmText("");
-                    setLiveDialogOpen(true);
-                  }}
+                  onClick={() => handleStartSession("live")}
                   className="bg-red-900 hover:bg-red-800 text-white"
                 >
                   Start Live
@@ -387,6 +408,52 @@ function StrategyDetailContent() {
                 <p className="text-xs text-gray-400">
                   Tip: start with Virtual first to verify intent + risk gates look correct.
                 </p>
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={balanceDialogOpen} onOpenChange={setBalanceDialogOpen}>
+            <DialogContent className="bg-[#f0f4ff] border-blue-200 p-0 overflow-hidden max-w-md">
+              <button
+                onClick={() => setBalanceDialogOpen(false)}
+                className="absolute right-4 top-4 text-gray-400 hover:text-gray-600 transition-colors z-10"
+              >
+                <X className="h-4 w-4" />
+              </button>
+              <div className="flex flex-col items-center text-center px-8 pt-8 pb-6">
+                <div className="w-16 h-16 rounded-full bg-amber-100 border border-amber-200 flex items-center justify-center mb-5">
+                  <Wallet className="h-8 w-8 text-amber-500" />
+                </div>
+                <h3 className="text-xl font-semibold text-gray-900 mb-2">Top Up to Get Started</h3>
+                <p className="text-gray-500 text-sm leading-relaxed mb-1">
+                  Running a session requires AI tokens to analyze markets and generate trades. You need at least <span className="text-gray-900 font-medium">$1.00</span> in credits or an active membership plan to cover AI usage.
+                </p>
+                <div className="mt-4 mb-2 px-4 py-2.5 rounded-lg bg-white border border-blue-100 w-full">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-gray-500">Current balance</span>
+                    <span className="text-gray-900 font-mono font-medium">
+                      ${((credits?.balance_cents ?? 0) / 100).toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <div className="px-8 pb-8 flex flex-col gap-3">
+                <Button
+                  onClick={() => {
+                    setBalanceDialogOpen(false);
+                    router.push("/settings/billing");
+                  }}
+                  className="w-full bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-700 hover:to-blue-600 text-white font-medium py-5 text-sm"
+                >
+                  Add Credits
+                  <ArrowRight className="h-4 w-4 ml-2" />
+                </Button>
+                <button
+                  onClick={() => setBalanceDialogOpen(false)}
+                  className="text-sm text-gray-400 hover:text-gray-600 transition-colors py-1"
+                >
+                  Maybe later
+                </button>
               </div>
             </DialogContent>
           </Dialog>

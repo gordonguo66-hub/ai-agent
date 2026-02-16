@@ -1689,6 +1689,8 @@ function SessionDetailContent({ sessionId }: { sessionId: string }) {
                 console.log(`[SessionPage] 🎯 Time range selected: "${range}"`);
                 setSelectedTimeRange(range);
               }}
+              modelProvider={strategy?.model_provider}
+              modelName={strategy?.model_name}
             />
           )}
 

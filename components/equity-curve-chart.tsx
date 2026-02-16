@@ -13,6 +13,67 @@ interface EquityPoint {
   equity: number;
 }
 
+const MODEL_LOGOS: Record<string, string> = {
+  anthropic: "/logos/Claude.png",
+  openai: "/logos/ChatGPT.png",
+  deepseek: "/logos/Deepseek.png",
+  google: "/logos/Gemini.png",
+  xai: "/logos/Grok.png",
+  qwen: "/logos/Qwen.png",
+};
+
+function ModelAvatarDotInner({ logoUrl, modelName }: { logoUrl: string; modelName?: string }) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <div
+      title={modelName}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        width: hovered ? 56 : 44,
+        height: hovered ? 56 : 44,
+        borderRadius: "50%",
+        border: `2px solid ${hovered ? "white" : "rgba(255,255,255,0.8)"}`,
+        overflow: "hidden",
+        boxShadow: hovered
+          ? "0 0 12px rgba(16,185,129,0.6), 0 0 24px rgba(16,185,129,0.3)"
+          : "0 2px 8px rgba(0,0,0,0.3)",
+        background: "#1a1a2e",
+        cursor: "default",
+        transition: "all 0.2s ease",
+        margin: hovered ? -6 : 0,
+      }}
+    >
+      <img
+        src={logoUrl}
+        alt={modelName || "AI Model"}
+        style={{ width: "100%", height: "100%", objectFit: "cover" }}
+      />
+    </div>
+  );
+}
+
+function ModelAvatarDot(props: any) {
+  const { cx, cy, logoUrl, modelName } = props;
+  if (cx == null || cy == null || !logoUrl) return null;
+  const size = 56;
+  return (
+    <g>
+      <foreignObject
+        x={cx - size / 2}
+        y={cy - size / 2}
+        width={size}
+        height={size}
+        style={{ overflow: "visible", pointerEvents: "all" }}
+      >
+        <div style={{ width: size, height: size, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <ModelAvatarDotInner logoUrl={logoUrl} modelName={modelName} />
+        </div>
+      </foreignObject>
+    </g>
+  );
+}
+
 interface EquityCurveChartProps {
   equityPoints: EquityPoint[];
   currentEquity: number | null;
@@ -21,6 +82,8 @@ interface EquityCurveChartProps {
   onTimeRangeChange?: (start: number, end: number) => void; // Callback to refetch data with new range
   timeRange?: TimeRange; // Controlled time range from parent
   onTimeRangeSelect?: (range: TimeRange) => void; // Callback when user selects a new range
+  modelProvider?: string; // e.g. "anthropic", "openai" — shows AI logo at curve tip
+  modelName?: string; // e.g. "claude-opus-4.5" — shown on hover
 }
 
 type TimeRange = "all" | "today" | "24h" | "72h" | "week" | "month" | "custom";
@@ -34,6 +97,8 @@ export function EquityCurveChart({
   onTimeRangeChange,
   timeRange: controlledTimeRange,
   onTimeRangeSelect,
+  modelProvider,
+  modelName,
 }: EquityCurveChartProps) {
   const { timezone } = useTimezone();
   // Use controlled time range if provided, otherwise use internal state
@@ -508,7 +573,7 @@ export function EquityCurveChart({
           <ResponsiveContainer width="100%" height="100%">
             <LineChart
               data={chartData}
-              margin={{ top: 10, right: 10, left: 0, bottom: 30 }}
+              margin={{ top: 20, right: modelProvider ? 24 : 10, left: 0, bottom: 30 }}
             >
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" opacity={0.5} />
               <XAxis
@@ -516,6 +581,7 @@ export function EquityCurveChart({
                 type="number"
                 scale="linear"
                 domain={["dataMin", "dataMax"]}
+                stroke="#9ca3af"
                 tickFormatter={(value) => {
                   // Show the actual time from the data point at this index
                   const idx = Math.round(value);
@@ -542,7 +608,8 @@ export function EquityCurveChart({
               <YAxis
                 domain={yAxisDomain}
                 tickFormatter={(v) => formatYAxisValue(Number(v))}
-                width={35}
+                width={42}
+                stroke="#9ca3af"
                 tick={{ fontSize: 10 }}
               />
               <Tooltip content={<CustomTooltip />} />
@@ -550,8 +617,14 @@ export function EquityCurveChart({
                 type="monotone"
                 dataKey="value"
                 stroke={chartMode === "equity" ? "#10b981" : "#8884d8"}
-                strokeWidth={2}
-                dot={false}
+                strokeWidth={2.5}
+                dot={modelProvider && MODEL_LOGOS[modelProvider] ? (props: any) => {
+                  const { index, cx, cy } = props;
+                  if (index === chartData.length - 1) {
+                    return <ModelAvatarDot cx={cx} cy={cy} logoUrl={MODEL_LOGOS[modelProvider]} modelName={modelName} />;
+                  }
+                  return <circle cx={cx} cy={cy} r={0} fill="transparent" />;
+                } : false}
                 activeDot={{ r: 4 }}
                 connectNulls={false}
                 isAnimationActive={false}

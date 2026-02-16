@@ -10,6 +10,8 @@ import { LegalGate } from "@/components/legal-gate";
 import { AuthGateProvider } from "@/components/auth-gate-provider";
 import { AdminIdentifier } from "@/components/admin-identifier";
 import { AnalyticsWrapper } from "@/components/analytics-wrapper";
+import { PHProvider } from "./posthog-provider";
+import { PostHogPageView } from "./posthog-pageview";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -38,24 +40,27 @@ export default function RootLayout({
   return (
     <html lang="en" className="h-full">
       <body className={`${inter.className} antialiased`}>
-        <Suspense fallback={null}>
-          <AdminIdentifier />
-        </Suspense>
-        <TimezoneProvider>
-          <AuthGateProvider>
-            <ErrorLogger />
-            <LegalGate>
-              <div className="min-h-screen flex flex-col">
-                <Nav />
-                <main className="flex-1">
-                  {children}
-                </main>
-                <Footer />
-              </div>
-            </LegalGate>
-          </AuthGateProvider>
-        </TimezoneProvider>
-        <AnalyticsWrapper />
+        <PHProvider>
+          <Suspense fallback={null}>
+            <PostHogPageView />
+            <AdminIdentifier />
+          </Suspense>
+          <TimezoneProvider>
+            <AuthGateProvider>
+              <ErrorLogger />
+              <LegalGate>
+                <div className="min-h-screen flex flex-col">
+                  <Nav />
+                  <main className="flex-1">
+                    {children}
+                  </main>
+                  <Footer />
+                </div>
+              </LegalGate>
+            </AuthGateProvider>
+          </TimezoneProvider>
+          <AnalyticsWrapper />
+        </PHProvider>
       </body>
     </html>
   );

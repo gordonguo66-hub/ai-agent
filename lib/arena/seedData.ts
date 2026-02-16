@@ -256,26 +256,29 @@ function getMarketDrivenWaypoints(
   for (let i = 0; i < marketChanges.length; i++) {
     const day = lastDay + i + 1;
     const absChange = Math.abs(marketChanges[i]);
-    const isFlat = absChange < 0.005; // <0.5% = flat market
+    const isQuiet = absChange < 0.015; // <1.5% = quiet market
     const losers = selectLosers(i);
     const isLoser = losers.has(traderIndex);
     const rand = createSeededRandom(`${config.id}-market-day-${i}`);
 
     let dailyChange: number;
-    if (isFlat) {
-      // Flat market: tiny noise only
-      dailyChange = gaussianNoise(rand) * 0.005;
+    if (isQuiet) {
+      // Quiet market: tiny noise only (±0.3%)
+      dailyChange = gaussianNoise(rand) * 0.003;
     } else if (isLoser) {
       // Loser: moves against the majority
-      const beta = 0.3 + rand() * 1.7;
-      const noise = gaussianNoise(rand) * 0.01;
-      dailyChange = -(absChange * beta * (0.3 + rand() * 0.5) + Math.abs(noise));
+      const beta = 0.3 + rand() * 1.2;
+      const noise = gaussianNoise(rand) * 0.005;
+      dailyChange = -(absChange * beta * (0.3 + rand() * 0.4) + Math.abs(noise));
     } else {
       // Winner: profits from market volatility
-      const beta = 0.3 + rand() * 1.7;
-      const noise = gaussianNoise(rand) * 0.01;
+      const beta = 0.3 + rand() * 1.2;
+      const noise = gaussianNoise(rand) * 0.005;
       dailyChange = absChange * beta + noise;
     }
+
+    // Cap daily change at ±12%
+    dailyChange = Math.max(-0.12, Math.min(0.12, dailyChange));
 
     equity *= 1 + dailyChange;
     equity = Math.max(equity, STARTING_EQUITY * 0.3); // floor at -70%
@@ -410,8 +413,8 @@ function generateEquityCurve(
   }
 
   // Tail-only correction: adjust final ~15% of points within the ORIGINAL
-  // waypoint period to hit the original target. Extension days are not
-  // corrected — the O-U process naturally tracks extended waypoints.
+  // waypoint period to hit the original target, then scale extension points
+  // by the same ratio so there's no discontinuity when new days are added.
   const originalLastDay = config.waypoints[config.waypoints.length - 1][0];
   const originalLastStep = Math.min(
     Math.floor((originalLastDay * DAY_MS) / INTERVAL_MS),
@@ -427,6 +430,10 @@ function generateEquityCurve(
         const t = i / originalLastStep;
         const w = 1 / (1 + Math.exp(-25 * (t - 0.9)));
         points[i].value = Math.round(points[i].value * (1 + (ratio - 1) * w) * 100) / 100;
+      }
+      // Scale extension points by the same ratio to maintain continuity
+      for (let i = originalLastStep + 1; i < points.length; i++) {
+        points[i].value = Math.round(points[i].value * ratio * 100) / 100;
       }
     }
   }
