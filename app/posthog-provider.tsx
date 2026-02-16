@@ -11,7 +11,7 @@ export function PHProvider({ children }: { children: React.ReactNode }) {
 
     posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY!, {
       api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST || 'https://us.i.posthog.com',
-      person_profiles: 'identified_only',
+      person_profiles: 'always',
       capture_pageview: false, // captured manually for Next.js client-side routing
       capture_pageleave: true,
       loaded: (posthog) => {

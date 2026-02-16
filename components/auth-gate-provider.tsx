@@ -4,6 +4,7 @@ import { createContext, useContext, useState, useEffect, useCallback, ReactNode 
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/browser";
 import { AuthGateModal } from "./auth-gate-modal";
+import posthog from "posthog-js";
 
 interface AuthGateContextType {
   /** Current user object or null if not signed in */
@@ -50,12 +51,20 @@ export function AuthGateProvider({ children }: { children: ReactNode }) {
         if (!cancelled) {
           setUser(session?.user ?? null);
           setLoading(false);
+          if (session?.user) {
+            posthog.identify(session.user.id, { email: session.user.email });
+          }
         }
 
         // Listen for auth changes
         const { data: { subscription: sub } } = supabase.auth.onAuthStateChange((_event, session) => {
           if (!cancelled) {
             setUser(session?.user ?? null);
+            if (session?.user) {
+              posthog.identify(session.user.id, { email: session.user.email });
+            } else {
+              posthog.reset();
+            }
           }
         });
         subscription = sub;
