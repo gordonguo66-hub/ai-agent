@@ -61,7 +61,7 @@ const nextConfig = {
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data: https: blob:",
               "font-src 'self' data:",
-              "connect-src 'self' https://*.supabase.co https://api.hyperliquid.xyz https://api.coinbase.com https://api.pro.coinbase.com https://api.exchange.coinbase.com https://advanced-trade-ws.coinbase.com https://api.stripe.com https://api.openai.com https://api.anthropic.com https://api.deepseek.com https://generativelanguage.googleapis.com https://api.x.ai https://dashscope.aliyuncs.com wss://*.supabase.co",
+              "connect-src 'self' https://*.supabase.co https://api.hyperliquid.xyz https://api.coinbase.com https://api.pro.coinbase.com https://api.exchange.coinbase.com https://advanced-trade-ws.coinbase.com https://api.stripe.com https://api.openai.com https://api.anthropic.com https://api.deepseek.com https://generativelanguage.googleapis.com https://api.x.ai https://dashscope.aliyuncs.com https://us.i.posthog.com wss://*.supabase.co",
               "frame-src 'self' https://js.stripe.com https://hooks.stripe.com",
               "frame-ancestors 'none'",
               "form-action 'self'",
