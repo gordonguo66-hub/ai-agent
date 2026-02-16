@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Check, Zap, TrendingUp, Crown, Plus } from "lucide-react";
+import { Check, Zap, TrendingUp, Crown } from "lucide-react";
 import { useAuthGate } from "@/components/auth-gate-provider";
 import { getBearerToken } from "@/lib/api/clientAuth";
 
@@ -218,7 +218,48 @@ export default function PricingPage() {
             )}
           </div>
 
-          {/* Pricing Cards */}
+          {/* Pay As You Go Option */}
+          <div className="max-w-4xl mx-auto">
+            <div className="relative overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.03] backdrop-blur-sm">
+              <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/[0.07] to-transparent" />
+              <div className="relative flex flex-col sm:flex-row items-center justify-between gap-4 px-8 py-5">
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center justify-center w-10 h-10 rounded-full bg-emerald-500/10 border border-emerald-500/20">
+                    <Zap className="w-5 h-5 text-emerald-400" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2.5">
+                      <h3 className="text-base font-semibold text-white">Pay as you go</h3>
+                      <span className="px-2 py-0.5 text-[11px] font-medium uppercase tracking-wider rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                        No commitment
+                      </span>
+                    </div>
+                    <p className="text-sm text-gray-400 mt-0.5">
+                      Add funds, use what you need. No monthly fee required.
+                    </p>
+                  </div>
+                </div>
+                <Link href={user ? "/settings/billing" : "/auth"}>
+                  <Button
+                    className="whitespace-nowrap bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 hover:bg-emerald-500/25 hover:text-emerald-300 transition-all"
+                  >
+                    Add Funds
+                  </Button>
+                </Link>
+              </div>
+            </div>
+          </div>
+
+          {/* Subscription Plans */}
+          <div className="text-center space-y-2">
+            <h2 className="text-2xl sm:text-3xl font-light text-white">
+              Want better rates? Subscribe & save
+            </h2>
+            <p className="text-gray-400">
+              Subscribers get more AI usage per dollar spent.
+            </p>
+          </div>
+
           {loading ? (
             <div className="text-center text-gray-400 py-20">Loading plans...</div>
           ) : (
@@ -293,35 +334,6 @@ export default function PricingPage() {
               })}
             </div>
           )}
-
-          {/* Add Funds Option */}
-          <div className="max-w-4xl mx-auto">
-            <div className="p-8 rounded-2xl bg-gradient-to-r from-purple-950/30 to-blue-950/30 border border-purple-500/20">
-              <div className="flex flex-col md:flex-row items-center justify-between gap-6">
-                <div className="flex items-center gap-4">
-                  <div className="p-3 rounded-xl bg-purple-500/20 border border-purple-500/30">
-                    <Plus className="w-7 h-7 text-purple-400" />
-                  </div>
-                  <div>
-                    <h3 className="text-xl font-semibold text-white mb-1">
-                      Add funds to your balance
-                    </h3>
-                    <p className="text-gray-400">
-                      Top up anytime. Subscribers get better rates on every AI decision.
-                    </p>
-                  </div>
-                </div>
-                <Link href={user ? "/settings/billing" : "/auth"}>
-                  <Button
-                    variant="outline"
-                    className="whitespace-nowrap border-purple-500/50 text-purple-300 hover:bg-purple-500/10 hover:text-purple-200"
-                  >
-                    Add Funds
-                  </Button>
-                </Link>
-              </div>
-            </div>
-          </div>
 
           {/* Divider */}
           <div className="relative py-8">
