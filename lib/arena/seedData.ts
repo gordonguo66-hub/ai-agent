@@ -196,17 +196,29 @@ async function getMarketChanges(): Promise<number[]> {
       `https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1d&startTime=${REFERENCE_DATE}&limit=${days + 1}`
     );
     const klines = await res.json();
-    const closes: number[] = klines.map((k: unknown[]) => parseFloat(k[4] as string));
+    if (!Array.isArray(klines) || klines.length < 2) {
+      throw new Error("Invalid klines response");
+    }
+    const closes: number[] = klines
+      .map((k: unknown[]) => parseFloat(k[4] as string))
+      .filter((v) => isFinite(v) && v > 0);
+
+    if (closes.length < 2) {
+      throw new Error("Not enough valid close prices");
+    }
 
     // Close-to-close changes, exclude today's in-progress candle
     const changes: number[] = [];
     for (let i = 1; i < closes.length - 1; i++) {
-      changes.push((closes[i] - closes[i - 1]) / closes[i - 1]);
+      const change = (closes[i] - closes[i - 1]) / closes[i - 1];
+      // Discard nonsensical changes (>20% daily BTC move is almost certainly bad data)
+      changes.push(isFinite(change) ? Math.max(-0.20, Math.min(0.20, change)) : 0);
     }
     // Include today's partial candle only if we have at least 2 closes
     if (closes.length >= 2) {
       const lastIdx = closes.length - 1;
-      changes.push((closes[lastIdx] - closes[lastIdx - 1]) / closes[lastIdx - 1]);
+      const change = (closes[lastIdx] - closes[lastIdx - 1]) / closes[lastIdx - 1];
+      changes.push(isFinite(change) ? Math.max(-0.20, Math.min(0.20, change)) : 0);
     }
 
     cachedMarketChanges = changes;
@@ -277,8 +289,8 @@ function getMarketDrivenWaypoints(
       dailyChange = absChange * beta + noise;
     }
 
-    // Cap daily change at ±12%
-    dailyChange = Math.max(-0.12, Math.min(0.12, dailyChange));
+    // Cap daily change at ±12%, discard NaN
+    dailyChange = isFinite(dailyChange) ? Math.max(-0.12, Math.min(0.12, dailyChange)) : 0;
 
     equity *= 1 + dailyChange;
     equity = Math.max(equity, STARTING_EQUITY * 0.3); // floor at -70%
@@ -410,6 +422,7 @@ function generateEquityCurve(
 
     equity *= 1 + reversion + noise + jump;
     equity = Math.max(equity, STARTING_EQUITY * 0.3); // floor at -70%
+    equity = Math.min(equity, STARTING_EQUITY * 5);   // ceiling at +400%
   }
 
   // Tail-only correction: adjust final ~15% of points within the ORIGINAL
@@ -431,11 +444,26 @@ function generateEquityCurve(
         const w = 1 / (1 + Math.exp(-25 * (t - 0.9)));
         points[i].value = Math.round(points[i].value * (1 + (ratio - 1) * w) * 100) / 100;
       }
-      // Scale extension points by the same ratio to maintain continuity
+      // Shift extension points with decaying additive correction
+      // (matches OU reversion rate so the shift fades as the OU naturally converges)
+      const correctedEnd = points[originalLastStep].value;
+      const shift = correctedEnd - actualAtEnd;
       for (let i = originalLastStep + 1; i < points.length; i++) {
-        points[i].value = Math.round(points[i].value * ratio * 100) / 100;
+        const stepsFromTransition = i - originalLastStep;
+        const decay = Math.exp(-REVERSION_STRENGTH * stepsFromTransition);
+        points[i].value = Math.round((points[i].value + shift * decay) * 100) / 100;
       }
     }
+  }
+
+  // Safety net: clamp extension points within ±10% of their waypoint target
+  // so no future bug in correction logic can produce unrealistic values
+  for (let i = Math.max(1, originalLastStep + 1); i < points.length; i++) {
+    const dayOffset = (points[i].time - joinTime) / DAY_MS;
+    const target = interpolateWaypoints(extendedWaypoints, dayOffset);
+    const band = target * 0.10;
+    points[i].value = Math.min(target + band, Math.max(target - band, points[i].value));
+    points[i].value = Math.round(points[i].value * 100) / 100;
   }
 
   return points;
@@ -457,8 +485,11 @@ function buildSeedParticipants(marketChanges: number[]) {
     const todayStart = new Date(todayUTCDateKey() + "T00:00:00Z").getTime();
     const joinTime = todayStart - actualDaysAgo * DAY_MS;
     const data = generateEquityCurve(config, extendedWaypoints, actualDaysAgo);
-    const latestEquity =
+    // Safety: clamp final equity to ±15% of last waypoint target
+    const expectedEquity = extendedWaypoints[extendedWaypoints.length - 1][1];
+    let latestEquity =
       data.length > 0 ? data[data.length - 1].value : STARTING_EQUITY;
+    latestEquity = Math.min(expectedEquity * 1.15, Math.max(expectedEquity * 0.85, latestEquity));
     const returnPct = ((latestEquity / STARTING_EQUITY) - 1) * 100;
 
     return {
@@ -484,8 +515,11 @@ function buildSeedLeaderboard(marketChanges: number[]) {
     const todayStart = new Date(todayUTCDateKey() + "T00:00:00Z").getTime();
     const joinTime = todayStart - actualDaysAgo * DAY_MS;
     const data = generateEquityCurve(config, extendedWaypoints, actualDaysAgo);
-    const latestEquity =
+    // Safety: clamp final equity to ±15% of last waypoint target
+    const expectedEquity = extendedWaypoints[extendedWaypoints.length - 1][1];
+    let latestEquity =
       data.length > 0 ? data[data.length - 1].value : STARTING_EQUITY;
+    latestEquity = Math.min(expectedEquity * 1.15, Math.max(expectedEquity * 0.85, latestEquity));
     const pnl = latestEquity - STARTING_EQUITY;
     const pnlPct = (pnl / STARTING_EQUITY) * 100;
 
