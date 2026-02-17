@@ -1351,6 +1351,13 @@ function SessionDetailContent({ sessionId }: { sessionId: string }) {
                 </Badge>
               )}
             </div>
+            {session?.error_message && session?.status === "paused" && (
+              <div className="mt-2 p-3 rounded-md bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800">
+                <p className="text-sm text-red-700 dark:text-red-400">
+                  {session.error_message}
+                </p>
+              </div>
+            )}
             {equity != null && pnl != null && (
               <div className="mt-4 space-y-2">
                 <div className="flex items-center gap-6">

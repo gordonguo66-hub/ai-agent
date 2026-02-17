@@ -202,8 +202,20 @@ export async function placeMarketOrder(
           if ("filled" in status && status.filled) {
             fillPrice = parseFloat(status.filled.avgPx || "0");
             fillSize = parseFloat(status.filled.totalSz || "0");
+            // CRITICAL FIX: IOC orders fill immediately and never rest, so oid
+            // is only available on the filled status (not resting). Without this,
+            // orderId is always "" which causes a unique constraint violation on
+            // venue_order_id after the first trade, silently losing all subsequent trades.
+            orderId = String(status.filled.oid || orderId);
           }
         }
+      }
+
+      // Safety fallback: if exchange didn't return an orderId (shouldn't happen,
+      // but prevents the unique constraint on venue_order_id from blocking trades)
+      if (!orderId) {
+        orderId = `gen-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        console.warn(`[Hyperliquid Order] ⚠️ No orderId from exchange response, generated fallback: ${orderId}`);
       }
 
       // CRITICAL FIX: IOC orders that get zero fills should be treated as failures.

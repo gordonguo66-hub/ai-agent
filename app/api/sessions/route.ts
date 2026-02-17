@@ -350,13 +350,6 @@ export async function POST(request: NextRequest) {
       }, { status: 500 });
     }
 
-    // RUNTIME ASSERTION: Arena sessions must never be live mode
-    // Arena is virtual-only ($100k competition)
-    if (session.mode === "arena" && session.mode === "live") {
-      console.error("[Session Creation] ❌ ASSERTION FAILED: Arena session created with LIVE mode. Arena must be virtual-only.");
-      throw new Error("ASSERTION FAILED: Arena session cannot be LIVE mode. Arena is virtual-only.");
-    }
-
     // Verify Arena uses virtual account, not live account
     if (session.mode === "arena") {
       if (!session.virtual_accounts || session.live_accounts) {

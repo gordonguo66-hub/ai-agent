@@ -75,68 +75,43 @@ export async function updateArenaSnapshot(sessionId: string): Promise<void> {
       max_drawdown_pct: null,
     };
 
-    if (arenaEntry.mode === "virtual" || arenaEntry.mode === "arena") {
-      // Virtual arena: use equity calculated correctly (cashBalance + sum(positionValue))
-      if (account) {
-        // First, ensure account equity is up-to-date by marking positions to market
-        const positions = await getPositions(account.id);
-        if (positions.length > 0) {
-          const markets = positions.map((p) => p.market);
-          try {
-            const prices = await getMidPrices(markets);
-            const pricesByMarket: Record<string, number> = {};
-            for (const [market, price] of Object.entries(prices)) {
-              pricesByMarket[market] = price;
-            }
-            // Update positions and equity in account
-            await markToMarket(account.id, pricesByMarket);
-            // Reload account to get updated equity
-            const { data: updatedAccount } = await serviceClient
-              .from("virtual_accounts")
-              .select("*")
-              .eq("id", account.id)
-              .single();
-            if (updatedAccount) {
-              snapshotData.equity = Number(updatedAccount.equity);
-            } else {
-              snapshotData.equity = Number(account.equity || 100000);
-            }
-          } catch (error) {
-            console.error(`[Arena] Failed to update equity for snapshot:`, error);
-            // Fallback to stored equity
+    // Arena is virtual-only: use equity calculated correctly (cashBalance + sum(positionValue))
+    if (account) {
+      // First, ensure account equity is up-to-date by marking positions to market
+      const positions = await getPositions(account.id);
+      if (positions.length > 0) {
+        const markets = positions.map((p) => p.market);
+        try {
+          const prices = await getMidPrices(markets);
+          const pricesByMarket: Record<string, number> = {};
+          for (const [market, price] of Object.entries(prices)) {
+            pricesByMarket[market] = price;
+          }
+          // Update positions and equity in account
+          await markToMarket(account.id, pricesByMarket);
+          // Reload account to get updated equity
+          const { data: updatedAccount } = await serviceClient
+            .from("virtual_accounts")
+            .select("*")
+            .eq("id", account.id)
+            .single();
+          if (updatedAccount) {
+            snapshotData.equity = Number(updatedAccount.equity);
+          } else {
             snapshotData.equity = Number(account.equity || 100000);
           }
-        } else {
-          // No positions - equity = cash balance
-          snapshotData.equity = Number(account.cash_balance || account.starting_equity || 100000);
+        } catch (error) {
+          console.error(`[Arena] Failed to update equity for snapshot:`, error);
+          // Fallback to stored equity
+          snapshotData.equity = Number(account.equity || 100000);
         }
       } else {
-        // No account yet - use starting equity (default $100k for virtual)
-        snapshotData.equity = 100000;
+        // No positions - equity = cash balance
+        snapshotData.equity = Number(account.cash_balance || account.starting_equity || 100000);
       }
     } else {
-      // Live arena: use PnL (realized + unrealized)
-      if (account) {
-        const positions = await getPositions(account.id);
-        const totalUnrealizedPnl = positions.reduce(
-          (sum, p) => sum + Number(p.unrealized_pnl || 0),
-          0
-        );
-        const totalRealizedPnl = tradesData
-          .filter((t) => t.action === "close" || t.action === "reduce" || t.action === "flip")
-          .reduce((sum, t) => sum + Number(t.realized_pnl || 0), 0);
-        
-        snapshotData.total_pnl = totalRealizedPnl + totalUnrealizedPnl;
-        
-        // Calculate return % if we have starting equity
-        if (account.starting_equity && Number(account.starting_equity) > 0 && snapshotData.total_pnl !== undefined) {
-          snapshotData.return_pct = (snapshotData.total_pnl / Number(account.starting_equity)) * 100;
-        }
-      } else {
-        // No account yet - start with 0 PnL
-        snapshotData.total_pnl = 0;
-        snapshotData.return_pct = 0;
-      }
+      // No account yet - use starting equity (default $100k for virtual)
+      snapshotData.equity = 100000;
     }
 
     // Calculate win rate from closed trades
