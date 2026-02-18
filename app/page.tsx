@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Coins, Lock, WalletMinimal, Power, ListChecks, Brain, ShieldCheck, Cpu, GitBranch, Settings, Clock } from "lucide-react";
-import { useAuthGate } from "@/components/auth-gate-provider";
 import { AnimatedStrategyBuilder } from "@/components/animated-strategy-builder";
 import { useEffect, useRef, useState } from "react";
 
@@ -341,14 +341,11 @@ function FloatingCryptoLogos() {
 }
 
 export default function Home() {
-  const { user, gatedNavigate } = useAuthGate();
+  const router = useRouter();
 
   const handleBuildStrategy = (e: React.MouseEvent) => {
     e.preventDefault();
-    gatedNavigate("/dashboard", {
-      title: "Sign in to build strategies",
-      description: "Create an account or sign in to start building your AI trading strategies.",
-    });
+    router.push("/strategy/new");
   };
 
   return (

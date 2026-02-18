@@ -98,7 +98,7 @@ export function Nav() {
   };
 
   const navLinks = [
-    { href: "/dashboard", label: "Dashboard", gated: true },
+    { href: "/dashboard", label: "Dashboard", gated: false },
     { href: "/arena", label: "Arena", gated: false },
     { href: "/community", label: "Community", gated: true },
     { href: "/pricing", label: "Pricing", gated: false },

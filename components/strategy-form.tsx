@@ -12,7 +12,10 @@ import { Badge } from "./ui/badge";
 import { createClient } from "@/lib/supabase/browser";
 import { CustomSelect, type SelectOption } from "./ui/custom-select";
 import { ProviderLogos } from "./provider-logos";
+import { AuthGateModal } from "./auth-gate-modal";
 import { Zap, Globe, Brain, Target, Shield, ArrowUpRight, ArrowDownRight, Timer, Gauge } from "lucide-react";
+
+const PENDING_STRATEGY_KEY = "pending_strategy_form";
 
 // Model configurations by provider (Feb 2026)
 // Only providers with Corebound platform keys are listed
@@ -114,6 +117,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("basics");
+  const [authGateOpen, setAuthGateOpen] = useState(false);
   const isEditMode = !!strategyId;
 
   // Venue selection
@@ -529,6 +533,35 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
     }
   }, [isEditMode, initialData]);
 
+  // Restore form data from sessionStorage (after auth redirect)
+  useEffect(() => {
+    if (isEditMode) return;
+    try {
+      const saved = sessionStorage.getItem(PENDING_STRATEGY_KEY);
+      if (!saved) return;
+      sessionStorage.removeItem(PENDING_STRATEGY_KEY);
+      const data = JSON.parse(saved);
+      if (data.name) setName(data.name);
+      if (data.modelProvider) setModelProvider(data.modelProvider);
+      if (data.modelName) setModelName(data.modelName);
+      if (data.prompt) setPrompt(data.prompt);
+      if (data.venue) setVenue(data.venue);
+      if (data.selectedMarkets) setSelectedMarkets(data.selectedMarkets);
+      if (data.manualMarketsInput) setManualMarketsInput(data.manualMarketsInput);
+      if (data.useManualInput !== undefined) setUseManualInput(data.useManualInput);
+      if (data.cadenceHours !== undefined) setCadenceHours(data.cadenceHours);
+      if (data.cadenceMinutes !== undefined) setCadenceMinutes(data.cadenceMinutes);
+      if (data.cadenceSeconds !== undefined) setCadenceSeconds(data.cadenceSeconds);
+      if (data.marketProcessingMode) setMarketProcessingMode(data.marketProcessingMode);
+      if (data.aiInputs) setAiInputs(data.aiInputs);
+      if (data.entryExit) setEntryExit(data.entryExit);
+      if (data.guardrails) setGuardrails(data.guardrails);
+      if (data.risk) setRisk(data.risk);
+    } catch (err) {
+      console.error("Failed to restore strategy form from sessionStorage:", err);
+    }
+  }, [isEditMode]);
+
   // Fetch exchange connections to check INTX status
   useEffect(() => {
     const fetchExchangeConnections = async () => {
@@ -762,8 +795,19 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
     } = await supabase.auth.getSession();
 
     if (!session?.user) {
-      setError("You must be signed in");
+      // Save form data so it can be restored after auth redirect
+      try {
+        sessionStorage.setItem(PENDING_STRATEGY_KEY, JSON.stringify({
+          name, modelProvider, modelName, prompt, venue,
+          selectedMarkets, manualMarketsInput, useManualInput,
+          cadenceHours, cadenceMinutes, cadenceSeconds,
+          marketProcessingMode, aiInputs, entryExit, guardrails, risk,
+        }));
+      } catch (err) {
+        console.error("Failed to save strategy form to sessionStorage:", err);
+      }
       setLoading(false);
+      setAuthGateOpen(true);
       return;
     }
 
@@ -3058,6 +3102,14 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
           </CardContent>
         </Card>
       </div>
+
+      <AuthGateModal
+        open={authGateOpen}
+        onOpenChange={setAuthGateOpen}
+        returnTo="/strategy/new"
+        title="Sign in to save your strategy"
+        description="Create an account or sign in to save your strategy and start trading."
+      />
     </div>
   );
 }
