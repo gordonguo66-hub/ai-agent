@@ -218,52 +218,64 @@ export default function PricingPage() {
             )}
           </div>
 
-          {/* Pay As You Go Option */}
-          <div className="max-w-4xl mx-auto">
-            <div className="relative overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.03] backdrop-blur-sm">
-              <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/[0.07] to-transparent" />
-              <div className="relative flex flex-col sm:flex-row items-center justify-between gap-4 px-8 py-5">
-                <div className="flex items-center gap-4">
-                  <div className="flex items-center justify-center w-10 h-10 rounded-full bg-emerald-500/10 border border-emerald-500/20">
-                    <Zap className="w-5 h-5 text-emerald-400" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2.5">
-                      <h3 className="text-base font-semibold text-white">Pay as you go</h3>
-                      <span className="px-2 py-0.5 text-[11px] font-medium uppercase tracking-wider rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                        No commitment
-                      </span>
-                    </div>
-                    <p className="text-sm text-gray-400 mt-0.5">
-                      Add funds, use what you need. No monthly fee required.
-                    </p>
-                  </div>
-                </div>
-                <Link href={user ? "/settings/billing" : "/auth"}>
-                  <Button
-                    className="whitespace-nowrap bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 hover:bg-emerald-500/25 hover:text-emerald-300 transition-all"
-                  >
-                    Add Funds
-                  </Button>
-                </Link>
-              </div>
-            </div>
-          </div>
-
-          {/* Subscription Plans */}
-          <div className="text-center space-y-2">
-            <h2 className="text-2xl sm:text-3xl font-light text-white">
-              Want better rates? Subscribe & save
-            </h2>
-            <p className="text-gray-400">
-              Subscribers get more AI usage per dollar spent.
-            </p>
-          </div>
-
+          {/* All Plans */}
           {loading ? (
             <div className="text-center text-gray-400 py-20">Loading plans...</div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-4xl mx-auto">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-6xl mx-auto">
+              {/* Pay As You Go Card */}
+              <div className="relative group rounded-2xl p-8 transition-all duration-300 bg-white border border-gray-200 hover:border-emerald-400 hover:shadow-lg">
+                <div className="flex flex-col h-full space-y-6">
+                  <div className="flex items-center gap-3">
+                    <div className="p-3 rounded-xl bg-emerald-100 text-emerald-600 border border-emerald-200">
+                      <Zap className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-semibold text-gray-900">Pay as you go</h3>
+                      <p className="text-sm text-gray-500">No commitment</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex items-baseline gap-1">
+                      <span className="text-4xl font-bold text-gray-900">$0</span>
+                      <span className="text-gray-500">/month</span>
+                    </div>
+                    <p className="text-emerald-600 font-semibold">
+                      Only pay for what you use
+                    </p>
+                  </div>
+
+                  <ul className="space-y-3 flex-grow">
+                    <li className="flex items-start gap-3">
+                      <Check className="w-5 h-5 text-emerald-500 flex-shrink-0 mt-0.5" />
+                      <span className="text-gray-600 text-sm">No monthly fee</span>
+                    </li>
+                    <li className="flex items-start gap-3">
+                      <Check className="w-5 h-5 text-emerald-500 flex-shrink-0 mt-0.5" />
+                      <span className="text-gray-600 text-sm">Up to 3 sessions</span>
+                    </li>
+                    <li className="flex items-start gap-3">
+                      <Check className="w-5 h-5 text-emerald-500 flex-shrink-0 mt-0.5" />
+                      <span className="text-gray-600 text-sm">Paper & live trading</span>
+                    </li>
+                    <li className="flex items-start gap-3">
+                      <Check className="w-5 h-5 text-emerald-500 flex-shrink-0 mt-0.5" />
+                      <span className="text-gray-600 text-sm">Add funds anytime</span>
+                    </li>
+                  </ul>
+
+                  <Link href={user ? "/settings/billing" : "/auth"} className="block">
+                    <Button
+                      className="w-full py-6 text-base rounded-xl transition-all bg-emerald-600 hover:bg-emerald-700 text-white"
+                    >
+                      Add Funds
+                    </Button>
+                  </Link>
+                </div>
+              </div>
+
+              {/* Subscription Plans */}
               {plans.map((plan) => {
                 const isCurrent = isCurrentPlan(plan.id);
                 const savings = getSavings(plan.id);

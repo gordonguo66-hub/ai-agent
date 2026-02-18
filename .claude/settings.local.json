@@ -121,7 +121,12 @@
       "Bash(npx tsx -e \"\nimport { createClient } from ''@supabase/supabase-js'';\nimport { readFileSync } from ''fs'';\nimport { resolve } from ''path'';\nconst envPath = resolve\\(import.meta.dirname, ''.env.local''\\);\nconst envContent = readFileSync\\(envPath, ''utf-8''\\);\nfor \\(const line of envContent.split\\(''\\\\n''\\)\\) {\n  const trimmed = line.trim\\(\\);\n  if \\(!trimmed || trimmed.startsWith\\(''#''\\)\\) continue;\n  const eqIdx = trimmed.indexOf\\(''=''\\);\n  if \\(eqIdx === -1\\) continue;\n  const key = trimmed.slice\\(0, eqIdx\\);\n  const val = trimmed.slice\\(eqIdx + 1\\);\n  if \\(!process.env[key]\\) process.env[key] = val;\n}\nconst supabase = createClient\\(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, { auth: { autoRefreshToken: false, persistSession: false } }\\);\nconst { error } = await supabase.from\\(''profiles''\\).update\\({ username: ''marcus1999'', display_name: ''marcus1999'' }\\).eq\\(''id'', ''b657704f-caea-4677-a1d3-08b228c3dad5''\\);\nconsole.log\\(error ? ''Error: '' + error.message : ''Profile updated to marcus1999''\\);\n\")",
       "WebFetch(domain:v0.app)",
       "WebFetch(domain:saasinterface.com)",
-      "WebFetch(domain:userpilot.com)"
+      "WebFetch(domain:userpilot.com)",
+      "WebFetch(domain:saaslandingpage.com)",
+      "WebFetch(domain:www.webstacks.com)",
+      "WebFetch(domain:www.coreboundai.io)",
+      "Bash(npx vercel env:*)",
+      "Bash(git log --oneline -30 -- lib/arena/updateArenaSnapshot.ts lib/accounting/pnl.ts app/api/arena/ app/api/sessions/[id]/tick/route.ts supabase/arena.sql)"
     ]
   }
 }
