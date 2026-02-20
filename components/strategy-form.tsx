@@ -13,7 +13,8 @@ import { createClient } from "@/lib/supabase/browser";
 import { CustomSelect, type SelectOption } from "./ui/custom-select";
 import { ProviderLogos } from "./provider-logos";
 import { AuthGateModal } from "./auth-gate-modal";
-import { Zap, Globe, Brain, Target, Shield, ArrowUpRight, ArrowDownRight, Timer, Gauge } from "lucide-react";
+import { Zap, Globe, Brain, Target, Shield, ArrowUpRight, ArrowDownRight, Timer, Gauge, ShieldCheck, Scale, Flame, Settings2, Sparkles } from "lucide-react";
+import { STRATEGY_PRESETS, type PresetMode, type SetupMode } from "@/lib/strategy/presets";
 
 const PENDING_STRATEGY_KEY = "pending_strategy_form";
 
@@ -80,7 +81,7 @@ const MAJOR_MARKETS_CB_INTX = ["BTC-PERP-INTX", "ETH-PERP-INTX", "SOL-PERP-INTX"
 // Base venues - Coinbase description will be updated based on INTX status in component
 const BASE_VENUES = [
   { id: "hyperliquid", name: "Hyperliquid", description: "Perpetuals (up to 50x leverage, shorts allowed)" },
-  { id: "coinbase", name: "Coinbase", description: "Spot trading (1x only, no shorts - US compliant)" },
+  { id: "coinbase", name: "Coinbase", description: "Spot trading or Perpetuals with INTX (leverage & shorts)" },
   { id: "virtual", name: "Virtual", description: "Paper trading with simulated markets (no exchange needed)" },
   { id: "arena", name: "Arena", description: "Competition mode - $100k virtual balance, leaderboard rankings" },
 ];
@@ -116,9 +117,15 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorTab, setErrorTab] = useState<string | null>(null);
+  const [errorField, setErrorField] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("basics");
   const [authGateOpen, setAuthGateOpen] = useState(false);
   const isEditMode = !!strategyId;
+
+  // Setup mode: quick (preset-based) vs full (all tabs)
+  const [setupMode, setSetupMode] = useState<SetupMode>(isEditMode ? "full" : "quick");
+  const [presetMode, setPresetMode] = useState<PresetMode>("balanced");
 
   // Venue selection
   const [venue, setVenue] = useState<"hyperliquid" | "coinbase" | "virtual" | "arena">("hyperliquid");
@@ -321,6 +328,16 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
     maxPositionUsd: 1000, // Default to $1000 (safer for live trading)
     maxLeverage: 2,
   });
+
+  // Clear validation error when user changes form fields
+  useEffect(() => {
+    if (error) {
+      setError(null);
+      setErrorTab(null);
+      setErrorField(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [name, modelProvider, modelName, prompt, selectedMarkets, activeTab, entryExit, risk]);
 
   // Reset model_name when provider changes
   useEffect(() => {
@@ -537,10 +554,14 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
   useEffect(() => {
     if (isEditMode) return;
     try {
-      const saved = sessionStorage.getItem(PENDING_STRATEGY_KEY);
+      const saved = localStorage.getItem(PENDING_STRATEGY_KEY);
       if (!saved) return;
-      sessionStorage.removeItem(PENDING_STRATEGY_KEY);
+      localStorage.removeItem(PENDING_STRATEGY_KEY);
       const data = JSON.parse(saved);
+      // Skip if data is older than 1 hour
+      if (data._savedAt && Date.now() - data._savedAt > 60 * 60 * 1000) return;
+      if (data.setupMode) setSetupMode(data.setupMode);
+      if (data.presetMode) setPresetMode(data.presetMode);
       if (data.name) setName(data.name);
       if (data.modelProvider) setModelProvider(data.modelProvider);
       if (data.modelName) setModelName(data.modelName);
@@ -650,41 +671,50 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
     e.preventDefault();
     setLoading(true);
     setError(null);
+    setErrorTab(null);
+
+    const setValidationError = (msg: string, tab: string, field?: string) => {
+      setError(msg);
+      setErrorTab(tab);
+      setErrorField(field || null);
+      setActiveTab(tab);
+      setLoading(false);
+      if (field) {
+        setTimeout(() => {
+          const el = document.getElementById(field);
+          if (el) { el.scrollIntoView({ behavior: "smooth", block: "center" }); el.focus(); }
+        }, 100);
+      }
+    };
 
     if (!name || !name.trim()) {
-      setError("Strategy Name is required");
-      setLoading(false);
+      setValidationError("Please enter a Strategy Name", "basics", "strategy-name");
       return;
     }
 
     if (!modelProvider || !modelProvider.trim()) {
-      setError("Model Provider is required");
-      setLoading(false);
+      setValidationError("Please select a Model Provider", "basics", "model-provider");
       return;
     }
 
     if (!modelName || !modelName.trim()) {
-      setError("Model Name is required");
-      setLoading(false);
+      setValidationError("Please select a Model Name", "basics", "model-name");
       return;
     }
 
     if (!prompt || !prompt.trim()) {
-      setError("Trading Prompt is required");
-      setLoading(false);
+      setValidationError("Please enter a Trading Prompt", "basics", "trading-prompt");
       return;
     }
 
     // Validate cadence
     const totalCadenceSeconds = getTotalCadenceSeconds();
     if (totalCadenceSeconds <= 0) {
-      setError("Please set a decision cadence (at least 1 second)");
-      setLoading(false);
+      setValidationError("Please set a decision cadence (at least 1 second)", "basics", "cadence");
       return;
     }
     if (totalCadenceSeconds < 60) {
-      setError("Minimum AI cadence is 60 seconds (1 minute). The system checks for decisions every minute.");
-      setLoading(false);
+      setValidationError("Minimum AI cadence is 60 seconds (1 minute)", "basics", "cadence");
       return;
     }
     
@@ -700,8 +730,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
     }
 
     if (finalMarkets.length === 0) {
-      setError("Please select at least one market");
-      setLoading(false);
+      setValidationError("Please select at least one market in the Markets tab", "markets");
       return;
     }
 
@@ -709,8 +738,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
       const availableSymbols = new Set(availableMarkets.map(m => m.symbol.toUpperCase()));
       const invalidMarkets = finalMarkets.filter(symbol => !availableSymbols.has(symbol));
       if (invalidMarkets.length > 0) {
-        setError(`Invalid markets: ${invalidMarkets.slice(0, 5).join(", ")}${invalidMarkets.length > 5 ? "..." : ""}`);
-        setLoading(false);
+        setValidationError(`Invalid markets: ${invalidMarkets.slice(0, 5).join(", ")}${invalidMarkets.length > 5 ? "..." : ""}`, "markets");
         return;
       }
     }
@@ -720,51 +748,43 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
       const volatilityMin = confirmation.volatilityMin ?? null;
       const volatilityMax = confirmation.volatilityMax ?? null;
       if (volatilityMin !== null && volatilityMin < 0) {
-        setError("Min Volatility % must be 0 or greater");
-        setLoading(false);
+        setValidationError("Min Volatility % must be 0 or greater — check Entry/Exit tab", "entry");
         return;
       }
       if (volatilityMax !== null && volatilityMax < 0) {
-        setError("Max Volatility % must be 0 or greater");
-        setLoading(false);
+        setValidationError("Max Volatility % must be 0 or greater — check Entry/Exit tab", "entry");
         return;
       }
       if (volatilityMin !== null && volatilityMax !== null && volatilityMin > volatilityMax) {
-        setError("Min Volatility % cannot be greater than Max Volatility %");
-        setLoading(false);
+        setValidationError("Min Volatility % cannot be greater than Max Volatility % — check Entry/Exit tab", "entry");
         return;
       }
     }
 
     if (entryExit.exit.mode === "trailing") {
       if (!entryExit.exit.trailingStopPct || entryExit.exit.trailingStopPct <= 0) {
-        setError("Trailing Stop % is required when using Trailing exit mode");
-        setLoading(false);
+        setValidationError("Trailing Stop % is required when using Trailing exit mode — check Entry/Exit tab", "entry");
         return;
       }
     }
 
     if (entryExit.exit.mode === "tp_sl") {
       if (!entryExit.exit.takeProfitPct || entryExit.exit.takeProfitPct <= 0) {
-        setError("Take Profit % must be greater than 0");
-        setLoading(false);
+        setValidationError("Take Profit % must be greater than 0 — check Entry/Exit tab", "entry");
         return;
       }
       if (!entryExit.exit.stopLossPct || entryExit.exit.stopLossPct <= 0) {
-        setError("Stop Loss % must be greater than 0");
-        setLoading(false);
+        setValidationError("Stop Loss % must be greater than 0 — check Entry/Exit tab", "entry");
         return;
       }
       if (entryExit.exit.takeProfitPct <= entryExit.exit.stopLossPct) {
-        setError("Take Profit % must be greater than Stop Loss %");
-        setLoading(false);
+        setValidationError("Take Profit % must be greater than Stop Loss % — check Entry/Exit tab", "entry");
         return;
       }
     }
 
     if (typeof risk.maxLeverage === "number" && risk.maxLeverage > 20) {
-      setError("Max Leverage must be 20x or less");
-      setLoading(false);
+      setValidationError("Max Leverage must be 20x or less — check Risk tab", "risk");
       return;
     }
 
@@ -772,20 +792,17 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
     const minPositionSize = venue === "coinbase" ? (coinbaseIntxEnabled ? 10 : 1) : 10;
     const exchangeLabel = venue === "coinbase" ? (coinbaseIntxEnabled ? "Coinbase INTX" : "Coinbase") : "Hyperliquid";
     if (typeof risk.maxPositionUsd === "number" && risk.maxPositionUsd < minPositionSize) {
-      setError(`Max Position Size must be at least $${minPositionSize} (${exchangeLabel} minimum order size)`);
-      setLoading(false);
+      setValidationError(`Max Position Size must be at least $${minPositionSize} (${exchangeLabel} minimum order size) — check Risk tab`, "risk");
       return;
     }
 
     if (typeof risk.maxPositionUsd === "number" && risk.maxPositionUsd > 100000) {
-      setError("Max Position Size must be $100,000 or less");
-      setLoading(false);
+      setValidationError("Max Position Size must be $100,000 or less — check Risk tab", "risk");
       return;
     }
 
     if (typeof risk.maxDailyLossPct === "number" && risk.maxDailyLossPct > 50) {
-      setError("Max Daily Loss % must be 50% or less");
-      setLoading(false);
+      setValidationError("Max Daily Loss % must be 50% or less — check Risk tab", "risk");
       return;
     }
 
@@ -797,14 +814,16 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
     if (!session?.user) {
       // Save form data so it can be restored after auth redirect
       try {
-        sessionStorage.setItem(PENDING_STRATEGY_KEY, JSON.stringify({
+        localStorage.setItem(PENDING_STRATEGY_KEY, JSON.stringify({
+          setupMode, presetMode,
           name, modelProvider, modelName, prompt, venue,
           selectedMarkets, manualMarketsInput, useManualInput,
           cadenceHours, cadenceMinutes, cadenceSeconds,
           marketProcessingMode, aiInputs, entryExit, guardrails, risk,
+          _savedAt: Date.now(),
         }));
       } catch (err) {
-        console.error("Failed to save strategy form to sessionStorage:", err);
+        console.error("Failed to save strategy form to localStorage:", err);
       }
       setLoading(false);
       setAuthGateOpen(true);
@@ -997,6 +1016,20 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
       .map(line => line.toUpperCase().replace(/\s+/g, "-"));
   };
 
+  // Field border styling: red for error, green for filled, blue for empty
+  const fieldBorder = (fieldId: string, isFilled: boolean) => {
+    if (errorField === fieldId) return "!border-destructive !ring-0 focus:!border-destructive focus:!ring-0";
+    if (isFilled) return "!border-emerald-400 !ring-0 focus:!border-emerald-400 focus:!ring-0";
+    return "!border-blue-300 !ring-0 focus:!border-blue-400 focus:!ring-0";
+  };
+
+  // Wrapper border for CustomSelect components
+  const selectBorder = (fieldId: string, isFilled: boolean) => {
+    if (errorField === fieldId) return "rounded-md border border-destructive";
+    if (isFilled) return "rounded-md border border-emerald-400";
+    return "rounded-md border border-blue-300";
+  };
+
   // Calculate total seconds from hours, minutes, seconds
   const getTotalCadenceSeconds = (): number => {
     const h = typeof cadenceHours === "number" ? cadenceHours : 0;
@@ -1026,6 +1059,26 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
     return total;
   };
 
+  const applyPreset = (mode: PresetMode) => {
+    const preset = STRATEGY_PRESETS[mode];
+    setPrompt(preset.prompt);
+
+    // Decompose cadenceSeconds into hours/minutes/seconds
+    const totalSec = preset.cadenceSeconds;
+    const h = Math.floor(totalSec / 3600);
+    const remaining = totalSec % 3600;
+    const m = Math.floor(remaining / 60);
+    const s = remaining % 60;
+    setCadenceHours(h);
+    setCadenceMinutes(m);
+    setCadenceSeconds(h === 0 && m === 0 ? Math.max(60, s) : s);
+
+    setAiInputs(preset.aiInputs);
+    setEntryExit(preset.entryExit);
+    setGuardrails(preset.guardrails);
+    setRisk(preset.risk);
+  };
+
   const formatCadenceDisplay = (): string => {
     const h = typeof cadenceHours === "number" ? cadenceHours : 0;
     const m = typeof cadenceMinutes === "number" ? cadenceMinutes : 0;
@@ -1050,12 +1103,6 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-6">
-              {error && (
-                <div className="p-4 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md">
-                  {error}
-                </div>
-              )}
-
               <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
                 <TabsList className="grid w-full grid-cols-5">
                   <TabsTrigger value="basics"><Zap size={14} className="mr-1.5 hidden sm:inline" />Basics</TabsTrigger>
@@ -1066,6 +1113,114 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                 </TabsList>
 
                 <TabsContent value="basics" className="space-y-6 mt-6">
+                  {/* Setup Mode - Only show for new strategies */}
+                  {!isEditMode && (
+                    <div className="space-y-4 p-4 glass-section">
+                      <label className="text-sm font-semibold">Setup Mode</label>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSetupMode("quick");
+                            applyPreset(presetMode);
+                          }}
+                          className={`p-4 border rounded-lg text-left transition-all duration-200 ${
+                            setupMode === "quick"
+                              ? "border-primary bg-primary/10 ring-2 ring-primary/30 shadow-[0_0_15px_rgba(59,130,246,0.15)]"
+                              : "border-border hover:border-muted-foreground/50 hover:bg-white/[0.02]"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <Sparkles size={16} className="text-primary" />
+                            <span className="font-semibold">Quick Setup</span>
+                          </div>
+                          <div className="text-xs text-muted-foreground mt-1">
+                            Pick a trading style and we&apos;ll configure everything for you. You can still tweak any setting.
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSetupMode("full")}
+                          className={`p-4 border rounded-lg text-left transition-all duration-200 ${
+                            setupMode === "full"
+                              ? "border-primary bg-primary/10 ring-2 ring-primary/30 shadow-[0_0_15px_rgba(59,130,246,0.15)]"
+                              : "border-border hover:border-muted-foreground/50 hover:bg-white/[0.02]"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <Settings2 size={16} />
+                            <span className="font-semibold">Full Control</span>
+                          </div>
+                          <div className="text-xs text-muted-foreground mt-1">
+                            Start from scratch and configure every parameter yourself.
+                          </div>
+                        </button>
+                      </div>
+
+                      {/* Preset Mode Cards */}
+                      {setupMode === "quick" && (
+                        <div className="space-y-2 pt-2">
+                          <label className="text-sm font-semibold">Trading Style</label>
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                            {(Object.entries(STRATEGY_PRESETS) as [PresetMode, typeof STRATEGY_PRESETS[PresetMode]][]).map(([key, preset]) => {
+                              const isSelected = presetMode === key;
+                              const Icon = key === "conservative" ? ShieldCheck : key === "balanced" ? Scale : Flame;
+                              const colorMap = {
+                                conservative: {
+                                  border: "border-emerald-500 bg-emerald-500/10 ring-2 ring-emerald-500/30",
+                                  icon: "text-emerald-500",
+                                  badge: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+                                },
+                                balanced: {
+                                  border: "border-blue-500 bg-blue-500/10 ring-2 ring-blue-500/30",
+                                  icon: "text-blue-500",
+                                  badge: "bg-blue-500/10 text-blue-400 border-blue-500/20",
+                                },
+                                aggressive: {
+                                  border: "border-orange-500 bg-orange-500/10 ring-2 ring-orange-500/30",
+                                  icon: "text-orange-500",
+                                  badge: "bg-orange-500/10 text-orange-400 border-orange-500/20",
+                                },
+                              };
+                              const colors = colorMap[key];
+
+                              return (
+                                <button
+                                  key={key}
+                                  type="button"
+                                  onClick={() => {
+                                    setPresetMode(key);
+                                    applyPreset(key);
+                                  }}
+                                  className={`p-4 border rounded-lg text-left transition-all duration-200 ${
+                                    isSelected ? colors.border : "border-border hover:border-muted-foreground/50 hover:bg-white/[0.02]"
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-2 mb-2">
+                                    <Icon size={18} className={isSelected ? colors.icon : "text-muted-foreground"} />
+                                    <span className="font-semibold">{preset.label}</span>
+                                  </div>
+                                  <p className="text-xs text-muted-foreground mb-3">{preset.description}</p>
+                                  <div className="flex flex-wrap gap-1.5">
+                                    <span className={`text-[10px] px-1.5 py-0.5 rounded border ${colors.badge}`}>
+                                      {preset.risk.maxLeverage}x leverage
+                                    </span>
+                                    <span className={`text-[10px] px-1.5 py-0.5 rounded border ${colors.badge}`}>
+                                      {preset.risk.maxDailyLossPct}% max loss
+                                    </span>
+                                    <span className={`text-[10px] px-1.5 py-0.5 rounded border ${colors.badge}`}>
+                                      ${preset.risk.maxPositionUsd}
+                                    </span>
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {/* Venue Selection */}
                   <div className="space-y-3 p-4 glass-section">
                     <label className="text-sm font-semibold">
@@ -1103,8 +1258,8 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                       ) : (
                         <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-md mt-2">
                           <p className="text-sm text-blue-700 dark:text-blue-400">
-                            <strong>Coinbase (Spot Only):</strong> Leverage is fixed at 1x and short selling is not available.
-                            Enable INTX in Settings → Exchange if you have Coinbase International access.
+                            <strong>Spot Mode:</strong> Currently using spot trading (1x, no shorts).
+                            Enable INTX in Settings → Exchange for perpetuals with up to 10x leverage and short selling.
                           </p>
                         </div>
                       )
@@ -1127,54 +1282,58 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                       Strategy Name *
                     </label>
                     <Input
-                      id="name"
+                      id="strategy-name"
                       value={name}
                       onChange={(e) => setName(e.target.value)}
                       required
                       placeholder="e.g., Momentum Scalper v1"
-                      className="h-11"
+                      className={`h-11 ${fieldBorder("strategy-name", !!name.trim())}`}
                     />
                   </div>
 
-                  <div className="space-y-2">
+                  <div className="space-y-2" id="model-provider">
                     <label htmlFor="model_provider" className="text-sm font-semibold">
                       Model Provider *
                     </label>
-                    <CustomSelect
-                      options={PROVIDERS.map((p) => ({
-                        value: p.id,
-                        label: p.name,
-                        icon: ProviderLogos[p.id],
-                      }))}
-                      value={modelProvider}
-                      onValueChange={(val) => {
-                        setModelProvider(val);
-                        setModelName("");
-                      }}
-                      placeholder="Select a provider..."
-                    />
+                    <div className={selectBorder("model-provider", !!modelProvider)}>
+                      <CustomSelect
+                        options={PROVIDERS.map((p) => ({
+                          value: p.id,
+                          label: p.name,
+                          icon: ProviderLogos[p.id],
+                        }))}
+                        value={modelProvider}
+                        onValueChange={(val) => {
+                          setModelProvider(val);
+                          setModelName("");
+                        }}
+                        placeholder="Select a provider..."
+                      />
+                    </div>
                   </div>
 
-                  <div className="space-y-2">
+                  <div className="space-y-2" id="model-name">
                     <label htmlFor="model_name" className="text-sm font-semibold">
                       Model Name *
                     </label>
-                    <CustomSelect
-                      options={(MODELS_BY_PROVIDER[modelProvider] || []).map((m) => ({
-                        value: m.id,
-                        label: m.name,
-                        description: m.description,
-                        icon: ProviderLogos[modelProvider],
-                      }))}
-                      value={modelName}
-                      onValueChange={setModelName}
-                      placeholder={
-                        modelProvider
-                          ? `Select a ${PROVIDERS.find((p) => p.id === modelProvider)?.name || "provider"} model...`
-                          : "Select a provider first..."
-                      }
-                      disabled={!modelProvider || (MODELS_BY_PROVIDER[modelProvider] || []).length === 0}
-                    />
+                    <div className={selectBorder("model-name", !!modelName)}>
+                      <CustomSelect
+                        options={(MODELS_BY_PROVIDER[modelProvider] || []).map((m) => ({
+                          value: m.id,
+                          label: m.name,
+                          description: m.description,
+                          icon: ProviderLogos[modelProvider],
+                        }))}
+                        value={modelName}
+                        onValueChange={setModelName}
+                        placeholder={
+                          modelProvider
+                            ? `Select a ${PROVIDERS.find((p) => p.id === modelProvider)?.name || "provider"} model...`
+                            : "Select a provider first..."
+                        }
+                        disabled={!modelProvider || (MODELS_BY_PROVIDER[modelProvider] || []).length === 0}
+                      />
+                    </div>
                   </div>
 
                   <div className="space-y-2">
@@ -1182,13 +1341,13 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                       Trading Prompt *
                     </label>
                     <Textarea
-                      id="prompt"
+                      id="trading-prompt"
                       value={prompt}
                       onChange={(e) => setPrompt(e.target.value)}
                       rows={10}
                       placeholder="Enter your trading strategy prompt..."
                       required
-                      className="resize-none font-mono text-sm"
+                      className={`resize-none font-mono text-sm ${fieldBorder("trading-prompt", !!prompt.trim())}`}
                     />
                   </div>
                 </TabsContent>
@@ -1313,7 +1472,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                               )}
 
                               {/* Market list */}
-                              <div className="border rounded-md max-h-[300px] overflow-y-auto">
+                              <div id="markets" className={`rounded-md max-h-[300px] overflow-y-auto ${selectedMarkets.length > 0 ? "border border-emerald-400 ring-1 ring-emerald-400" : errorField === "markets" ? "border border-destructive ring-1 ring-destructive" : "border border-blue-300 ring-1 ring-blue-300"}`}>
                                 {filteredMarkets.length === 0 ? (
                                   <p className="p-4 text-sm text-muted-foreground text-center">
                                     {marketSearch ? "No markets match your search" : "No markets available"}
@@ -2952,15 +3111,75 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                 </TabsContent>
               </Tabs>
 
+              {error && (
+                <p className="text-sm text-destructive flex items-center gap-2">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                  {error}
+                </p>
+              )}
+
               <div className="flex gap-3 pt-4 border-t">
-                <Button
-                  type="submit"
-                  disabled={loading}
-                  size="lg"
-                  className="flex-1 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 shadow-lg shadow-blue-600/25 transition-all duration-200"
-                >
-                  {loading ? (isEditMode ? "Updating..." : "Creating...") : (isEditMode ? "Update Strategy" : "Create Strategy")}
-                </Button>
+                {activeTab !== "risk" ? (
+                  <Button
+                    type="button"
+                    size="lg"
+                    className="flex-1 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 shadow-lg shadow-blue-600/25 transition-all duration-200"
+                    onClick={() => {
+                      // Validate current tab before advancing
+                      const scrollToField = (field: string) => {
+                        setTimeout(() => {
+                          const el = document.getElementById(field);
+                          if (el) { el.scrollIntoView({ behavior: "smooth", block: "center" }); el.focus(); }
+                        }, 100);
+                      };
+                      const setFieldError = (msg: string, field: string) => {
+                        setError(msg);
+                        setErrorField(field);
+                        scrollToField(field);
+                      };
+
+                      if (activeTab === "basics") {
+                        if (!name || !name.trim()) { setFieldError("Please enter a Strategy Name", "strategy-name"); return; }
+                        if (!modelProvider || !modelProvider.trim()) { setFieldError("Please select a Model Provider", "model-provider"); return; }
+                        if (!modelName || !modelName.trim()) { setFieldError("Please select a Model Name", "model-name"); return; }
+                        if (!prompt || !prompt.trim()) { setFieldError("Please enter a Trading Prompt", "trading-prompt"); return; }
+                        const totalCadence = getTotalCadenceSeconds();
+                        if (totalCadence <= 0) { setFieldError("Please set a decision cadence", "cadence"); return; }
+                        if (totalCadence < 60) { setFieldError("Minimum AI cadence is 60 seconds", "cadence"); return; }
+                      } else if (activeTab === "markets") {
+                        const markets = useManualInput && manualMarketsInput.trim() ? parseManualMarkets(manualMarketsInput) : selectedMarkets;
+                        if (markets.length === 0) { setError("Please select at least one market"); setErrorField("markets"); return; }
+                      } else if (activeTab === "entry") {
+                        if (entryExit.exit.mode === "trailing" && (!entryExit.exit.trailingStopPct || entryExit.exit.trailingStopPct <= 0)) {
+                          setError("Trailing Stop % is required for Trailing exit mode"); return;
+                        }
+                        if (entryExit.exit.mode === "tp_sl") {
+                          if (!entryExit.exit.takeProfitPct || entryExit.exit.takeProfitPct <= 0) { setError("Take Profit % must be greater than 0"); return; }
+                          if (!entryExit.exit.stopLossPct || entryExit.exit.stopLossPct <= 0) { setError("Stop Loss % must be greater than 0"); return; }
+                          if (entryExit.exit.takeProfitPct <= entryExit.exit.stopLossPct) { setError("Take Profit % must be greater than Stop Loss %"); return; }
+                        }
+                      }
+
+                      const tabOrder = ["basics", "markets", "ai", "entry", "risk"];
+                      const currentIndex = tabOrder.indexOf(activeTab);
+                      if (currentIndex < tabOrder.length - 1) {
+                        setActiveTab(tabOrder[currentIndex + 1]);
+                        window.scrollTo({ top: 0, behavior: "smooth" });
+                      }
+                    }}
+                  >
+                    Continue
+                  </Button>
+                ) : (
+                  <Button
+                    type="submit"
+                    disabled={loading}
+                    size="lg"
+                    className="flex-1 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 shadow-lg shadow-blue-600/25 transition-all duration-200"
+                  >
+                    {loading ? (isEditMode ? "Updating..." : "Creating...") : (isEditMode ? "Update Strategy" : "Create Strategy")}
+                  </Button>
+                )}
                 <Button
                   type="button"
                   variant="outline"
@@ -2982,23 +3201,37 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
             <CardTitle className="text-lg font-bold">Summary</CardTitle>
           </CardHeader>
           <CardContent className="space-y-0 text-sm divide-y divide-border/50">
-            <div className="pb-3">
+            {/* Trading Style - shown when using a preset */}
+            {setupMode === "quick" && !isEditMode && (
+              <div className="pb-3">
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <span className={`h-1.5 w-1.5 rounded-full ${
+                    presetMode === "conservative" ? "bg-emerald-500"
+                    : presetMode === "balanced" ? "bg-blue-500"
+                    : "bg-orange-500"
+                  }`} />
+                  Trading Style
+                </div>
+                <div className="font-medium mt-0.5 pl-3.5">
+                  {STRATEGY_PRESETS[presetMode].label}
+                </div>
+                <div className="text-xs text-muted-foreground mt-0.5 pl-3.5">
+                  {STRATEGY_PRESETS[presetMode].tagline}
+                </div>
+              </div>
+            )}
+            <div className={setupMode === "quick" && !isEditMode ? "py-3" : "pb-3"}>
               <div className="flex items-center gap-2 text-muted-foreground">
                 <span className="h-1.5 w-1.5 rounded-full bg-blue-500" />
                 Exchange
               </div>
               <div className="font-medium mt-0.5 pl-3.5">
                 {venue === "coinbase"
-                  ? (coinbaseIntxEnabled ? "Coinbase INTX (Spot + Perps)" : "Coinbase (Spot)")
+                  ? (coinbaseIntxEnabled ? "Coinbase INTX (Spot + Perps)" : "Coinbase")
                   : venue === "virtual" ? "Virtual (Paper)"
                   : venue === "arena" ? "Arena (Competition)"
                   : "Hyperliquid (Perps)"}
               </div>
-              {venue === "coinbase" && !coinbaseIntxEnabled && (
-                <div className="text-xs text-blue-600 dark:text-blue-400 mt-1 pl-3.5">
-                  Spot Only
-                </div>
-              )}
             </div>
             <div className="py-3">
               <div className="flex items-center gap-2 text-muted-foreground">

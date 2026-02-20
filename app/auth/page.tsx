@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { createClient } from "@/lib/supabase/browser";
 import { sanitizeReturnUrl } from "@/lib/utils/urlValidation";
+import { getPendingStrategyRedirect } from "@/lib/utils/pendingStrategy";
 import posthog from "posthog-js";
 
 export default function AuthPage() {
@@ -105,7 +106,7 @@ export default function AuthPage() {
             const urlParams = new URLSearchParams(window.location.search);
             const nextParam = urlParams.get("next");
             // Validate return URL to prevent open redirect attacks
-            const redirectTo = sanitizeReturnUrl(nextParam);
+            const redirectTo = getPendingStrategyRedirect() || sanitizeReturnUrl(nextParam);
             router.push(redirectTo);
           }
           return;
@@ -151,7 +152,9 @@ export default function AuthPage() {
         }
         setShowResendOption(false);
         // Use router.push for client-side navigation (safer than window.location.href)
-        router.push(sanitizeReturnUrl(returnUrl));
+        // Check for pending strategy data as fallback redirect
+        const redirectTo = getPendingStrategyRedirect() || sanitizeReturnUrl(returnUrl);
+        router.push(redirectTo);
       } else {
         setError("Sign in failed. Please try again.");
         setLoading(false);
@@ -350,7 +353,8 @@ export default function AuthPage() {
         // If it's disabled (dev), Supabase may return a session and the user can continue immediately.
         if (data.session?.user && data.user.email_confirmed_at) {
           // Use router.push for client-side navigation (safer than window.location.href)
-          router.push(sanitizeReturnUrl(returnUrl));
+          const redirectTo = getPendingStrategyRedirect() || sanitizeReturnUrl(returnUrl);
+          router.push(redirectTo);
           return;
         }
 
