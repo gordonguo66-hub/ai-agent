@@ -4,7 +4,7 @@
  */
 
 import { Intent } from "@/lib/ai/intentSchema";
-import { IntentWithUsage, parseIntentJson, normalizeBaseUrl } from "@/lib/ai/openaiCompatible";
+import { IntentWithUsage, parseIntentJson, normalizeBaseUrl, AIProviderError } from "@/lib/ai/openaiCompatible";
 import { fetchWithRetry } from "@/lib/ai/fetchWithRetry";
 import {
   ToolContext,
@@ -145,7 +145,10 @@ export async function agenticIntentCall(args: {
         ? await callAnthropic(baseUrl, args.apiKey, args.model, AGENTIC_SYSTEM_PROMPT, messages, includeTools ? tools : undefined)
         : await callOpenAI(baseUrl, args.apiKey, args.model, AGENTIC_SYSTEM_PROMPT, messages, includeTools ? tools : undefined);
     } catch (error: any) {
-      console.error(`[Agentic] API call failed:`, error.message);
+      if (error instanceof AIProviderError) {
+        throw error; // Let tick route handle API failures uniformly
+      }
+      console.error(`[Agentic] Non-API error:`, error.message);
       return neutralIntent(args.market, totalUsage, args.model);
     }
 
@@ -229,6 +232,7 @@ export async function agenticIntentCall(args: {
       }
     }
   } catch (error: any) {
+    if (error instanceof AIProviderError) throw error;
     console.error(`[Agentic] Final call failed:`, error.message);
   }
 
@@ -357,7 +361,7 @@ async function callAnthropic(
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`Anthropic API error ${res.status}: ${text.slice(0, 300)}`);
+    throw new AIProviderError(res.status, "anthropic", text);
   }
 
   const data = await res.json();
@@ -419,7 +423,7 @@ async function callOpenAI(
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`OpenAI API error ${res.status}: ${text.slice(0, 300)}`);
+    throw new AIProviderError(res.status, "openai", text);
   }
 
   const data = await res.json();

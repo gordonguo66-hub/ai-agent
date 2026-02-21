@@ -2,6 +2,27 @@ import { Intent } from "@/lib/ai/intentSchema";
 import { fetchWithRetry } from "@/lib/ai/fetchWithRetry";
 
 /**
+ * Custom error for AI provider API failures (rate limit, overload, etc.)
+ * Allows callers to distinguish provider-level errors from parse/logic errors.
+ */
+export class AIProviderError extends Error {
+  public readonly statusCode: number;
+  public readonly provider: string;
+  public readonly isOverloaded: boolean;
+
+  constructor(statusCode: number, provider: string, body: string) {
+    const friendlyProvider = provider.charAt(0).toUpperCase() + provider.slice(1);
+    const isOverloaded = [429, 502, 503, 529].includes(statusCode);
+    const reason = isOverloaded ? "overloaded/unavailable" : `error ${statusCode}`;
+    super(`${friendlyProvider} API ${reason}: ${body.slice(0, 200)}`);
+    this.name = "AIProviderError";
+    this.statusCode = statusCode;
+    this.provider = provider;
+    this.isOverloaded = isOverloaded;
+  }
+}
+
+/**
  * Response interface that includes both the Intent and token usage information
  */
 export interface IntentWithUsage {
@@ -540,7 +561,7 @@ export async function openAICompatibleIntentCall(args: {
 
     if (!res.ok) {
       const t = await res.text();
-      throw new Error(`Anthropic API call failed (${res.status}): ${t.slice(0, 300)}`);
+      throw new AIProviderError(res.status, "anthropic", t);
     }
 
     data = await res.json();
@@ -580,7 +601,7 @@ export async function openAICompatibleIntentCall(args: {
 
     if (!res.ok) {
       const t = await res.text();
-      throw new Error(`Model call failed (${res.status}): ${t.slice(0, 300)}`);
+      throw new AIProviderError(res.status, args.provider || "unknown", t);
     }
 
     data = await res.json();

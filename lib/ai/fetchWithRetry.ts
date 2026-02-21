@@ -1,6 +1,6 @@
 const RETRYABLE_STATUS_CODES = new Set([429, 502, 503, 529]);
-const MAX_RETRIES = 3;
-const BASE_DELAY_MS = 1000;
+const MAX_RETRIES = 5;
+const BASE_DELAY_MS = 1500;
 
 /**
  * Fetch wrapper with exponential backoff for transient API errors.

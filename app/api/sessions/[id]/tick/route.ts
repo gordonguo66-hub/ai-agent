@@ -8,7 +8,7 @@ export const revalidate = 0;
 import { getUserFromRequest } from "@/lib/api/serverAuth";
 import { decryptCredential } from "@/lib/crypto/credentials";
 import { resolveStrategyApiKey } from "@/lib/ai/resolveApiKey";
-import { openAICompatibleIntentCall, normalizeBaseUrl } from "@/lib/ai/openaiCompatible";
+import { openAICompatibleIntentCall, normalizeBaseUrl, AIProviderError } from "@/lib/ai/openaiCompatible";
 import { getMidPrices as getHyperliquidPrices } from "@/lib/hyperliquid/prices";
 import { getMidPrices as getCoinbasePrices, getOrderbook as getCoinbaseOrderbook } from "@/lib/coinbase/prices";
 import { getCandles as getHyperliquidCandles } from "@/lib/hyperliquid/candles";
@@ -1023,6 +1023,8 @@ export async function POST(
     // This ensures no race conditions and prevents duplicate ticks
     console.log(`[Tick] Processing ${marketsToProcess.length} markets: ${marketsToProcess.join(", ")}`);
     console.log(`[Tick] ⚠️ NOTE: Each market will trigger a separate AI call. Total AI calls this tick: ${marketsToProcess.length}`);
+
+    let consecutiveApiFailures = 0;
 
     for (let i = 0; i < marketsToProcess.length; i++) {
       const market = marketsToProcess[i];
@@ -2274,6 +2276,17 @@ export async function POST(
           name: err.name,
         });
         riskResult = { passed: false, reason: error };
+
+        // Set meaningful action summary for API provider errors
+        if (err instanceof AIProviderError) {
+          const providerName = err.provider.charAt(0).toUpperCase() + err.provider.slice(1);
+          actionSummary = err.isOverloaded
+            ? `AI provider unavailable (${providerName} ${err.statusCode})`
+            : `AI provider error (${providerName} ${err.statusCode})`;
+          consecutiveApiFailures++;
+        } else {
+          actionSummary = `AI call error: ${(err.message || "Unknown error").slice(0, 100)}`;
+        }
       }
 
       // Build proposed order
@@ -2346,6 +2359,45 @@ export async function POST(
     
     const tickEndTime = Date.now();
     console.log(`[Tick] ✅ Completed all ${marketsToProcess.length} markets in ${tickEndTime - tickStartTime}ms`);
+
+    // AUTO-PAUSE: If all markets failed due to API errors this tick, check consecutive history
+    if (consecutiveApiFailures > 0 && consecutiveApiFailures >= marketsToProcess.length) {
+      // All markets failed with API errors — check how many consecutive failures in recent history
+      const { data: recentFailedDecisions } = await serviceClient
+        .from("session_decisions")
+        .select("error, executed")
+        .eq("session_id", sessionId)
+        .order("created_at", { ascending: false })
+        .limit(30);
+
+      let totalConsecutiveFailures = 0;
+      if (recentFailedDecisions) {
+        for (const d of recentFailedDecisions) {
+          if (d.error && !d.executed) {
+            totalConsecutiveFailures++;
+          } else {
+            break;
+          }
+        }
+      }
+
+      const PAUSE_THRESHOLD = 15;
+      if (totalConsecutiveFailures >= PAUSE_THRESHOLD) {
+        const providerName = (strategy.model_provider || "AI provider").charAt(0).toUpperCase() +
+          (strategy.model_provider || "AI provider").slice(1);
+        const pauseMessage = `Session auto-paused: ${providerName} has been unavailable for ${totalConsecutiveFailures} consecutive decisions. Please check your AI provider status or switch providers, then resume.`;
+
+        console.error(`[Tick] 🛑 AUTO-PAUSING session ${sessionId}: ${totalConsecutiveFailures} consecutive API failures`);
+
+        await serviceClient
+          .from("strategy_sessions")
+          .update({
+            status: "paused",
+            error_message: pauseMessage,
+          })
+          .eq("id", sessionId);
+      }
+    }
 
     // CRITICAL FIX: Calculate equity from fresh data instead of trusting stale database value
     // The database equity might be stale if markToMarket hasn't run yet or failed
