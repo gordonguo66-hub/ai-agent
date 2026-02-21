@@ -50,7 +50,15 @@ export function getPlatformApiKey(provider: string): string | null {
   const key = process.env[envVar];
 
   if (!key || key.trim() === '') {
-    console.log(`[platformApiKey] Platform key not configured: ${envVar}`);
+    // Diagnostic: dump all PLATFORM_* env var names available at runtime
+    const allPlatformVars = Object.keys(process.env)
+      .filter(k => k.startsWith('PLATFORM_'))
+      .map(k => `${k}=${process.env[k] ? `set(${process.env[k]!.length}chars)` : 'empty'}`);
+    console.error(
+      `[platformApiKey] ❌ Key not found: ${envVar} | ` +
+      `raw value: ${key === undefined ? 'undefined' : key === '' ? 'empty string' : `"${key}"`} | ` +
+      `All PLATFORM_* vars in runtime: [${allPlatformVars.length > 0 ? allPlatformVars.join(', ') : 'NONE'}]`
+    );
     return null;
   }
 
