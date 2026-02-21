@@ -104,7 +104,7 @@ function StrategyDetailContent() {
   }, [strategyId]);
 
   const hasActivePlan = credits?.plan_id && credits.plan_status === "active";
-  const hasInsufficientFunds = credits && !hasActivePlan && credits.balance_cents < 100;
+  const hasInsufficientFunds = credits && !hasActivePlan && credits.balance_cents <= 0;
 
   const handleStartSession = (mode: "virtual" | "live" | "arena") => {
     if (hasInsufficientFunds) {
