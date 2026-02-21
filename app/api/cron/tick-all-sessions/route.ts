@@ -153,15 +153,7 @@ export async function GET(request: NextRequest) {
       const cadenceSource = strategyFilters.cadenceSeconds ? 'strategyFilters' : 'session';
       const strategyId = (strategy as any)?.id;
       
-      // Log what we found in the database
-      console.log(`[Cron] 📊 Session ${session.id} cadence check:`, {
-        strategyId,
-        strategyFiltersCadence: strategyFilters.cadenceSeconds,
-        sessionCadence: session.cadence_seconds,
-        strategyFiltersKeys: Object.keys(strategyFilters),
-        cadenceSecondsRaw: cadenceSeconds,
-        cadenceSecondsType: typeof cadenceSeconds,
-      });
+      // Log cadence source (compact)
       
       // CRITICAL FIX: Only fall back to session cadence if strategy filters has NO cadence
       // Otherwise, always use strategy filters (even if it differs from session)
@@ -171,9 +163,7 @@ export async function GET(request: NextRequest) {
         console.warn(`[Cron] ⚠️ Session ${session.id} has no valid cadence in strategy filters, using session.cadence_seconds: ${cadenceSeconds}s`);
       } else {
         // Strategy has cadence - use it (ignore session.cadence_seconds which may be outdated)
-        if (session.cadence_seconds && session.cadence_seconds !== cadenceSeconds) {
-          console.log(`[Cron] ℹ️ Session ${session.id} strategy cadence (${cadenceSeconds}s) differs from session cadence (${session.cadence_seconds}s) - using strategy cadence`);
-        }
+        // Strategy cadence takes precedence over session cadence
       }
       cadenceSeconds = Number(cadenceSeconds); // Convert to number explicitly
       
@@ -182,7 +172,7 @@ export async function GET(request: NextRequest) {
         cadenceSeconds = 30;
       }
       
-      console.log(`[Cron] ✅ Session ${session.id} using cadence: ${cadenceSeconds}s (source: ${cadenceSource})`);
+      // Cadence resolved
       
       const cadenceMs = cadenceSeconds * 1000;
 
@@ -212,38 +202,10 @@ export async function GET(request: NextRequest) {
       
       if (shouldTick) {
         const delaySeconds = timeSinceLastTickSeconds - cadenceSeconds;
-        // ALWAYS log detailed info to diagnose cadence issues
-        console.log(`[Cron] ✅ Session ${session.id} needs ticking:`, {
-          cadenceSeconds,
-          cadenceMs,
-          lastTickAt: session.last_tick_at,
-          lastTickAtTimestamp: lastTickAt,
-          now: new Date().toISOString(),
-          nowTimestamp: now,
-          timeSinceLastTick,
-          timeSinceLastTickSeconds,
-          deltaSeconds: delaySeconds,
-          willTick: true,
-          threshold: `>= ${cadenceMs}ms`,
-        });
-        console.log(`[Cron] ✅ Session ${session.id} needs ticking: ${timeSinceLastTickSeconds}s since last tick, cadence: ${cadenceSeconds}s${delaySeconds > 0 ? ` (${delaySeconds}s late)` : ''}`);
+        console.log(`[Cron] 🔔 ${session.id.slice(0, 8)} TICKING (${timeSinceLastTickSeconds}s/${cadenceSeconds}s)${delaySeconds > 0 ? ` ${delaySeconds}s late` : ''}`);
       } else {
         const nextTickInSeconds = Math.ceil((cadenceMs - timeSinceLastTick) / 1000);
-        // ALWAYS log detailed info to diagnose cadence issues
-        console.log(`[Cron] ⏭️ Session ${session.id} skipping:`, {
-          cadenceSeconds,
-          cadenceMs,
-          lastTickAt: session.last_tick_at,
-          lastTickAtTimestamp: lastTickAt,
-          now: new Date().toISOString(),
-          nowTimestamp: now,
-          timeSinceLastTick,
-          timeSinceLastTickSeconds,
-          deltaSeconds: cadenceSeconds - timeSinceLastTickSeconds,
-          willTick: false,
-          threshold: `>= ${cadenceMs}ms`,
-        });
-        console.log(`[Cron] ⏭️ Session ${session.id} skipping: ${timeSinceLastTickSeconds}s since last tick, cadence: ${cadenceSeconds}s, next tick in ${nextTickInSeconds}s`);
+        console.log(`[Cron] ⏭️ ${session.id.slice(0, 8)} skip (${timeSinceLastTickSeconds}s/${cadenceSeconds}s, next in ${nextTickInSeconds}s)`);
       }
       
       return shouldTick;
@@ -255,26 +217,7 @@ export async function GET(request: NextRequest) {
     const tickSessionIds = new Set(sessionsToTick.map(s => s.id));
     const sessionsToSkip = runningSessions.filter(s => !tickSessionIds.has(s.id));
 
-    sessionsToSkip.forEach((session) => {
-      const strategy = Array.isArray(session.strategies) ? session.strategies[0] : session.strategies;
-      const strategyFilters = (strategy as any)?.filters || {};
-      let cadenceSeconds = strategyFilters.cadenceSeconds;
-      if (!cadenceSeconds || cadenceSeconds <= 0) {
-        cadenceSeconds = session.cadence_seconds || 30;
-      }
-      cadenceSeconds = Number(cadenceSeconds);
-      const cadenceMs = cadenceSeconds * 1000;
-      
-      const lastTickAt = session.last_tick_at 
-        ? new Date(session.last_tick_at).getTime() 
-        : session.started_at 
-        ? new Date(session.started_at).getTime() 
-        : 0;
-      const timeSinceLastTick = lastTickAt > 0 ? Math.floor((now - lastTickAt) / 1000) : 0;
-      const timeUntilNextTick = Math.max(0, cadenceMs - (now - lastTickAt));
-      console.log(`[Cron] ⏭️ Skipping session ${session.id}: ${timeSinceLastTick}s since last tick, need ${cadenceSeconds}s (${Math.floor(timeUntilNextTick / 1000)}s until next tick)`);
-      skipped.push(`${session.id} (${timeSinceLastTick}s since last tick, need ${cadenceSeconds}s, next tick in ${Math.floor(timeUntilNextTick / 1000)}s)`);
-    });
+    // Skip logging already done above in compact format
 
     console.log(`[Cron] Processing ${sessionsToTick.length} sessions that need ticking (skipping ${sessionsToSkip.length})`);
 

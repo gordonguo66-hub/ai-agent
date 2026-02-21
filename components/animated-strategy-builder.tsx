@@ -86,9 +86,9 @@ const AI_PROVIDERS = [
 ];
 
 const ANTHROPIC_MODELS = [
-  { id: "claude-opus-4.5", name: "Claude Opus 4.5", desc: "Frontier intelligence" },
-  { id: "claude-sonnet-4.5", name: "Claude Sonnet 4.5", desc: "Coding & agentic tasks" },
-  { id: "claude-3-5-haiku", name: "Claude 3.5 Haiku", desc: "Fast, efficient" },
+  { id: "claude-opus-4-6", name: "Claude Opus 4.6", desc: "Frontier intelligence" },
+  { id: "claude-sonnet-4-5-20250929", name: "Claude Sonnet 4.5", desc: "Coding & agentic tasks" },
+  { id: "claude-haiku-4-5-20251001", name: "Claude Haiku 4.5", desc: "Fast, efficient" },
 ];
 
 // ─── Mini Switch Component ───────────────────────────────────

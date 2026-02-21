@@ -30,10 +30,11 @@ const MODELS_BY_PROVIDER: Record<string, { id: string; name: string; description
     { id: "o1-mini", name: "o1 Mini", description: "Fast reasoning variant" },
   ],
   anthropic: [
-    { id: "claude-opus-4.5", name: "Claude Opus 4.5", description: "Frontier intelligence, complex tasks" },
-    { id: "claude-sonnet-4.5", name: "Claude Sonnet 4.5", description: "Strong coding and agentic tasks" },
-    { id: "claude-3-5-haiku", name: "Claude 3.5 Haiku", description: "Fast, efficient variant" },
-    { id: "claude-3-5-sonnet-20241022", name: "Claude 3.5 Sonnet", description: "Previous generation" },
+    { id: "claude-opus-4-6", name: "Claude Opus 4.6", description: "Latest frontier model, complex tasks" },
+    { id: "claude-opus-4-5-20251101", name: "Claude Opus 4.5", description: "Previous frontier model" },
+    { id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6", description: "Opus-level reasoning at lower cost" },
+    { id: "claude-sonnet-4-5-20250929", name: "Claude Sonnet 4.5", description: "Strong coding and agentic tasks" },
+    { id: "claude-haiku-4-5-20251001", name: "Claude Haiku 4.5", description: "Fast, efficient variant" },
   ],
   deepseek: [
     { id: "deepseek-chat", name: "DeepSeek Chat", description: "Fast general-purpose chat" },
@@ -203,7 +204,12 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
       atr: { enabled: boolean; period: number | "" };
       volatility: { enabled: boolean; window: number | "" };
       ema: { enabled: boolean; fast: number | ""; slow: number | "" };
+      macd: { enabled: boolean; fastPeriod: number | ""; slowPeriod: number | ""; signalPeriod: number | "" };
+      bollingerBands: { enabled: boolean; period: number | ""; stdDev: number | "" };
+      supportResistance: { enabled: boolean; lookback: number | "" };
+      volume: { enabled: boolean; lookback: number | "" };
     };
+    news: { enabled: boolean; maxArticles: number | "" };
     includePositionState: boolean;
     includeRecentDecisions: boolean;
     recentDecisionsCount: number | "";
@@ -217,14 +223,23 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
       atr: { enabled: false, period: 14 },
       volatility: { enabled: true, window: 50 },
       ema: { enabled: false, fast: 12, slow: 26 },
+      macd: { enabled: false, fastPeriod: 12, slowPeriod: 26, signalPeriod: 9 },
+      bollingerBands: { enabled: false, period: 20, stdDev: 2 },
+      supportResistance: { enabled: false, lookback: 50 },
+      volume: { enabled: false, lookback: 50 },
     },
+    news: { enabled: false, maxArticles: 5 },
     includePositionState: true,
     includeRecentDecisions: true,
     recentDecisionsCount: 5,
     includeRecentTrades: true,
     recentTradesCount: 10,
   });
-  
+
+  // Agentic Mode — AI decides what data to fetch via tool calls
+  const [agenticMode, setAgenticMode] = useState(false);
+  const [agenticMaxToolCalls, setAgenticMaxToolCalls] = useState<number | "">(10);
+
   // Entry/Exit - Comprehensive structure
   const [entryExit, setEntryExit] = useState<{
     entry: {
@@ -456,8 +471,34 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
           loadedAiInputs.includePositionState = true;
         }
 
+        // Migration: Add new indicators if missing (MACD, Bollinger, S/R, Volume)
+        if (!loadedAiInputs.indicators) {
+          loadedAiInputs.indicators = {};
+        }
+        if (!loadedAiInputs.indicators.macd) {
+          loadedAiInputs.indicators.macd = { enabled: false, fastPeriod: 12, slowPeriod: 26, signalPeriod: 9 };
+        }
+        if (!loadedAiInputs.indicators.bollingerBands) {
+          loadedAiInputs.indicators.bollingerBands = { enabled: false, period: 20, stdDev: 2 };
+        }
+        if (!loadedAiInputs.indicators.supportResistance) {
+          loadedAiInputs.indicators.supportResistance = { enabled: false, lookback: 50 };
+        }
+        if (!loadedAiInputs.indicators.volume) {
+          loadedAiInputs.indicators.volume = { enabled: false, lookback: 50 };
+        }
+
+        // Migration: Add news config if missing (new field)
+        if (!loadedAiInputs.news) {
+          loadedAiInputs.news = { enabled: false, maxArticles: 5 };
+        }
+
         setAiInputs(loadedAiInputs);
       }
+
+      // Agentic mode
+      if (filters.agenticMode) setAgenticMode(true);
+      if (filters.agenticConfig?.maxToolCalls) setAgenticMaxToolCalls(filters.agenticConfig.maxToolCalls);
 
       // Entry/Exit
       if (filters.entryExit) {
@@ -574,7 +615,20 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
       if (data.cadenceMinutes !== undefined) setCadenceMinutes(data.cadenceMinutes);
       if (data.cadenceSeconds !== undefined) setCadenceSeconds(data.cadenceSeconds);
       if (data.marketProcessingMode) setMarketProcessingMode(data.marketProcessingMode);
-      if (data.aiInputs) setAiInputs(data.aiInputs);
+      if (data.aiInputs) {
+        // Migration: ensure new indicator fields exist
+        const ind = data.aiInputs.indicators || {};
+        setAiInputs({
+          ...data.aiInputs,
+          indicators: {
+            ...ind,
+            macd: ind.macd ?? { enabled: false, fastPeriod: 12, slowPeriod: 26, signalPeriod: 9 },
+            bollingerBands: ind.bollingerBands ?? { enabled: false, period: 20, stdDev: 2 },
+            supportResistance: ind.supportResistance ?? { enabled: false, lookback: 50 },
+            volume: ind.volume ?? { enabled: false, lookback: 50 },
+          },
+        });
+      }
       if (data.entryExit) setEntryExit(data.entryExit);
       if (data.guardrails) setGuardrails(data.guardrails);
       if (data.risk) setRisk(data.risk);
@@ -866,6 +920,10 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
           slow: typeof aiInputs.indicators.ema.slow === "number" ? aiInputs.indicators.ema.slow : 26,
         },
       },
+      news: {
+        enabled: aiInputs.news?.enabled ?? false,
+        maxArticles: typeof aiInputs.news?.maxArticles === "number" ? aiInputs.news.maxArticles : 5,
+      },
       recentDecisionsCount: typeof aiInputs.recentDecisionsCount === "number" ? aiInputs.recentDecisionsCount : 5,
       recentTradesCount: typeof aiInputs.recentTradesCount === "number" ? aiInputs.recentTradesCount : 10,
     };
@@ -930,6 +988,12 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
         maxPositionUsd: typeof risk.maxPositionUsd === "number" ? risk.maxPositionUsd : 1000,
         maxLeverage: effectiveLeverage,
       },
+      agenticMode,
+      ...(agenticMode && {
+        agenticConfig: {
+          maxToolCalls: typeof agenticMaxToolCalls === "number" ? agenticMaxToolCalls : 10,
+        },
+      }),
     };
 
     // Use API route to create or update strategy
@@ -1073,11 +1137,37 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
     setCadenceMinutes(m);
     setCadenceSeconds(h === 0 && m === 0 ? Math.max(60, s) : s);
 
-    setAiInputs(preset.aiInputs);
+    // Merge preset aiInputs with defaults for new indicators (presets may not have them yet)
+    const pi = preset.aiInputs.indicators;
+    setAiInputs({
+      ...preset.aiInputs,
+      indicators: {
+        rsi: pi.rsi,
+        atr: pi.atr,
+        volatility: pi.volatility,
+        ema: pi.ema,
+        macd: pi.macd ?? { enabled: false, fastPeriod: 12, slowPeriod: 26, signalPeriod: 9 },
+        bollingerBands: pi.bollingerBands ?? { enabled: false, period: 20, stdDev: 2 },
+        supportResistance: pi.supportResistance ?? { enabled: false, lookback: 50 },
+        volume: pi.volume ?? { enabled: false, lookback: 50 },
+      },
+      news: preset.aiInputs.news ?? { enabled: false, maxArticles: 5 },
+    });
     setEntryExit(preset.entryExit);
     setGuardrails(preset.guardrails);
     setRisk(preset.risk);
+    setAgenticMode(false);
+    setAgenticMaxToolCalls(10);
   };
+
+  // Apply default preset (balanced) on mount for new strategies
+  useEffect(() => {
+    if (isEditMode) return;
+    if (!prompt) {
+      applyPreset("balanced");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const formatCadenceDisplay = (): string => {
     const h = typeof cadenceHours === "number" ? cadenceHours : 0;
@@ -1763,6 +1853,54 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
 
                 <TabsContent value="ai" className="space-y-6 mt-6">
                   <div className="space-y-4">
+                    {/* Agentic Mode Toggle */}
+                    <div className="p-4 rounded-lg border border-amber-500/30 bg-amber-500/5">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <label className="text-sm font-semibold flex items-center gap-1.5">
+                            <Sparkles size={14} className="text-amber-500" />
+                            Agentic Mode
+                          </label>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            AI decides what data to analyze using tool calls instead of receiving pre-fetched data
+                          </p>
+                        </div>
+                        <Switch checked={agenticMode} onCheckedChange={setAgenticMode} />
+                      </div>
+                      {agenticMode && (
+                        <div className="mt-3 pl-4 space-y-2 border-l-2 border-amber-500/30">
+                          <div className="flex items-center gap-3">
+                            <label className="text-sm text-muted-foreground whitespace-nowrap">Max Tool Calls</label>
+                            <Input
+                              type="number"
+                              min={3}
+                              max={25}
+                              value={agenticMaxToolCalls}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                setAgenticMaxToolCalls(v === "" ? "" : Math.min(25, Math.max(3, parseInt(v))));
+                              }}
+                              onBlur={(e) => {
+                                if (e.target.value === "" || parseInt(e.target.value) < 3) {
+                                  setAgenticMaxToolCalls(10);
+                                }
+                              }}
+                              className="h-8 w-20"
+                            />
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            Max data requests per tick (3-25). More calls = better analysis but higher token cost.
+                          </p>
+                          <p className="text-xs text-amber-600 dark:text-amber-400">
+                            When enabled, the AI decides which candles, indicators, orderbook data, and news to fetch.
+                            The settings below are ignored — the AI makes its own choices.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Data settings — grayed out when agentic mode is on */}
+                    <div className={agenticMode ? "opacity-40 pointer-events-none" : ""}>
                     <div className="flex items-center justify-between p-3 rounded-lg border border-transparent hover:border-border/50 hover:bg-white/[0.02] transition-colors">
                       <div>
                         <label className="text-sm font-semibold">Candles Data</label>
@@ -2056,7 +2194,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                           />
                         </div>
                         {aiInputs.indicators.ema.enabled && (
-                          <div className="pl-4 grid grid-cols-2 gap-2">
+                          <div className="pl-4 grid grid-cols-2 gap-3">
                             <div className="space-y-1">
                               <label className="text-xs text-muted-foreground">EMA Fast</label>
                               <Input
@@ -2121,8 +2259,331 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                             </div>
                           </div>
                         )}
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm">MACD</span>
+                          <Switch
+                            checked={aiInputs.indicators.macd.enabled}
+                            onCheckedChange={(checked) =>
+                              setAiInputs(prev => ({
+                                ...prev,
+                                indicators: {
+                                  ...prev.indicators,
+                                  macd: { ...prev.indicators.macd, enabled: checked },
+                                },
+                              }))
+                            }
+                          />
+                        </div>
+                        {aiInputs.indicators.macd.enabled && (
+                          <div className="pl-4 grid grid-cols-3 gap-2">
+                            <div className="space-y-1">
+                              <label className="text-xs text-muted-foreground">Fast</label>
+                              <Input
+                                type="number"
+                                min="2"
+                                max="50"
+                                value={aiInputs.indicators.macd.fastPeriod}
+                                onChange={(e) => {
+                                  const value = e.target.value;
+                                  setAiInputs(prev => ({
+                                    ...prev,
+                                    indicators: {
+                                      ...prev.indicators,
+                                      macd: { ...prev.indicators.macd, fastPeriod: value === "" ? "" : parseInt(value) },
+                                    },
+                                  }));
+                                }}
+                                onBlur={(e) => {
+                                  if (e.target.value === "" || parseInt(e.target.value) < 2) {
+                                    setAiInputs(prev => ({
+                                      ...prev,
+                                      indicators: { ...prev.indicators, macd: { ...prev.indicators.macd, fastPeriod: 12 } },
+                                    }));
+                                  }
+                                }}
+                                className="h-9"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="text-xs text-muted-foreground">Slow</label>
+                              <Input
+                                type="number"
+                                min="2"
+                                max="100"
+                                value={aiInputs.indicators.macd.slowPeriod}
+                                onChange={(e) => {
+                                  const value = e.target.value;
+                                  setAiInputs(prev => ({
+                                    ...prev,
+                                    indicators: {
+                                      ...prev.indicators,
+                                      macd: { ...prev.indicators.macd, slowPeriod: value === "" ? "" : parseInt(value) },
+                                    },
+                                  }));
+                                }}
+                                onBlur={(e) => {
+                                  if (e.target.value === "" || parseInt(e.target.value) < 2) {
+                                    setAiInputs(prev => ({
+                                      ...prev,
+                                      indicators: { ...prev.indicators, macd: { ...prev.indicators.macd, slowPeriod: 26 } },
+                                    }));
+                                  }
+                                }}
+                                className="h-9"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="text-xs text-muted-foreground">Signal</label>
+                              <Input
+                                type="number"
+                                min="2"
+                                max="50"
+                                value={aiInputs.indicators.macd.signalPeriod}
+                                onChange={(e) => {
+                                  const value = e.target.value;
+                                  setAiInputs(prev => ({
+                                    ...prev,
+                                    indicators: {
+                                      ...prev.indicators,
+                                      macd: { ...prev.indicators.macd, signalPeriod: value === "" ? "" : parseInt(value) },
+                                    },
+                                  }));
+                                }}
+                                onBlur={(e) => {
+                                  if (e.target.value === "" || parseInt(e.target.value) < 2) {
+                                    setAiInputs(prev => ({
+                                      ...prev,
+                                      indicators: { ...prev.indicators, macd: { ...prev.indicators.macd, signalPeriod: 9 } },
+                                    }));
+                                  }
+                                }}
+                                className="h-9"
+                              />
+                            </div>
+                          </div>
+                        )}
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm">Bollinger Bands</span>
+                          <Switch
+                            checked={aiInputs.indicators.bollingerBands.enabled}
+                            onCheckedChange={(checked) =>
+                              setAiInputs(prev => ({
+                                ...prev,
+                                indicators: {
+                                  ...prev.indicators,
+                                  bollingerBands: { ...prev.indicators.bollingerBands, enabled: checked },
+                                },
+                              }))
+                            }
+                          />
+                        </div>
+                        {aiInputs.indicators.bollingerBands.enabled && (
+                          <div className="pl-4 grid grid-cols-2 gap-2">
+                            <div className="space-y-1">
+                              <label className="text-xs text-muted-foreground">Period</label>
+                              <Input
+                                type="number"
+                                min="5"
+                                max="100"
+                                value={aiInputs.indicators.bollingerBands.period}
+                                onChange={(e) => {
+                                  const value = e.target.value;
+                                  setAiInputs(prev => ({
+                                    ...prev,
+                                    indicators: {
+                                      ...prev.indicators,
+                                      bollingerBands: { ...prev.indicators.bollingerBands, period: value === "" ? "" : parseInt(value) },
+                                    },
+                                  }));
+                                }}
+                                onBlur={(e) => {
+                                  if (e.target.value === "" || parseInt(e.target.value) < 5) {
+                                    setAiInputs(prev => ({
+                                      ...prev,
+                                      indicators: { ...prev.indicators, bollingerBands: { ...prev.indicators.bollingerBands, period: 20 } },
+                                    }));
+                                  }
+                                }}
+                                className="h-9"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="text-xs text-muted-foreground">Std Dev</label>
+                              <Input
+                                type="number"
+                                min="0.5"
+                                max="5"
+                                step="0.5"
+                                value={aiInputs.indicators.bollingerBands.stdDev}
+                                onChange={(e) => {
+                                  const value = e.target.value;
+                                  setAiInputs(prev => ({
+                                    ...prev,
+                                    indicators: {
+                                      ...prev.indicators,
+                                      bollingerBands: { ...prev.indicators.bollingerBands, stdDev: value === "" ? "" : parseFloat(value) },
+                                    },
+                                  }));
+                                }}
+                                onBlur={(e) => {
+                                  if (e.target.value === "" || parseFloat(e.target.value) < 0.5) {
+                                    setAiInputs(prev => ({
+                                      ...prev,
+                                      indicators: { ...prev.indicators, bollingerBands: { ...prev.indicators.bollingerBands, stdDev: 2 } },
+                                    }));
+                                  }
+                                }}
+                                className="h-9"
+                              />
+                            </div>
+                          </div>
+                        )}
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm">Support / Resistance</span>
+                          <Switch
+                            checked={aiInputs.indicators.supportResistance.enabled}
+                            onCheckedChange={(checked) =>
+                              setAiInputs(prev => ({
+                                ...prev,
+                                indicators: {
+                                  ...prev.indicators,
+                                  supportResistance: { ...prev.indicators.supportResistance, enabled: checked },
+                                },
+                              }))
+                            }
+                          />
+                        </div>
+                        {aiInputs.indicators.supportResistance.enabled && (
+                          <div className="pl-4 space-y-1">
+                            <label className="text-xs text-muted-foreground">Lookback Candles</label>
+                            <Input
+                              type="number"
+                              min="10"
+                              max="200"
+                              value={aiInputs.indicators.supportResistance.lookback}
+                              onChange={(e) => {
+                                const value = e.target.value;
+                                setAiInputs(prev => ({
+                                  ...prev,
+                                  indicators: {
+                                    ...prev.indicators,
+                                    supportResistance: { ...prev.indicators.supportResistance, lookback: value === "" ? "" : parseInt(value) },
+                                  },
+                                }));
+                              }}
+                              onBlur={(e) => {
+                                if (e.target.value === "" || parseInt(e.target.value) < 10) {
+                                  setAiInputs(prev => ({
+                                    ...prev,
+                                    indicators: { ...prev.indicators, supportResistance: { ...prev.indicators.supportResistance, lookback: 50 } },
+                                  }));
+                                }
+                              }}
+                              className="h-9"
+                            />
+                          </div>
+                        )}
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm">Volume</span>
+                          <Switch
+                            checked={aiInputs.indicators.volume.enabled}
+                            onCheckedChange={(checked) =>
+                              setAiInputs(prev => ({
+                                ...prev,
+                                indicators: {
+                                  ...prev.indicators,
+                                  volume: { ...prev.indicators.volume, enabled: checked },
+                                },
+                              }))
+                            }
+                          />
+                        </div>
+                        {aiInputs.indicators.volume.enabled && (
+                          <div className="pl-4 space-y-1">
+                            <label className="text-xs text-muted-foreground">Lookback Candles</label>
+                            <Input
+                              type="number"
+                              min="10"
+                              max="200"
+                              value={aiInputs.indicators.volume.lookback}
+                              onChange={(e) => {
+                                const value = e.target.value;
+                                setAiInputs(prev => ({
+                                  ...prev,
+                                  indicators: {
+                                    ...prev.indicators,
+                                    volume: { ...prev.indicators.volume, lookback: value === "" ? "" : parseInt(value) },
+                                  },
+                                }));
+                              }}
+                              onBlur={(e) => {
+                                if (e.target.value === "" || parseInt(e.target.value) < 10) {
+                                  setAiInputs(prev => ({
+                                    ...prev,
+                                    indicators: { ...prev.indicators, volume: { ...prev.indicators.volume, lookback: 50 } },
+                                  }));
+                                }
+                              }}
+                              className="h-9"
+                            />
+                          </div>
+                        )}
                       </div>
                     </div>
+
+                    </div>{/* End grayed-out wrapper for agentic mode */}
+
+                    {/* News & Events */}
+                    <div className="flex items-center justify-between p-3 rounded-lg border border-transparent hover:border-border/50 hover:bg-white/[0.02] transition-colors">
+                      <div className="space-y-0.5">
+                        <label className="text-sm font-semibold">News & Events</label>
+                        <p className="text-xs text-muted-foreground">
+                          Fetch recent crypto news headlines and include in AI context
+                        </p>
+                      </div>
+                      <Switch
+                        checked={aiInputs.news?.enabled ?? false}
+                        onCheckedChange={(checked) =>
+                          setAiInputs(prev => ({
+                            ...prev,
+                            news: { ...prev.news, enabled: checked },
+                          }))
+                        }
+                      />
+                    </div>
+                    {aiInputs.news?.enabled && (
+                      <div className="pl-4 space-y-2 border-l-2">
+                        <label className="text-sm font-medium">Max Articles</label>
+                        <Input
+                          type="number"
+                          min="1"
+                          max="10"
+                          value={aiInputs.news.maxArticles}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            setAiInputs(prev => ({
+                              ...prev,
+                              news: {
+                                ...prev.news,
+                                maxArticles: value === "" ? "" : parseInt(value),
+                              },
+                            }));
+                          }}
+                          onBlur={(e) => {
+                            if (e.target.value === "" || parseInt(e.target.value) < 1) {
+                              setAiInputs(prev => ({
+                                ...prev,
+                                news: { ...prev.news, maxArticles: 5 },
+                              }));
+                            }
+                          }}
+                          className="h-9"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Number of recent headlines to include (1-10). More articles = more tokens per tick.
+                        </p>
+                      </div>
+                    )}
 
                     <div className="flex items-center justify-between p-3 rounded-lg border border-transparent hover:border-border/50 hover:bg-white/[0.02] transition-colors">
                       <div>

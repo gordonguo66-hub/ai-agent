@@ -60,7 +60,17 @@ export async function openAICompatibleIntentCall(args: {
         fast?: { value: number; period: number };
         slow?: { value: number; period: number };
       };
+      macd?: { macdLine: number; signalLine: number; histogram: number };
+      bollingerBands?: { upper: number; middle: number; lower: number; bandwidth: number; percentB: number };
+      supportResistance?: { nearestSupport: number; nearestResistance: number; supports: number[]; resistances: number[] };
+      volume?: { avgVolume: number; currentVolumeRatio: number; volumeTrend: string };
     };
+    marketAnalysis?: {
+      regime: { trend: string; trendStrength: number; regime: string; confidence: number };
+      keyLevels: { nearestSupport: number; nearestResistance: number; distanceToSupportPct: number; distanceToResistancePct: number; pricePosition: string } | null;
+      multiTimeframe: { htfTrend: string; htfRSI?: number; alignment: string; primaryTimeframe: string; higherTimeframe: string } | null;
+      summary: string;
+    } | null;
     recentDecisions?: {
       timestamp: string;
       bias: string;
@@ -85,6 +95,7 @@ export async function openAICompatibleIntentCall(args: {
       allowLong?: boolean;
       allowShort?: boolean;
     };
+    newsContext?: string | null;
   };
   provider?: string; // Optional provider hint for API format selection
 }): Promise<IntentWithUsage> {
@@ -213,6 +224,48 @@ export async function openAICompatibleIntentCall(args: {
     "",
     "NOTE: 'close' and 'hold' are ONLY for when a position exists. If no position exists, use 'long', 'short', or 'neutral'.",
     "NOTE: Saying 'short' while holding a long (or vice versa) will also close the position, but 'close' is clearer when exiting.",
+    "",
+    "DECISION FRAMEWORK (use this process every tick):",
+    "1. ASSESS: What is the market regime? (trending/ranging/volatile - check MARKET ANALYSIS if provided)",
+    "2. LOCATE: Where is price relative to key levels? (near support/resistance/mid-range)",
+    "3. CONFIRM: Do multiple indicators agree on direction? (need 2+ aligned signals for entry)",
+    "4. TIMING: Is this a good entry point, or chasing a move that already happened?",
+    "5. RISK: What's the risk/reward ratio? Where is the logical stop loss?",
+    "6. CONVICTION: Rate your confidence honestly (0-1). Low conviction = stay flat.",
+    "",
+    "NEWS & EVENTS ASSESSMENT (when news data is provided):",
+    "When news/events data is included in context, categorize each headline:",
+    "",
+    "1. MAJOR IMMEDIATE - Will move the market within minutes/hours",
+    "   (Exchange hack, regulatory ban/approval, protocol exploit, surprise rate decision)",
+    "   → Factor HEAVILY into your decision, may override technical signals",
+    "",
+    "2. SIGNIFICANT BUT SLOW - Unfolds over days/weeks",
+    "   (ETF inflow trends, institutional adoption, upcoming upgrades, macro policy shifts)",
+    "   → Use as DIRECTIONAL BIAS when technicals are ambiguous",
+    "",
+    "3. NOISE - Sounds dramatic but rarely moves markets",
+    "   (Price predictions, minor partnerships, recycled news, opinion pieces)",
+    "   → IGNORE completely — do not let these affect your decisions",
+    "",
+    "CRITICAL NEWS RULES:",
+    "- If news is >2 hours old, it is likely ALREADY PRICED IN",
+    "- Do NOT overreact to headlines — most 'breaking news' is noise that reverses quickly",
+    "- News SUPPLEMENTS your technical analysis, it NEVER replaces it",
+    "- If news contradicts strong technicals, require MAJOR IMMEDIATE to override",
+    "- If news aligns with technicals, it INCREASES your confidence (but still respect risk limits)",
+    "- Multiple news items pointing the same direction is more significant than a single headline",
+    "- Consider SOURCE reliability: Reuters/Bloomberg > crypto media > social media/blogs",
+    "",
+    "COST AWARENESS:",
+    "- Each trade incurs fees (entry + exit). Factor this into your risk/reward assessment.",
+    "- Very small expected moves may not justify the fee cost.",
+    "- Consider: 'Will my expected profit exceed the round-trip fee cost?'",
+    "",
+    "LEVERAGE CONSIDERATION:",
+    "- Higher leverage amplifies both gains AND losses AND fees.",
+    "- Match leverage to your conviction level - uncertain setups warrant lower leverage.",
+    "- Only use high leverage on high-conviction, well-confirmed setups.",
   ].join("\n");
 
   // Build position context string with TIME awareness for clearer AI understanding
@@ -280,6 +333,26 @@ export async function openAICompatibleIntentCall(args: {
         indicatorParts.push(`EMA(${indicators.ema.slow.period}): ${indicators.ema.slow.value.toFixed(2)}`);
       }
     }
+    if (indicators.macd) {
+      const m = indicators.macd;
+      const direction = m.histogram > 0 ? "bullish" : "bearish";
+      const momentum = Math.abs(m.histogram) > Math.abs(m.macdLine * 0.1) ? "strong" : "weak";
+      indicatorParts.push(`MACD: Line ${m.macdLine.toFixed(2)}, Signal ${m.signalLine.toFixed(2)}, Histogram ${m.histogram >= 0 ? '+' : ''}${m.histogram.toFixed(2)} (${direction}, ${momentum})`);
+    }
+    if (indicators.bollingerBands) {
+      const bb = indicators.bollingerBands;
+      const position = bb.percentB > 0.8 ? "near upper band" : bb.percentB < 0.2 ? "near lower band" : bb.percentB > 0.6 ? "upper half" : bb.percentB < 0.4 ? "lower half" : "mid-range";
+      indicatorParts.push(`Bollinger(20,2): Upper $${bb.upper.toFixed(2)}, Mid $${bb.middle.toFixed(2)}, Lower $${bb.lower.toFixed(2)}, Price at ${(bb.percentB * 100).toFixed(0)}% (${position})`);
+    }
+    if (indicators.supportResistance) {
+      const sr = indicators.supportResistance;
+      indicatorParts.push(`Support: $${sr.nearestSupport.toFixed(2)} | Resistance: $${sr.nearestResistance.toFixed(2)}`);
+    }
+    if (indicators.volume) {
+      const v = indicators.volume;
+      const volLabel = v.currentVolumeRatio > 1.5 ? "high" : v.currentVolumeRatio > 1.0 ? "above average" : v.currentVolumeRatio > 0.7 ? "below average" : "low";
+      indicatorParts.push(`Volume: ${v.currentVolumeRatio.toFixed(1)}x average (${volLabel}, ${v.volumeTrend})`);
+    }
     if (indicatorParts.length > 0) {
       indicatorsContext = `TECHNICAL INDICATORS:\n${indicatorParts.join('\n')}`;
     }
@@ -344,6 +417,32 @@ export async function openAICompatibleIntentCall(args: {
     userParts.push(indicatorsContext);
   }
 
+  // Add market analysis summary if available (pre-processed intelligence alongside raw data)
+  const marketAnalysis = args.context.marketAnalysis;
+  if (marketAnalysis) {
+    const analysisParts: string[] = [`MARKET ANALYSIS (pre-processed from your indicators):`];
+    const r = marketAnalysis.regime;
+    analysisParts.push(`Regime: ${r.regime.toUpperCase()} | Trend: ${r.trend.replace(/_/g, ' ')} (strength: ${r.trendStrength}/100, confidence: ${(r.confidence * 100).toFixed(0)}%)`);
+    if (marketAnalysis.keyLevels) {
+      const kl = marketAnalysis.keyLevels;
+      analysisParts.push(`Key Levels: Support $${kl.nearestSupport.toFixed(2)} (${kl.distanceToSupportPct.toFixed(1)}% away) | Resistance $${kl.nearestResistance.toFixed(2)} (${kl.distanceToResistancePct.toFixed(1)}% away) | Position: ${kl.pricePosition}`);
+    }
+    if (marketAnalysis.multiTimeframe) {
+      const mtf = marketAnalysis.multiTimeframe;
+      analysisParts.push(`Multi-Timeframe (${mtf.primaryTimeframe}→${mtf.higherTimeframe}): ${mtf.alignment.replace(/_/g, ' ')} | HTF trend: ${mtf.htfTrend.replace(/_/g, ' ')}${mtf.htfRSI ? ` | HTF RSI: ${mtf.htfRSI.toFixed(1)}` : ''}`);
+    }
+    if (marketAnalysis.summary) {
+      analysisParts.push(`\nSummary: ${marketAnalysis.summary}`);
+    }
+    userParts.push(analysisParts.join('\n'));
+  }
+
+  // Add news context if available
+  const newsContext = args.context.newsContext;
+  if (newsContext) {
+    userParts.push(newsContext);
+  }
+
   // Add recent decisions if available
   if (recentDecisionsContext) {
     userParts.push(recentDecisionsContext);
@@ -376,6 +475,28 @@ export async function openAICompatibleIntentCall(args: {
 
     if (constraints.length > 0) {
       userParts.push(`TRADING CONSTRAINTS:\n${constraints.join('\n')}`);
+    }
+  }
+
+  // Provider-specific bonus prompt for models with real-time knowledge
+  if (args.context.newsContext) {
+    const providerLower = (args.provider || "").toLowerCase();
+    const baseUrlLower = baseUrl.toLowerCase();
+
+    if (providerLower === "xai" || baseUrlLower.includes("api.x.ai")) {
+      userParts.push(
+        "BONUS INTELLIGENCE (Grok/xAI):\n" +
+        "You have access to real-time X/Twitter data and web knowledge beyond the headlines above.\n" +
+        "Also consider: trending crypto discussions on X/Twitter, breaking developments not yet in news feeds, and community sentiment.\n" +
+        "Mention any additional real-time insights in your reasoning. Still prioritize technicals and provided news."
+      );
+    } else if (providerLower === "google" || baseUrlLower.includes("generativelanguage.googleapis.com")) {
+      userParts.push(
+        "BONUS INTELLIGENCE (Gemini/Google):\n" +
+        "You have access to real-time Google Search knowledge beyond the headlines above.\n" +
+        "Also consider: recent search trends for this cryptocurrency, breaking developments, and broader macro news.\n" +
+        "Mention any additional real-time insights in your reasoning. Still prioritize technicals and provided news."
+      );
     }
   }
 
@@ -480,7 +601,7 @@ export async function openAICompatibleIntentCall(args: {
   }
 }
 
-function parseIntentJson(raw: string): Intent {
+export function parseIntentJson(raw: string): Intent {
   const trimmed = raw.trim();
   const start = trimmed.indexOf("{");
   const end = trimmed.lastIndexOf("}");
@@ -513,7 +634,7 @@ function parseIntentJson(raw: string): Intent {
   };
 }
 
-function clamp01(n: number) {
+export function clamp01(n: number) {
   if (!Number.isFinite(n)) return 0;
   return Math.max(0, Math.min(1, n));
 }

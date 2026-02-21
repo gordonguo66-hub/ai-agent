@@ -32,6 +32,15 @@ import {
 import { placeMarketOrder as placeHyperliquidOrder } from "@/lib/hyperliquid/orderExecution";
 import { placeMarketOrder as placeCoinbaseOrder } from "@/lib/coinbase/orderExecution";
 import { Venue } from "@/lib/engine/types";
+import { fetchCryptoNews } from "@/lib/ai/newsService";
+import { agenticIntentCall } from "@/lib/ai/agenticLoop";
+import type { ToolContext } from "@/lib/ai/agenticTools";
+
+// Providers that support tool/function calling (for agentic mode)
+const TOOL_CALLING_PROVIDERS = new Set([
+  "openai", "anthropic", "google", "xai", "deepseek",
+  "openrouter", "together", "groq", "qwen", "glm",
+]);
 
 const PROVIDER_BASE_URLS: Record<string, string> = {
   openai: "https://api.openai.com/v1",
@@ -1037,15 +1046,27 @@ export async function POST(
 
       // Build AI input payload - COMPILE ALL REQUESTED AI INPUTS
       const aiInputs = filters.aiInputs || {};
+      const useAgentic = !!filters.agenticMode && TOOL_CALLING_PROVIDERS.has(strategy.model_provider);
       const marketSnapshot: any = {
         market,
         price: currentPrice,
         timestamp: new Date().toISOString(),
+        ...(useAgentic && { agenticMode: true }),
       };
 
-      // Fetch candles if enabled
+      // Prominent tick banner so it stands out in logs
+      console.log(`\n${'═'.repeat(60)}`);
+      console.log(`[Tick] 🔔 TICK: ${sessionId.slice(0,8)} | ${market} | $${currentPrice.toLocaleString()}`);
+      if (useAgentic) {
+        console.log(`[Tick] 🤖 MODE: AGENTIC (max ${filters.agenticConfig?.maxToolCalls || 10} tool calls)`);
+      } else {
+        console.log(`[Tick] 📋 MODE: PASSIVE`);
+      }
+      console.log(`${'═'.repeat(60)}`);
+
+      // Fetch candles if enabled (skipped in agentic mode - AI fetches its own data)
       let candles: any[] = [];
-      if (aiInputs.candles?.enabled) {
+      if (!useAgentic && aiInputs.candles?.enabled) {
         try {
           const candleCount = aiInputs.candles.count || 200;
           let candleInterval = aiInputs.candles.timeframe || "5m";
@@ -1075,9 +1096,9 @@ export async function POST(
         }
       }
 
-      // Fetch orderbook if enabled (venue-aware)
+      // Fetch orderbook if enabled (venue-aware) (skipped in agentic mode)
       let orderbookSnapshot: any = null;
-      if (aiInputs.orderbook?.enabled) {
+      if (!useAgentic && aiInputs.orderbook?.enabled) {
         try {
           const depth = aiInputs.orderbook.depth || 20;
           // Use venue-specific orderbook fetching (priceVenue maps virtual/arena to hyperliquid)
@@ -1100,12 +1121,13 @@ export async function POST(
         }
       }
 
-      // Calculate technical indicators from candles if enabled and we have candles
+      // Calculate technical indicators from candles if enabled and we have candles (skipped in agentic mode)
       let indicatorsSnapshot: any = {};
-      if (candles.length > 0 && aiInputs.indicators) {
+      let candlesForIndicators: any[] = [];
+      if (!useAgentic && candles.length > 0 && aiInputs.indicators) {
         try {
           // Convert candles back to the format needed for indicator calculations
-          const candlesForIndicators = candles.map((c) => ({
+          candlesForIndicators = candles.map((c) => ({
             t: c.time,
             T: c.time + 1,
             o: c.open,
@@ -1121,10 +1143,78 @@ export async function POST(
             atr: aiInputs.indicators.atr,
             volatility: aiInputs.indicators.volatility,
             ema: aiInputs.indicators.ema,
+            macd: aiInputs.indicators.macd,
+            bollingerBands: aiInputs.indicators.bollingerBands,
+            supportResistance: aiInputs.indicators.supportResistance,
+            volume: aiInputs.indicators.volume,
           });
         } catch (error: any) {
           console.error(`[Tick] Failed to calculate indicators for ${market}:`, error);
           // Continue without indicators - don't fail the tick
+        }
+      }
+
+      // Fetch higher-timeframe candles and run market analysis (skipped in agentic mode)
+      let marketAnalysis: any = null;
+      if (!useAgentic && candlesForIndicators.length > 0) {
+        try {
+          const { runMarketAnalysis } = await import("@/lib/ai/marketAnalysis");
+
+          // Fetch higher-timeframe candles for multi-timeframe analysis
+          const primaryInterval = aiInputs.candles?.timeframe || "5m";
+          const htfMap: Record<string, string> = { "1m": "15m", "5m": "1h", "15m": "4h", "1h": "1d" };
+          const htfInterval = htfMap[primaryInterval] || "1h";
+
+          let htfIndicators: any = null;
+          try {
+            const htfCandles = priceVenue === "coinbase"
+              ? await getCoinbaseCandles(market, htfInterval, 50)
+              : await getHyperliquidCandles(market, htfInterval, 50);
+
+            if (htfCandles.length > 0) {
+              const htfCandlesFormatted = htfCandles.map((c: any) => ({
+                t: c.t, T: c.t + 1, o: c.o, h: c.h, l: c.l, c: c.c, v: c.v, n: 0,
+              }));
+              htfIndicators = calculateIndicators(htfCandlesFormatted, {
+                rsi: { enabled: true, period: 14 },
+                ema: { enabled: true, fast: 12, slow: 26 },
+                macd: { enabled: true },
+              });
+            }
+          } catch (htfError: any) {
+            console.error(`[Tick] Failed to fetch HTF candles for ${market}:`, htfError.message);
+            // Continue without HTF data
+          }
+
+          marketAnalysis = runMarketAnalysis({
+            market,
+            currentPrice,
+            candles: candlesForIndicators,
+            indicators: indicatorsSnapshot,
+            htfIndicators: htfIndicators || undefined,
+            primaryTimeframe: primaryInterval,
+            htfTimeframe: htfInterval,
+          });
+
+          console.log(`[Tick] 📊 Market Analysis for ${market}: ${marketAnalysis.regime.trend} (strength: ${marketAnalysis.regime.trendStrength}, regime: ${marketAnalysis.regime.regime})`);
+        } catch (analysisError: any) {
+          console.error(`[Tick] Failed to run market analysis for ${market}:`, analysisError.message);
+          // Continue without market analysis
+        }
+      }
+
+      // Fetch news if enabled (skipped in agentic mode - AI fetches via tools)
+      let newsContext: string | null = null;
+      if (!useAgentic && aiInputs.news?.enabled) {
+        try {
+          const newsResult = await fetchCryptoNews(market, aiInputs.news.maxArticles || 5);
+          if (newsResult) {
+            newsContext = newsResult.formattedContext;
+            console.log(`[Tick] 📰 News fetched for ${market}: ${newsResult.articles.length} articles`);
+          }
+        } catch (error: any) {
+          console.error(`[Tick] Failed to fetch news for ${market}:`, error.message);
+          // Continue without news - don't fail the tick
         }
       }
 
@@ -1195,9 +1285,9 @@ export async function POST(
           throw new Error(`Unknown provider: ${strategy.model_provider}`);
         }
 
-        // Fetch recent decisions if enabled (default to true for backwards compatibility)
+        // Fetch recent decisions if enabled (skipped in agentic mode - AI fetches via tools)
         let recentDecisions: any[] = [];
-        if (aiInputs.includeRecentDecisions !== false) {
+        if (!useAgentic && aiInputs.includeRecentDecisions !== false) {
           try {
             const decisionsCount = aiInputs.recentDecisionsCount || 5;
             const { data: decisionsData } = await serviceClient
@@ -1222,9 +1312,9 @@ export async function POST(
           }
         }
 
-        // Fetch recent trades if enabled (default to true for backwards compatibility)
+        // Fetch recent trades if enabled (skipped in agentic mode - AI fetches via tools)
         let recentTrades: any[] = [];
-        if (aiInputs.includeRecentTrades !== false) {
+        if (!useAgentic && aiInputs.includeRecentTrades !== false) {
           try {
             const tradesCount = aiInputs.recentTradesCount || 10;
             const { data: tradesData } = await serviceClient
@@ -1282,7 +1372,9 @@ export async function POST(
           account: accountInfo, // Total equity, cash balance, starting equity
           positions: contextPositions, // ALL positions (unless disabled)
           currentMarketPosition: contextCurrentPosition, // Current market's position (if any and if enabled)
-          indicators: indicatorsSnapshot, // RSI, ATR, Volatility, EMA (if enabled and calculated)
+          indicators: indicatorsSnapshot, // RSI, ATR, Volatility, EMA, MACD, Bollinger, S/R, Volume (if enabled)
+          marketAnalysis, // Pre-processed market regime, key levels, MTF alignment, summary (always included alongside raw data)
+          newsContext, // Recent crypto news headlines (if enabled)
           recentDecisions: aiInputs.includeRecentDecisions !== false ? recentDecisions : [], // Previous AI decisions (default enabled)
           recentTrades: aiInputs.includeRecentTrades !== false ? recentTrades : [], // Previous trade executions (default enabled)
           // Strategy configuration to guide AI
@@ -1312,15 +1404,76 @@ export async function POST(
           },
         };
 
-        // Call AI
-        const aiResponse = await openAICompatibleIntentCall({
-          baseUrl: normalizeBaseUrl(baseUrl),
-          apiKey,
-          model: strategy.model_name,
-          prompt: strategy.prompt,
-          provider: strategy.model_provider,
-          context,
-        });
+        // Call AI — agentic mode (tool calling) or passive mode (single prompt)
+        let aiResponse: any;
+        if (useAgentic) {
+          // AGENTIC PATH: AI decides what data to fetch via tool calls
+          const toolContext: ToolContext = {
+            priceVenue: priceVenue as "hyperliquid" | "coinbase",
+            sessionId,
+            serviceClient,
+            tables,
+            market,
+            currentPrice,
+            allPositions,
+            marketPosition,
+            account: {
+              equity: Number(account.equity),
+              cash_balance: Number(account.cash_balance),
+              starting_equity: Number(account.starting_equity),
+            },
+          };
+
+          const entryInstructions = (() => {
+            const behaviors = entry.behaviors || { trend: true, breakout: true, meanReversion: true };
+            const enabled = [];
+            if (behaviors.trend) enabled.push("trend-following");
+            if (behaviors.breakout) enabled.push("breakout");
+            if (behaviors.meanReversion) enabled.push("mean reversion");
+            if (enabled.length === 0) return "No entry behaviors enabled. Do not enter any positions.";
+            if (enabled.length === 3) return "All entry types allowed.";
+            return `Only these entry types: ${enabled.join(", ")}.`;
+          })();
+
+          console.log(`[Tick] 🤖 Calling agenticIntentCall for ${market}...`);
+          aiResponse = await agenticIntentCall({
+            baseUrl: normalizeBaseUrl(baseUrl),
+            apiKey,
+            model: strategy.model_name,
+            prompt: strategy.prompt,
+            provider: strategy.model_provider,
+            toolContext,
+            agenticConfig: filters.agenticConfig || {},
+            market,
+            currentPrice,
+            marketPosition: contextCurrentPosition,
+            account: {
+              equity: accountInfo.current_equity,
+              cash_balance: accountInfo.cash_balance,
+              starting_equity: accountInfo.starting_equity,
+              total_return_pct: accountInfo.total_return_pct,
+            },
+            allPositions: contextPositions,
+            strategyConstraints: {
+              marketType: marketType as "perpetual" | "spot",
+              maxLeverage,
+              allowLong: guardrails.allowLong !== false,
+              allowShort: canShort,
+              entryInstructions,
+            },
+          });
+          console.log(`[Tick] 🤖 Agentic response: bias=${aiResponse.intent.bias}, confidence=${aiResponse.intent.confidence}, tokens=${aiResponse.usage.totalTokens}`);
+        } else {
+          // PASSIVE PATH: Pre-fetched data sent in single prompt (existing flow)
+          aiResponse = await openAICompatibleIntentCall({
+            baseUrl: normalizeBaseUrl(baseUrl),
+            apiKey,
+            model: strategy.model_name,
+            prompt: strategy.prompt,
+            provider: strategy.model_provider,
+            context,
+          });
+        }
 
         intent = aiResponse.intent;
         confidence = intent.confidence || 0;
@@ -2188,7 +2341,7 @@ export async function POST(
 
       decisions.push(decision);
       const marketEndTime = Date.now();
-      console.log(`[Tick] Completed market ${i + 1}/${marketsToProcess.length}: ${market} (took ${marketEndTime - marketStartTime}ms)`);
+      console.log(`[Tick] ✅ ${market}: ${intent?.bias || 'neutral'} (confidence: ${confidence.toFixed(2)}) — ${actionSummary} [${marketEndTime - marketStartTime}ms]`);
     }
     
     const tickEndTime = Date.now();

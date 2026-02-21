@@ -66,6 +66,10 @@ export interface IndicatorsSnapshot {
     fast?: { value: number; period: number };
     slow?: { value: number; period: number };
   };
+  macd?: { macdLine: number; signalLine: number; histogram: number };
+  bollingerBands?: { upper: number; middle: number; lower: number; bandwidth: number; percentB: number };
+  supportResistance?: { nearestSupport: number; nearestResistance: number; supports: number[]; resistances: number[] };
+  volume?: { avgVolume: number; currentVolumeRatio: number; volumeTrend: string };
 }
 
 export interface RecentDecision {

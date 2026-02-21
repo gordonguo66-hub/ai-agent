@@ -20,14 +20,16 @@ export const KNOWN_MODELS: Record<string, string[]> = {
 
   // Anthropic Claude (note: may not have /models endpoint, but we include known models)
   "https://api.anthropic.com/v1": [
-    "claude-opus-4.5",
-    "claude-sonnet-4.5",
-    "claude-3.5-opus",
-    "claude-3.5-sonnet",
-    "claude-3.5-haiku",
-    "claude-3-opus",
-    "claude-3-sonnet",
-    "claude-3-haiku",
+    "claude-opus-4-6",
+    "claude-opus-4-5-20251101",
+    "claude-sonnet-4-6",
+    "claude-sonnet-4-5-20250929",
+    "claude-haiku-4-5-20251001",
+    "claude-3-5-sonnet-20241022",
+    "claude-3-5-haiku-20241022",
+    "claude-3-opus-20240229",
+    "claude-3-sonnet-20240229",
+    "claude-3-haiku-20240307",
   ],
 
   // Google Gemini (OpenAI-compatible)
@@ -69,8 +71,8 @@ export const KNOWN_MODELS: Record<string, string[]> = {
     "openai/gpt-5.2",
     "openai/gpt-5.2-pro",
     "openai/gpt-5-mini",
-    "anthropic/claude-opus-4.5",
-    "anthropic/claude-sonnet-4.5",
+    "anthropic/claude-opus-4-6",
+    "anthropic/claude-sonnet-4-5-20250929",
     "google/gemini-3-pro",
     "x-ai/grok-4",
     "deepseek/deepseek-v3.2",

@@ -11,11 +11,16 @@ export interface PresetConfig {
   aiInputs: {
     candles: { enabled: boolean; count: number; timeframe: string };
     orderbook: { enabled: boolean; depth: number };
+    news?: { enabled: boolean; maxArticles: number };
     indicators: {
       rsi: { enabled: boolean; period: number };
       atr: { enabled: boolean; period: number };
       volatility: { enabled: boolean; window: number };
       ema: { enabled: boolean; fast: number; slow: number };
+      macd?: { enabled: boolean; fastPeriod: number; slowPeriod: number; signalPeriod: number };
+      bollingerBands?: { enabled: boolean; period: number; stdDev: number };
+      supportResistance?: { enabled: boolean; lookback: number };
+      volume?: { enabled: boolean; lookback: number };
     };
     includePositionState: boolean;
     includeRecentDecisions: boolean;
@@ -59,6 +64,8 @@ export interface PresetConfig {
   };
   guardrails: { allowLong: boolean; allowShort: boolean };
   risk: { maxDailyLossPct: number; maxPositionUsd: number; maxLeverage: number };
+  agenticMode?: boolean;
+  agenticConfig?: { maxToolCalls?: number };
 }
 
 export const STRATEGY_PRESETS: Record<PresetMode, PresetConfig> = {
@@ -72,16 +79,22 @@ Only enter positions when you have very high conviction based on clear trend sig
 Prefer fewer, higher-quality trades over frequent entries.
 Always prioritize protecting capital over maximizing gains.
 Wait for strong confirmation before entering - avoid uncertain setups.
-Focus on established trends rather than catching reversals or breakouts.`,
+Focus on established trends rather than catching reversals or breakouts.
+Use the market analysis summary and technical indicators provided to identify high-conviction setups with favorable risk/reward.`,
     cadenceSeconds: 300,
     aiInputs: {
       candles: { enabled: true, count: 200, timeframe: "15m" },
       orderbook: { enabled: false, depth: 20 },
+      news: { enabled: false, maxArticles: 5 },
       indicators: {
         rsi: { enabled: true, period: 14 },
         atr: { enabled: false, period: 14 },
         volatility: { enabled: true, window: 50 },
         ema: { enabled: false, fast: 12, slow: 26 },
+        macd: { enabled: true, fastPeriod: 12, slowPeriod: 26, signalPeriod: 9 },
+        bollingerBands: { enabled: true, period: 20, stdDev: 2 },
+        supportResistance: { enabled: true, lookback: 50 },
+        volume: { enabled: false, lookback: 50 },
       },
       includePositionState: true,
       includeRecentDecisions: true,
@@ -135,16 +148,22 @@ Focus on established trends rather than catching reversals or breakouts.`,
 Analyze trends, breakouts, and mean-reversion opportunities equally.
 Take trades when there is reasonable conviction backed by multiple signals.
 Balance risk and reward - aim for consistent performance rather than home runs.
-Manage positions actively and respect risk limits strictly.`,
+Manage positions actively and respect risk limits strictly.
+Use the market analysis summary and technical indicators provided to make informed decisions. Focus on setups where multiple signals align.`,
     cadenceSeconds: 120,
     aiInputs: {
       candles: { enabled: true, count: 200, timeframe: "5m" },
       orderbook: { enabled: false, depth: 20 },
+      news: { enabled: true, maxArticles: 5 },
       indicators: {
         rsi: { enabled: true, period: 14 },
         atr: { enabled: false, period: 14 },
         volatility: { enabled: true, window: 50 },
         ema: { enabled: true, fast: 12, slow: 26 },
+        macd: { enabled: true, fastPeriod: 12, slowPeriod: 26, signalPeriod: 9 },
+        bollingerBands: { enabled: true, period: 20, stdDev: 2 },
+        supportResistance: { enabled: true, lookback: 50 },
+        volume: { enabled: true, lookback: 50 },
       },
       includePositionState: true,
       includeRecentDecisions: true,
@@ -199,16 +218,22 @@ Actively monitor momentum and take trades frequently when signals align.
 Use all available strategies - trends, breakouts, and mean-reversion.
 Be willing to take trades with lower conviction if the risk/reward is favorable.
 Trade actively but still respect your risk limits.
-Look for momentum shifts and act quickly on breakout signals.`,
+Look for momentum shifts and act quickly on breakout signals.
+Use the market analysis summary and all available indicators to spot opportunities quickly. Act on strong setups with favorable risk/reward.`,
     cadenceSeconds: 60,
     aiInputs: {
       candles: { enabled: true, count: 200, timeframe: "5m" },
       orderbook: { enabled: true, depth: 20 },
+      news: { enabled: true, maxArticles: 8 },
       indicators: {
         rsi: { enabled: true, period: 14 },
         atr: { enabled: true, period: 14 },
         volatility: { enabled: true, window: 50 },
         ema: { enabled: true, fast: 12, slow: 26 },
+        macd: { enabled: true, fastPeriod: 12, slowPeriod: 26, signalPeriod: 9 },
+        bollingerBands: { enabled: true, period: 20, stdDev: 2 },
+        supportResistance: { enabled: true, lookback: 50 },
+        volume: { enabled: true, lookback: 50 },
       },
       includePositionState: true,
       includeRecentDecisions: true,

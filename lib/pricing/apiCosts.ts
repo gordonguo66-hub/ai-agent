@@ -127,6 +127,27 @@ export const API_PRICING: Record<string, { input_per_1m: number; output_per_1m: 
   // ============================================
   // Anthropic Claude models
   // ============================================
+  'claude-opus-4-6': {
+    input_per_1m: 5.00,
+    output_per_1m: 25.00,
+  },
+  'claude-opus-4-5-20251101': {
+    input_per_1m: 5.00,
+    output_per_1m: 25.00,
+  },
+  'claude-sonnet-4-6': {
+    input_per_1m: 3.00,
+    output_per_1m: 15.00,
+  },
+  'claude-sonnet-4-5-20250929': {
+    input_per_1m: 3.00,
+    output_per_1m: 15.00,
+  },
+  'claude-haiku-4-5-20251001': {
+    input_per_1m: 0.80,
+    output_per_1m: 4.00,
+  },
+  // Legacy model names (keep for existing strategies)
   'claude-opus-4.5': {
     input_per_1m: 5.00,
     output_per_1m: 25.00,
@@ -139,7 +160,6 @@ export const API_PRICING: Record<string, { input_per_1m: number; output_per_1m: 
     input_per_1m: 0.80,
     output_per_1m: 4.00,
   },
-  // Legacy model names
   'claude-opus-4': {
     input_per_1m: 15.00,
     output_per_1m: 75.00,

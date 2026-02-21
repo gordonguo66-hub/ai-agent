@@ -27,7 +27,7 @@ function AiSettingsContent() {
     { id: "openai", label: "OpenAI", baseUrl: "https://api.openai.com/v1", modelHint: "gpt-5.2" },
     
     // Anthropic Claude
-    { id: "anthropic", label: "Anthropic (Claude)", baseUrl: "https://api.anthropic.com/v1", modelHint: "claude-opus-4.5" },
+    { id: "anthropic", label: "Anthropic (Claude)", baseUrl: "https://api.anthropic.com/v1", modelHint: "claude-opus-4-6" },
     
     // Google / DeepMind Gemini (OpenAI-compatible endpoint)
     { id: "google", label: "Google (Gemini)", baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai", modelHint: "gemini-3-pro" },
