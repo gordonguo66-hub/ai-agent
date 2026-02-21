@@ -5,6 +5,7 @@
 
 import { Intent } from "@/lib/ai/intentSchema";
 import { IntentWithUsage, parseIntentJson, normalizeBaseUrl } from "@/lib/ai/openaiCompatible";
+import { fetchWithRetry } from "@/lib/ai/fetchWithRetry";
 import {
   ToolContext,
   getToolsForAnthropic,
@@ -344,7 +345,7 @@ async function callAnthropic(
     body.tools = tools;
   }
 
-  const res = await fetch(`${baseUrl}/messages`, {
+  const res = await fetchWithRetry(`${baseUrl}/messages`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -407,7 +408,7 @@ async function callOpenAI(
     body.tools = tools;
   }
 
-  const res = await fetch(`${baseUrl}/chat/completions`, {
+  const res = await fetchWithRetry(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

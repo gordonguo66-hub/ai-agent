@@ -1,4 +1,5 @@
 import { Intent } from "@/lib/ai/intentSchema";
+import { fetchWithRetry } from "@/lib/ai/fetchWithRetry";
 
 /**
  * Response interface that includes both the Intent and token usage information
@@ -519,7 +520,7 @@ export async function openAICompatibleIntentCall(args: {
 
   if (isAnthropic) {
     // Anthropic API format
-    res = await fetch(`${baseUrl}/messages`, {
+    res = await fetchWithRetry(`${baseUrl}/messages`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -560,7 +561,7 @@ export async function openAICompatibleIntentCall(args: {
     };
   } else {
     // OpenAI-compatible API format (OpenAI, Google, xAI, DeepSeek, etc.)
-    res = await fetch(`${baseUrl}/chat/completions`, {
+    res = await fetchWithRetry(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
