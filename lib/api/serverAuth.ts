@@ -15,20 +15,33 @@ export async function getUserFromRequest(request: NextRequest) {
       { auth: { persistSession: false, autoRefreshToken: false } }
     );
 
-    const { data, error } = await withTimeout(
-      supabase.auth.getUser(token),
-      4000,
-      "auth.getUser(bearer)"
-    );
-    if (error) throw new Error(error.message);
-    return data.user ?? null;
+    try {
+      const { data, error } = await withTimeout(
+        supabase.auth.getUser(token),
+        4000,
+        "auth.getUser(bearer)"
+      );
+      if (error) {
+        console.warn("[getUserFromRequest] Bearer auth failed:", error.message);
+        return null;
+      }
+      return data.user ?? null;
+    } catch (err: any) {
+      console.warn("[getUserFromRequest] Bearer auth error:", err.message);
+      return null;
+    }
   }
 
   // Fallback: cookie-based session (may be absent depending on client setup)
-  const cookieSupabase = await createCookieClient();
-  const {
-    data: { session },
-  } = await withTimeout(cookieSupabase.auth.getSession(), 2000, "auth.getSession(cookie)");
-  return session?.user ?? null;
+  try {
+    const cookieSupabase = await createCookieClient();
+    const {
+      data: { session },
+    } = await withTimeout(cookieSupabase.auth.getSession(), 2000, "auth.getSession(cookie)");
+    return session?.user ?? null;
+  } catch (err: any) {
+    console.warn("[getUserFromRequest] Cookie auth error:", err.message);
+    return null;
+  }
 }
 

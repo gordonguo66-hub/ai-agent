@@ -22,12 +22,29 @@ export async function GET(request: NextRequest) {
     // Use fresh client to avoid Supabase caching issues
     const serviceClient = createFreshServiceClient();
 
-    // Get user balance
-    const { data: balance, error: balanceError } = await serviceClient
+    // Get user balance — try with subscription budget columns, fall back without them
+    let balance: any = null;
+    let balanceError: any = null;
+
+    const fullResult = await serviceClient
       .from("user_balance")
       .select("balance_cents, subscription_budget_cents, subscription_budget_granted_cents, lifetime_spent_cents, updated_at")
       .eq("user_id", user.id)
       .single();
+
+    if (fullResult.error && fullResult.error.code === "42703") {
+      // Column doesn't exist yet — query only the base columns
+      const fallback = await serviceClient
+        .from("user_balance")
+        .select("balance_cents, lifetime_spent_cents, updated_at")
+        .eq("user_id", user.id)
+        .single();
+      balance = fallback.data ? { ...fallback.data, subscription_budget_cents: 0, subscription_budget_granted_cents: 0 } : null;
+      balanceError = fallback.error;
+    } else {
+      balance = fullResult.data;
+      balanceError = fullResult.error;
+    }
 
     if (balanceError && balanceError.code !== "PGRST116") {
       console.error("[GET /api/credits] Error fetching balance:", balanceError);

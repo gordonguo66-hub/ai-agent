@@ -389,9 +389,12 @@ export async function POST(
     let user = null;
     let isInternalCall = false;
     
+    let cronProvidedApiKey: string | undefined;
+
     if (internalApiKey && cronSecret && internalApiKey === cronSecret) {
       // Internal cron call - get user from session instead
       isInternalCall = true;
+      cronProvidedApiKey = request.headers.get("X-Platform-API-Key") || undefined;
       const serviceClient = createServiceRoleClient();
       const { data: session } = await serviceClient
         .from("strategy_sessions")
@@ -1279,10 +1282,10 @@ export async function POST(
         // Resolve API key (always uses Corebound platform keys)
         const providerEnvVar = `PLATFORM_${strategy.model_provider.toUpperCase()}_API_KEY`;
         console.log(`[Tick] 🔑 Resolving platform key for ${strategy.model_provider} | env=${providerEnvVar} present=${!!process.env[providerEnvVar]} len=${process.env[providerEnvVar]?.length || 0}`);
-        const resolvedKey = await resolveStrategyApiKey({
-          id: strategy.id,
-          model_provider: strategy.model_provider,
-        });
+        const resolvedKey = await resolveStrategyApiKey(
+          { id: strategy.id, model_provider: strategy.model_provider },
+          cronProvidedApiKey,
+        );
         const apiKey = resolvedKey.apiKey;
         console.log(`[Tick] ✅ Platform key resolved for ${strategy.model_provider}`);
 

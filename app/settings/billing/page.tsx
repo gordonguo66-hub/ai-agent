@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { AuthGuard } from "@/components/auth-guard";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -65,6 +65,7 @@ interface UserData {
 }
 
 function BillingContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const [userData, setUserData] = useState<UserData | null>(null);
   const [plans, setPlans] = useState<Plan[]>([]);
@@ -86,6 +87,7 @@ const [topupPackages, setTopupPackages] = useState<TopupPackage[]>(DEFAULT_PACKA
   const [isCustomTopup, setIsCustomTopup] = useState(false);
   const [purchasingPlan, setPurchasingPlan] = useState<string | null>(null);
   const [cancelingSubscription, setCancelingSubscription] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     loadData();
@@ -105,27 +107,38 @@ const [topupPackages, setTopupPackages] = useState<TopupPackage[]>(DEFAULT_PACKA
   }, [searchParams]);
 
   const loadData = async () => {
+    setLoading(true);
+    setLoadError(null);
     try {
       const bearer = await getBearerToken();
-      if (!bearer) return;
+      if (!bearer) {
+        setLoadError("Not authenticated. Please sign in and try again.");
+        return;
+      }
 
       // Load user credits and subscription
       const creditsRes = await fetch("/api/credits", {
         headers: { Authorization: bearer },
       });
-      if (creditsRes.ok) {
-        const data = await creditsRes.json();
-        setUserData(data);
+      if (!creditsRes.ok) {
+        if (creditsRes.status === 401) {
+          router.push("/auth");
+          return;
+        }
+        const errBody = await creditsRes.json().catch(() => ({}));
+        throw new Error(errBody.error || `Credits API returned ${creditsRes.status}`);
       }
+      const creditsData = await creditsRes.json();
+      setUserData(creditsData);
 
-      // Load available plans
+      // Load available plans (non-critical — don't block on failure)
       const plansRes = await fetch("/api/subscriptions/plans");
       if (plansRes.ok) {
         const data = await plansRes.json();
         setPlans(data.plans || []);
       }
 
-      // Load transaction history
+      // Load transaction history (non-critical)
       setLoadingTransactions(true);
       const txRes = await fetch("/api/credits/usage?limit=20", {
         headers: { Authorization: bearer },
@@ -135,14 +148,15 @@ const [topupPackages, setTopupPackages] = useState<TopupPackage[]>(DEFAULT_PACKA
         setTransactions(data.transactions || []);
       }
 
-      // Load top-up packages
+      // Load top-up packages (non-critical)
       const packagesRes = await fetch("/api/credits/purchase");
       if (packagesRes.ok) {
         const data = await packagesRes.json();
         setTopupPackages(data.packages || []);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to load billing data:", error);
+      setLoadError(error.message || "An unexpected error occurred.");
     } finally {
       setLoading(false);
       setLoadingTransactions(false);
@@ -745,8 +759,16 @@ const [topupPackages, setTopupPackages] = useState<TopupPackage[]>(DEFAULT_PACKA
               </Card>
             </>
           ) : (
-            <div className="text-center text-gray-400 py-20">
-              Failed to load billing information. Please try again.
+            <div className="text-center py-20 space-y-4">
+              <p className="text-gray-400">
+                Failed to load billing information.
+              </p>
+              {loadError && (
+                <p className="text-sm text-red-400">{loadError}</p>
+              )}
+              <Button variant="outline" onClick={loadData}>
+                Try Again
+              </Button>
             </div>
           )}
         </div>

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createFreshServiceClient } from "@/lib/supabase/freshClient";
+import { getPlatformApiKey } from "@/lib/ai/platformApiKey";
 
 // CRITICAL: Next.js 14 caches fetch() by default. force-dynamic alone does NOT prevent
 // the Supabase client's internal fetch() from being cached in the data cache.
@@ -66,7 +67,8 @@ export async function GET(request: NextRequest) {
         markets,
         strategies!inner(
           id,
-          filters
+          filters,
+          model_provider
         )
       `)
       .eq("status", "running");
@@ -187,6 +189,14 @@ export async function GET(request: NextRequest) {
             console.log(`[Cron] 🎯 Ticking session ${session.id} | mode=${session.mode || 'unknown'} | markets=${(session.markets || []).join(',')} | ${timeSinceLastTick}s since last tick`);
 
             const tickUrl = `${appUrl}/api/sessions/${session.id}/tick`;
+
+            // Resolve the platform API key here (cron CAN read env vars)
+            // and forward it to the tick endpoint which may not have access.
+            const provider = strategyFilters.model_provider || (strategy as any).model_provider;
+            const platformKey = provider ? getPlatformApiKey(provider) : null;
+            if (provider && !platformKey) {
+              console.warn(`[Cron] ⚠️ No platform key for provider "${provider}" — tick will attempt env var lookup`);
+            }
             
             // Build headers with internal API key for authentication
             const headers: HeadersInit = {
@@ -195,9 +205,12 @@ export async function GET(request: NextRequest) {
             
             if (internalApiKey) {
               headers["X-Internal-API-Key"] = internalApiKey;
-              // API key header attached
             } else {
               console.error(`[Cron] No internal API key set. Set INTERNAL_API_KEY in environment variables.`);
+            }
+
+            if (platformKey) {
+              headers["X-Platform-API-Key"] = platformKey;
             }
             
             const tickResponse = await fetch(tickUrl, {

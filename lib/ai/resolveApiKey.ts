@@ -23,17 +23,19 @@ export interface StrategyKeyConfig {
  * All strategies use Corebound platform keys - no user API keys supported.
  *
  * @param strategy Strategy object with model provider
+ * @param apiKeyOverride Pre-resolved key passed from the cron caller (bypasses env var lookup)
  * @returns Object containing the API key and base URL
  * @throws Error if no platform key is configured for the provider
  */
 export async function resolveStrategyApiKey(
-  strategy: StrategyKeyConfig
+  strategy: StrategyKeyConfig,
+  apiKeyOverride?: string
 ): Promise<ResolvedApiKey> {
   const { model_provider, id } = strategy;
 
-  console.log(`[resolveStrategyApiKey] Resolving platform key for strategy ${id}, provider: ${model_provider}`);
+  console.log(`[resolveStrategyApiKey] Resolving platform key for strategy ${id}, provider: ${model_provider}${apiKeyOverride ? ' (using cron-provided override)' : ''}`);
 
-  const apiKey = getPlatformApiKey(model_provider);
+  const apiKey = apiKeyOverride || getPlatformApiKey(model_provider);
 
   if (!apiKey) {
     // Diagnostic: check env var directly to help debug
