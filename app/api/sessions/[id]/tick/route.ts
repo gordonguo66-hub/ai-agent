@@ -1541,10 +1541,20 @@ export async function POST(
               aiResponse.usage.inputTokens,
               aiResponse.usage.outputTokens
             );
-            // Ensure minimum 1 cent base cost for any real AI call (sub-cent costs round to 0 otherwise)
-            const baseCostCents = Math.max(1, Math.round(actualCostUsd * 100));
 
-            // Deduct via dual-pool RPC: tries v2 first (subscription-aware), falls back to v1
+            // Calculate final charges with full precision BEFORE rounding.
+            // Minimum 1 cent applies to the FINAL charge (after markup), not the base cost.
+            // This ensures pricing matches the strategy: on-demand = 2×, pro = 1.6×, etc.
+            const ondemandChargeCents = Math.max(1, Math.round(actualCostUsd * (1 + ondemandMarkup) * 100));
+            const subscriptionChargeCents = Math.max(1, Math.round(actualCostUsd * (1 + subscriptionMarkup) * 100));
+
+            // Pass pre-calculated on-demand charge as "base" with 0 markup so the RPC
+            // uses it directly. Derive the subscription ratio so RPC calculates the
+            // correct subscription charge from the same base.
+            const effectiveSubMarkup = ondemandChargeCents > 0
+              ? (subscriptionChargeCents / ondemandChargeCents) - 1
+              : 0;
+
             const deductClient = createFreshServiceClient();
             const deductMetadata = {
               session_id: sessionId,
@@ -1553,7 +1563,10 @@ export async function POST(
               output_tokens: aiResponse.usage.outputTokens,
               total_tokens: aiResponse.usage.totalTokens,
               actual_cost_usd: actualCostUsd,
-              actual_cost_cents: baseCostCents,
+              ondemand_charge_cents: ondemandChargeCents,
+              subscription_charge_cents: subscriptionChargeCents,
+              ondemand_markup_rate: ondemandMarkup,
+              subscription_markup_rate: subscriptionMarkup,
               tier: tier,
               bias: intent.bias,
             };
@@ -1564,21 +1577,19 @@ export async function POST(
             // Try v2 (dual-pool with subscription budget)
             const v2 = await deductClient.rpc('decrement_user_balance_v2', {
               p_user_id: user.id,
-              p_base_cost_cents: baseCostCents,
-              p_ondemand_markup: ondemandMarkup,
-              p_subscription_markup: subscriptionMarkup,
+              p_base_cost_cents: ondemandChargeCents,
+              p_ondemand_markup: 0,
+              p_subscription_markup: effectiveSubMarkup,
               p_description: `AI decision (${aiResponse.model})`,
               p_metadata: deductMetadata,
             });
 
             if (v2.error && v2.error.code === 'PGRST202') {
-              // v2 function doesn't exist — fall back to v1 (flat deduction from top-up balance)
-              // Calculate from raw USD to avoid double-rounding precision loss
-              const totalChargeCents = Math.max(1, Math.round(actualCostUsd * (1 + ondemandMarkup) * 100));
-              console.log(`[Tick ${sessionId}] v2 RPC not found, falling back to v1 (charge: ${totalChargeCents}c)`);
+              // v2 not available — fall back to v1 (flat deduction from top-up balance)
+              console.log(`[Tick ${sessionId}] v2 RPC not found, falling back to v1 (charge: ${ondemandChargeCents}c)`);
               const v1 = await deductClient.rpc('decrement_user_balance', {
                 p_user_id: user.id,
-                p_amount_cents: totalChargeCents,
+                p_amount_cents: ondemandChargeCents,
                 p_description: `AI decision (${aiResponse.model})`,
                 p_metadata: deductMetadata,
               });
@@ -1620,15 +1631,10 @@ export async function POST(
               }
             }
           } catch (billingError: any) {
-            // BUGFIX: Billing must work in production. Pause session on billing failure
-            // to prevent unbilled AI usage. Without this, users trade for free if billing breaks.
             console.error(`[Tick ${sessionId}] Balance deduction failed - pausing session:`, billingError.message);
             await serviceClient
               .from("strategy_sessions")
-              .update({
-                status: "paused",
-                error_message: "Billing system error. Session paused to prevent unbilled usage. Please try again or contact support.",
-              })
+              .update({ status: "paused" })
               .eq("id", sessionId);
             return NextResponse.json({ error: "Billing system error" }, { status: 500 });
           }
