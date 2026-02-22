@@ -35,6 +35,7 @@ import { Venue } from "@/lib/engine/types";
 import { fetchCryptoNews } from "@/lib/ai/newsService";
 import { agenticIntentCall } from "@/lib/ai/agenticLoop";
 import type { ToolContext } from "@/lib/ai/agenticTools";
+import { normalizeModelName } from "@/lib/ai/normalizeModel";
 
 // Providers that support tool/function calling (for agentic mode)
 const TOOL_CALLING_PROVIDERS = new Set([
@@ -47,7 +48,7 @@ const PROVIDER_BASE_URLS: Record<string, string> = {
   anthropic: "https://api.anthropic.com/v1",
   google: "https://generativelanguage.googleapis.com/v1beta/openai",
   xai: "https://api.x.ai/v1",
-  deepseek: "https://api.deepseek.com/v1",
+  deepseek: "https://api.deepseek.com",
   openrouter: "https://openrouter.ai/api/v1",
   together: "https://api.together.xyz/v1",
   groq: "https://api.groq.com/openai/v1",
@@ -510,6 +511,8 @@ export async function POST(
 
     // CRITICAL: Handle array case - Supabase may return strategies as array
     const strategy = Array.isArray(session.strategies) ? session.strategies[0] : session.strategies;
+    // Normalize model name to valid API ID (e.g. "deepseek-v3" → "deepseek-chat")
+    strategy.model_name = normalizeModelName(strategy.model_provider, strategy.model_name);
     const filters = (strategy as any)?.filters || {};
     const tables = getTables(sessionMode);
     

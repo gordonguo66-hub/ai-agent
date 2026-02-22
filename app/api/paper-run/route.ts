@@ -12,7 +12,7 @@ const PROVIDER_BASE_URLS: Record<string, string> = {
   anthropic: "https://api.anthropic.com/v1",
   google: "https://generativelanguage.googleapis.com/v1beta/openai",
   xai: "https://api.x.ai/v1",
-  deepseek: "https://api.deepseek.com/v1",
+  deepseek: "https://api.deepseek.com",
   openrouter: "https://openrouter.ai/api/v1",
   together: "https://api.together.xyz/v1",
   groq: "https://api.groq.com/openai/v1",

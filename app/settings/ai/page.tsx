@@ -36,7 +36,7 @@ function AiSettingsContent() {
     { id: "xai", label: "xAI (Grok)", baseUrl: "https://api.x.ai/v1", modelHint: "grok-4" },
     
     // DeepSeek (supports both /v1 and root)
-    { id: "deepseek", label: "DeepSeek", baseUrl: "https://api.deepseek.com/v1", modelHint: "deepseek-chat" },
+    { id: "deepseek", label: "DeepSeek", baseUrl: "https://api.deepseek.com", modelHint: "deepseek-chat" },
     
     // OpenRouter (Aggregator - many models)
     { id: "openrouter", label: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1", modelHint: "openai/gpt-5.2" },

@@ -27,7 +27,7 @@ const PLATFORM_KEY_MAP: Record<string, string> = {
 export const PLATFORM_PROVIDER_BASE_URLS: Record<string, string> = {
   openai: 'https://api.openai.com/v1',
   anthropic: 'https://api.anthropic.com/v1',
-  deepseek: 'https://api.deepseek.com/v1',
+  deepseek: 'https://api.deepseek.com',
   google: 'https://generativelanguage.googleapis.com/v1beta/openai',
   xai: 'https://api.x.ai/v1',
   qwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1',

@@ -59,12 +59,17 @@ async function tick() {
       successCount++;
       console.log(`[Worker] Tick #${tickCount} complete in ${duration}ms:`, {
         processed: data.processed || 0,
-        skipped: data.skipped || 0,
+        lockSkipped: data.lockSkipped || 0,
+        errors: data.skipped || 0,
         total: data.total || 0,
       });
-      // Log WHY sessions were skipped (lock-skip vs error)
+      // Log lock-skipped sessions (ticked recently by client auto-tick)
+      if (data.lockSkippedSessions && data.lockSkippedSessions.length > 0) {
+        console.log(`[Worker] Lock-skipped: [${data.lockSkippedSessions.join(', ')}]`);
+      }
+      // Log error details
       if (data.skippedSessions && data.skippedSessions.length > 0) {
-        console.log(`[Worker] Skipped details: [${data.skippedSessions.join(', ')}]`);
+        console.log(`[Worker] Errors: [${data.skippedSessions.join(', ')}]`);
       }
       // Log cadence-skipped sessions to diagnose stuck sessions
       if (data.cadenceSkipped && data.cadenceSkipped.length > 0) {

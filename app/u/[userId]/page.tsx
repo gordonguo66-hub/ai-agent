@@ -33,9 +33,13 @@ interface Profile {
 
 interface ProfilePost {
   id: string;
-  content: string;
+  content?: string;
+  title?: string;
+  body?: string;
+  source: "profile" | "community";
   created_at: string;
   profile_post_media?: { id: string; media_url: string }[];
+  post_media?: { id: string; media_url: string }[];
   replyCount: number;
   likesCount: number;
   isLiked: boolean;
@@ -189,6 +193,7 @@ function ProfileContent({ userId }: { userId: string }) {
       // Map API response to ProfilePost interface
       const mappedPosts = (data.posts || []).map((post: any) => ({
         ...post,
+        source: post.source || "profile",
         likesCount: post.likes_count || 0,
         isLiked: post.isLiked || false,
       }));
@@ -452,6 +457,7 @@ function ProfileContent({ userId }: { userId: string }) {
         const newPost: ProfilePost = {
           id: data.post.id,
           content: data.post.content,
+          source: "profile",
           created_at: data.post.created_at,
           profile_post_media: data.post.profile_post_media || [],
           replyCount: 0,
@@ -905,16 +911,44 @@ function ProfileContent({ userId }: { userId: string }) {
                 {isOwner ? "You haven't posted anything yet." : "No posts yet."}
               </p>
             ) : (
-              posts.map((post) => (
-                <Card key={post.id}>
+              posts.map((post) => {
+                const isCommunityPost = post.source === "community";
+                const mediaList = isCommunityPost ? post.post_media : post.profile_post_media;
+                const displayContent = isCommunityPost ? post.body : post.content;
+
+                return (
+                <Card key={`${post.source}-${post.id}`}>
                   <CardContent className="pt-4">
+                    {/* Source Badge */}
+                    {isCommunityPost && (
+                      <div className="mb-2">
+                        <Link href={`/community/${post.id}`}>
+                          <Badge variant="outline" className="text-xs text-blue-400 border-blue-800 hover:bg-blue-900/30 cursor-pointer">
+                            Community Post
+                          </Badge>
+                        </Link>
+                      </div>
+                    )}
+
                     {/* Post Header with Delete */}
                     <div className="flex justify-between items-start mb-2">
                       <div className="flex-1">
+                        {/* Community Post Title */}
+                        {isCommunityPost && post.title && (
+                          <Link href={`/community/${post.id}`}>
+                            <h3 className="text-lg font-semibold mb-1 hover:text-blue-400 transition-colors">{post.title}</h3>
+                          </Link>
+                        )}
                         {/* Post Content */}
-                        <p className="whitespace-pre-wrap">{post.content}</p>
+                        {isCommunityPost ? (
+                          <Link href={`/community/${post.id}`}>
+                            <p className="whitespace-pre-wrap line-clamp-4 hover:text-blue-300/80 transition-colors">{displayContent}</p>
+                          </Link>
+                        ) : (
+                          <p className="whitespace-pre-wrap">{displayContent}</p>
+                        )}
                       </div>
-                      {isOwner && (
+                      {isOwner && !isCommunityPost && (
                         <Button
                           variant="ghost"
                           size="sm"
@@ -927,15 +961,15 @@ function ProfileContent({ userId }: { userId: string }) {
                     </div>
 
                     {/* Post Media */}
-                    {post.profile_post_media && post.profile_post_media.length > 0 && (
+                    {mediaList && mediaList.length > 0 && (
                       <div className={`grid gap-2 mb-3 ${
-                        post.profile_post_media.length === 1
+                        mediaList.length === 1
                           ? "grid-cols-1"
-                          : post.profile_post_media.length === 2
+                          : mediaList.length === 2
                           ? "grid-cols-2"
                           : "grid-cols-3"
                       }`}>
-                        {post.profile_post_media.map((media) => (
+                        {mediaList.map((media) => (
                           <img
                             key={media.id}
                             src={media.media_url}
@@ -949,24 +983,40 @@ function ProfileContent({ userId }: { userId: string }) {
 
                     {/* Post Meta with Like Button */}
                     <div className="flex items-center gap-4 mb-3">
-                      <button
-                        onClick={() => handleLikePost(post.id, post.isLiked)}
-                        className={`flex items-center gap-1 text-sm transition-colors ${
-                          post.isLiked 
-                            ? "text-pink-500 hover:text-pink-600" 
-                            : "text-muted-foreground hover:text-pink-500"
-                        }`}
-                      >
-                        {post.isLiked ? <HeartFilledIcon className="w-4 h-4" /> : <HeartIcon className="w-4 h-4" />}
-                        <span>{post.likesCount || 0}</span>
-                      </button>
+                      {!isCommunityPost && (
+                        <button
+                          onClick={() => handleLikePost(post.id, post.isLiked)}
+                          className={`flex items-center gap-1 text-sm transition-colors ${
+                            post.isLiked
+                              ? "text-pink-500 hover:text-pink-600"
+                              : "text-muted-foreground hover:text-pink-500"
+                          }`}
+                        >
+                          {post.isLiked ? <HeartFilledIcon className="w-4 h-4" /> : <HeartIcon className="w-4 h-4" />}
+                          <span>{post.likesCount || 0}</span>
+                        </button>
+                      )}
+                      {isCommunityPost && (
+                        <span className="flex items-center gap-1 text-sm text-muted-foreground">
+                          {post.isLiked ? <HeartFilledIcon className="w-4 h-4 text-pink-500" /> : <HeartIcon className="w-4 h-4" />}
+                          <span>{post.likesCount || 0}</span>
+                        </span>
+                      )}
                       <p className="text-xs text-muted-foreground">
-                        <FormattedDate date={post.created_at} format="compact" /> · {post.replyCount} {post.replyCount === 1 ? "reply" : "replies"}
+                        <FormattedDate date={post.created_at} format="compact" /> · {post.replyCount} {post.replyCount === 1 ? (isCommunityPost ? "comment" : "reply") : (isCommunityPost ? "comments" : "replies")}
                       </p>
+                      {isCommunityPost && (
+                        <Link
+                          href={`/community/${post.id}`}
+                          className="text-blue-400 hover:text-blue-300 text-xs ml-auto"
+                        >
+                          View post →
+                        </Link>
+                      )}
                     </div>
 
-                    {/* Replies */}
-                    {post.replies.length > 0 && (
+                    {/* Replies (profile posts only) */}
+                    {!isCommunityPost && post.replies.length > 0 && (
                       <div className="border-t pt-3 space-y-3">
                         {post.replies.map((reply) => (
                           <div key={reply.id} className="flex gap-2">
@@ -992,8 +1042,8 @@ function ProfileContent({ userId }: { userId: string }) {
                       </div>
                     )}
 
-                    {/* Reply Input */}
-                    {currentUserId && (
+                    {/* Reply Input (profile posts only) */}
+                    {!isCommunityPost && currentUserId && (
                       <div className="border-t pt-3 mt-3 flex gap-2">
                         <Input
                           placeholder="Write a reply..."
@@ -1018,7 +1068,8 @@ function ProfileContent({ userId }: { userId: string }) {
                     )}
                   </CardContent>
                 </Card>
-              ))
+                );
+              })
             )}
             </div>
           )}

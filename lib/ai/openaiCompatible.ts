@@ -536,14 +536,15 @@ export async function openAICompatibleIntentCall(args: {
   // Check if this is Anthropic (uses different API format)
   const isAnthropic = args.provider === "anthropic" || baseUrl.includes("anthropic.com");
 
-  // OpenAI reasoning models (o1, o3, etc.) don't support custom temperature
-  const isReasoningModel = /^(o[0-9])/.test(model);
+  // Reasoning models don't support custom temperature
+  const isReasoningModel = /^(o[0-9])/.test(model) || model === "deepseek-reasoner";
 
   let res: Response;
   let data: any;
 
   if (isAnthropic) {
     // Anthropic API format
+    console.log(`[AI] POST ${baseUrl}/messages | model=${model} | provider=anthropic`);
     res = await fetchWithRetry(`${baseUrl}/messages`, {
       method: "POST",
       headers: {
@@ -585,6 +586,7 @@ export async function openAICompatibleIntentCall(args: {
     };
   } else {
     // OpenAI-compatible API format (OpenAI, Google, xAI, DeepSeek, etc.)
+    console.log(`[AI] POST ${baseUrl}/chat/completions | model=${model} | provider=${args.provider} | reasoning=${isReasoningModel}`);
     res = await fetchWithRetry(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
@@ -604,6 +606,7 @@ export async function openAICompatibleIntentCall(args: {
 
     if (!res.ok) {
       const t = await res.text();
+      console.error(`[AI] ❌ ${args.provider} ${res.status} for model=${model} url=${baseUrl}/chat/completions: ${t.slice(0, 300)}`);
       throw new AIProviderError(res.status, args.provider || "unknown", t);
     }
 

@@ -402,8 +402,8 @@ async function callOpenAI(
 ): Promise<NormalizedResponse> {
   const openaiMessages = messagesToOpenAI(messages, systemPrompt);
 
-  // OpenAI reasoning models (o1, o3, etc.) don't support custom temperature
-  const isReasoningModel = /^(o[0-9])/.test(model);
+  // Reasoning models don't support custom temperature
+  const isReasoningModel = /^(o[0-9])/.test(model) || model === "deepseek-reasoner";
 
   const body: any = {
     model,

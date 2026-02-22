@@ -37,9 +37,8 @@ const MODELS_BY_PROVIDER: Record<string, { id: string; name: string; description
     { id: "claude-haiku-4-5-20251001", name: "Claude Haiku 4.5", description: "Fast, efficient variant" },
   ],
   deepseek: [
-    { id: "deepseek-chat", name: "DeepSeek Chat", description: "Fast general-purpose chat" },
-    { id: "deepseek-reasoner", name: "DeepSeek Reasoner", description: "Complex reasoning tasks" },
-    { id: "deepseek-v3", name: "DeepSeek V3", description: "Latest version" },
+    { id: "deepseek-chat", name: "DeepSeek V3", description: "Fast general-purpose chat" },
+    { id: "deepseek-reasoner", name: "DeepSeek R1", description: "Complex reasoning tasks" },
   ],
   google: [
     { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash", description: "Fast multimodal model" },

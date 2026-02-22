@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServiceRoleClient } from "@/lib/supabase/server";
+import { createFreshServiceClient } from "@/lib/supabase/freshClient";
 
-// CRITICAL: Next.js 14 caches fetch() by default. The Supabase client uses fetch internally.
-// Without this, the Supabase query response gets cached and returns stale last_tick_at values,
-// causing the cadence check to always skip sessions (processed: 0 forever).
+// CRITICAL: Next.js 14 caches fetch() by default. force-dynamic alone does NOT prevent
+// the Supabase client's internal fetch() from being cached in the data cache.
+// We also use createFreshServiceClient (with Cache-Control: no-cache headers) to ensure
+// the last_tick_at query always returns fresh data from Postgres.
 export const dynamic = 'force-dynamic';
+export const fetchCache = 'force-no-store';
 
 /**
  * Server-side cron job to tick all running sessions
@@ -42,7 +44,7 @@ export async function GET(request: NextRequest) {
   console.log(`[Cron] ✅ Tick-all-sessions endpoint called at ${new Date().toISOString()}`);
 
   try {
-    const serviceClient = createServiceRoleClient();
+    const serviceClient = createFreshServiceClient();
     
     // Get all running sessions
     // CRITICAL: Load strategy filters to get current cadence (not session's stored cadence_seconds which may be outdated)
@@ -83,6 +85,7 @@ export async function GET(request: NextRequest) {
 
     const now = Date.now();
     const processed: string[] = [];
+    const lockSkipped: string[] = [];
     const skipped: string[] = [];
 
     // Process sessions in parallel batches for scalability
@@ -269,7 +272,7 @@ export async function GET(request: NextRequest) {
               method: "POST",
               headers,
               // Set a timeout to prevent hanging
-              signal: AbortSignal.timeout(30000), // 30 second timeout
+              signal: AbortSignal.timeout(120000), // 120s — let Vercel's 60s function timeout manage lifecycle
             });
 
             if (tickResponse.ok) {
@@ -279,7 +282,7 @@ export async function GET(request: NextRequest) {
               if (tickBody.skipped && tickBody.reason === 'tick_lock_failed') {
                 // Lock failed — session was ticked recently by another source
                 const lockSkipMsg = `${session.id.slice(0, 8)} (lock: minInterval=${tickBody.minIntervalMs}ms)`;
-                skipped.push(lockSkipMsg);
+                lockSkipped.push(lockSkipMsg);
                 console.log(`[Cron] 🔒 Lock-skipped ${lockSkipMsg}`);
                 return { sessionId: session.id, success: false, error: 'lock_skipped' };
               }
@@ -356,8 +359,10 @@ export async function GET(request: NextRequest) {
       message: "Cron job completed",
       total: runningSessions.length,
       processed: processed.length,
+      lockSkipped: lockSkipped.length,
       skipped: skipped.length,
       processedSessions: processed,
+      lockSkippedSessions: lockSkipped,
       skippedSessions: skipped,
       cadenceSkipped: cadenceDebug,
     });

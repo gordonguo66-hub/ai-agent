@@ -50,20 +50,14 @@ export const KNOWN_MODELS: Record<string, string[]> = {
     "grok-2",
   ],
 
-  // DeepSeek (can use /v1 or root)
+  // DeepSeek (can use /v1 or root) - only 2 valid API model IDs
   "https://api.deepseek.com": [
     "deepseek-chat",
-    "deepseek-coder",
     "deepseek-reasoner",
-    "deepseek-v3",
-    "deepseek-v2",
   ],
   "https://api.deepseek.com/v1": [
     "deepseek-chat",
-    "deepseek-coder",
     "deepseek-reasoner",
-    "deepseek-v3",
-    "deepseek-v2",
   ],
 
   // OpenRouter (many models via aggregator)

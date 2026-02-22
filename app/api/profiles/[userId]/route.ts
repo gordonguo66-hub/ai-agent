@@ -64,11 +64,8 @@ export async function GET(
       isFollowing = !!followData;
     }
 
-    // Fetch latest 20 profile posts with likes_count
-    // Try with likes_count, fallback without if column doesn't exist
-    let posts: any[] | null = null;
-    let postsError: any = null;
-
+    // Fetch profile posts
+    let profilePosts: any[] = [];
     const { data: postsWithLikes, error: postsWithLikesError } = await serviceClient
       .from("profile_posts")
       .select("id, content, created_at, author_id, likes_count")
@@ -77,35 +74,57 @@ export async function GET(
       .limit(20);
 
     if (postsWithLikesError) {
-      // Fallback: try without likes_count
-      const { data: fallbackPosts, error: fallbackError } = await serviceClient
+      const { data: fallbackPosts } = await serviceClient
         .from("profile_posts")
         .select("id, content, created_at, author_id")
         .eq("author_id", userId)
         .order("created_at", { ascending: false })
         .limit(20);
-      
-      posts = (fallbackPosts || []).map(p => ({ ...p, likes_count: 0 }));
-      postsError = fallbackError;
+
+      profilePosts = (fallbackPosts || []).map(p => ({ ...p, likes_count: 0 }));
     } else {
-      posts = postsWithLikes;
+      profilePosts = postsWithLikes || [];
     }
 
-    if (postsError) {
-      console.error("Error fetching profile posts:", postsError);
+    // Fetch community posts by this user
+    let communityPosts: any[] = [];
+    const { data: communityPostsData } = await serviceClient
+      .from("posts")
+      .select("id, title, body, created_at, user_id")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false })
+      .limit(20);
+
+    if (communityPostsData) {
+      // Get likes counts for community posts
+      for (const cp of communityPostsData) {
+        const { count: likesCount } = await serviceClient
+          .from("post_likes")
+          .select("id", { count: "exact", head: true })
+          .eq("post_id", cp.id);
+
+        const { count: commentsCount } = await serviceClient
+          .from("comments")
+          .select("id", { count: "exact", head: true })
+          .eq("post_id", cp.id);
+
+        communityPosts.push({
+          ...cp,
+          likes_count: likesCount || 0,
+          comments_count: commentsCount || 0,
+          source: "community",
+        });
+      }
     }
-    
-    // Fetch media separately for each post
-    if (posts && posts.length > 0) {
-      const postIds = posts.map(p => p.id);
-      
-      // Get media
+
+    // Fetch media for profile posts
+    const profilePostIds = profilePosts.map(p => p.id);
+    if (profilePostIds.length > 0) {
       const { data: media } = await serviceClient
         .from("profile_post_media")
         .select("id, post_id, media_url")
-        .in("post_id", postIds);
-      
-      // Attach media to posts
+        .in("post_id", profilePostIds);
+
       const mediaByPost = new Map<string, any[]>();
       (media || []).forEach(m => {
         if (!mediaByPost.has(m.post_id)) {
@@ -113,54 +132,106 @@ export async function GET(
         }
         mediaByPost.get(m.post_id)!.push({ id: m.id, media_url: m.media_url });
       });
-      
-      posts.forEach((post: any) => {
+
+      profilePosts.forEach((post: any) => {
         post.profile_post_media = mediaByPost.get(post.id) || [];
+        post.source = "profile";
+      });
+    }
+
+    // Fetch media for community posts
+    const communityPostIds = communityPosts.map(p => p.id);
+    if (communityPostIds.length > 0) {
+      const { data: media } = await serviceClient
+        .from("post_media")
+        .select("id, post_id, media_url")
+        .in("post_id", communityPostIds);
+
+      const mediaByPost = new Map<string, any[]>();
+      (media || []).forEach(m => {
+        if (!mediaByPost.has(m.post_id)) {
+          mediaByPost.set(m.post_id, []);
+        }
+        mediaByPost.get(m.post_id)!.push({ id: m.id, media_url: m.media_url });
       });
 
-      // Check which posts the current user has liked
-      if (currentUserId) {
-        try {
-          const { data: userLikes, error: likesError } = await serviceClient
-            .from("profile_post_likes")
-            .select("post_id")
-            .eq("user_id", currentUserId)
-            .in("post_id", postIds);
-          
-          if (!likesError) {
-            const likedPostIds = new Set((userLikes || []).map(l => l.post_id));
-            posts.forEach((post: any) => {
+      communityPosts.forEach((post: any) => {
+        post.post_media = mediaByPost.get(post.id) || [];
+      });
+    }
+
+    // Merge and sort all posts by created_at
+    let allPosts = [...profilePosts, ...communityPosts];
+    allPosts.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    allPosts = allPosts.slice(0, 30);
+
+    // Check likes for profile posts
+    if (currentUserId && profilePostIds.length > 0) {
+      try {
+        const { data: userLikes, error: likesError } = await serviceClient
+          .from("profile_post_likes")
+          .select("post_id")
+          .eq("user_id", currentUserId)
+          .in("post_id", profilePostIds);
+
+        if (!likesError) {
+          const likedPostIds = new Set((userLikes || []).map(l => l.post_id));
+          allPosts.forEach((post: any) => {
+            if (post.source === "profile") {
               post.isLiked = likedPostIds.has(post.id);
-            });
-          } else {
-            // profile_post_likes table might not exist yet
-            posts.forEach((post: any) => {
-              post.isLiked = false;
-            });
-          }
-        } catch {
-          // Likes table doesn't exist yet
-          posts.forEach((post: any) => {
-            post.isLiked = false;
+            }
           });
         }
-      } else {
-        posts.forEach((post: any) => {
-          post.isLiked = false;
-        });
+      } catch {
+        // profile_post_likes table might not exist yet
       }
     }
 
-    // For each post, fetch reply count and latest 3 replies
+    // Check likes for community posts
+    if (currentUserId && communityPostIds.length > 0) {
+      try {
+        const { data: userLikes, error: likesError } = await serviceClient
+          .from("post_likes")
+          .select("post_id")
+          .eq("user_id", currentUserId)
+          .in("post_id", communityPostIds);
+
+        if (!likesError) {
+          const likedPostIds = new Set((userLikes || []).map(l => l.post_id));
+          allPosts.forEach((post: any) => {
+            if (post.source === "community") {
+              post.isLiked = likedPostIds.has(post.id);
+            }
+          });
+        }
+      } catch {
+        // post_likes table might not exist yet
+      }
+    }
+
+    // Set isLiked to false for any posts that weren't checked
+    allPosts.forEach((post: any) => {
+      if (post.isLiked === undefined) post.isLiked = false;
+    });
+
+    // For profile posts, fetch reply count and latest 3 replies
     const postsWithReplies = await Promise.all(
-      (posts || []).map(async (post) => {
-        // Get reply count
+      allPosts.map(async (post) => {
+        if (post.source === "community") {
+          // Community posts already have comments_count
+          return {
+            ...post,
+            replyCount: post.comments_count || 0,
+            replies: [],
+          };
+        }
+
+        // Profile posts: get reply count and replies
         const { count } = await serviceClient
           .from("profile_post_replies")
           .select("id", { count: "exact", head: true })
           .eq("post_id", post.id);
 
-        // Get latest 3 replies with author info
         const { data: replies } = await serviceClient
           .from("profile_post_replies")
           .select(`
