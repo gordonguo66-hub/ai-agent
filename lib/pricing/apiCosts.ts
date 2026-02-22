@@ -12,7 +12,7 @@
  * - These are INTERNAL costs (what Corebound pays to providers)
  * - Users pay marked-up prices based on their tier:
  *   - On-demand: 2.0× (100% markup)
- *   - Pro ($19/mo): 1.6× (60% markup) → 25% more AI usage
+ *   - Pro ($29/mo): 1.6× (60% markup) → 25% more AI usage
  *   - Pro+ ($89/mo): 1.48× (48% markup) → 35% more AI usage
  *   - Ultra ($249/mo): 1.33× (33% markup) → 50% more AI usage
  */

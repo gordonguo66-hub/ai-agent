@@ -1,13 +1,14 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { AuthGuard } from "@/components/auth-guard";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { getBearerToken } from "@/lib/api/clientAuth";
 import { FormattedDate } from "@/components/formatted-date";
-import { BarChart3, TrendingUp } from "lucide-react";
+import { BarChart3, TrendingUp, ChevronDown, Loader2 } from "lucide-react";
 
 interface UsageRecord {
   id: string;
@@ -29,25 +30,26 @@ interface UsageRecord {
   amount?: number;
 }
 
-/**
- * Calculate on-demand equivalent cost
- * This shows what the usage would cost at on-demand rates (2× base cost)
- * so subscribers can see the value they're getting from their plan
- */
-function getOnDemandEquivalentCents(record: UsageRecord): number {
-  // base_cost_cents (or legacy actual_cost_cents) is the base API cost before any markup
-  // On-demand rate is 2× the base cost (100% markup)
-  const baseCostCents = record.metadata?.base_cost_cents ?? record.metadata?.actual_cost_cents;
-  if (baseCostCents !== undefined && baseCostCents !== null) {
-    return baseCostCents * 2;
-  }
-  // Fallback to amount if no metadata
-  return (record.amount_cents || record.amount || 0);
+interface Aggregates {
+  total_consumption_cents: number;
+  total_tokens: number;
 }
+
+/** Get actual charged amount in cents (what was deducted from balance/budget) */
+function getChargedCents(record: UsageRecord): number {
+  // amount field is negative for usage (deductions), so take absolute value
+  return Math.abs(record.amount || record.amount_cents || 0);
+}
+
+const INITIAL_LIMIT = 50;
 
 function UsageContent() {
   const [usageRecords, setUsageRecords] = useState<UsageRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [totalCount, setTotalCount] = useState(0);
+  const [aggregates, setAggregates] = useState<Aggregates>({ total_consumption_cents: 0, total_tokens: 0 });
 
   useEffect(() => {
     loadUsage();
@@ -58,12 +60,16 @@ function UsageContent() {
       const bearer = await getBearerToken();
       if (!bearer) return;
 
-      const res = await fetch("/api/credits/usage?limit=100", {
+      const res = await fetch(`/api/credits/usage?limit=${INITIAL_LIMIT}`, {
         headers: { Authorization: bearer },
       });
       if (res.ok) {
         const data = await res.json();
         setUsageRecords(data.transactions || []);
+        setTotalCount(data.total || 0);
+        if (data.aggregates) {
+          setAggregates(data.aggregates);
+        }
       }
     } catch (error) {
       console.error("Failed to load usage:", error);
@@ -72,26 +78,32 @@ function UsageContent() {
     }
   };
 
+  const loadAllUsage = useCallback(async () => {
+    if (expanded || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const bearer = await getBearerToken();
+      if (!bearer) return;
+
+      const res = await fetch(`/api/credits/usage?limit=5000&offset=${INITIAL_LIMIT}`, {
+        headers: { Authorization: bearer },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setUsageRecords(prev => [...prev, ...(data.transactions || [])]);
+        setExpanded(true);
+      }
+    } catch (error) {
+      console.error("Failed to load all usage:", error);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [expanded, loadingMore]);
+
   // Filter to only usage records (both top-up usage and subscription usage)
   const usageOnlyRecords = useMemo(() =>
     usageRecords.filter(record => record.transaction_type === "usage" || record.transaction_type === "subscription_usage"),
     [usageRecords]
-  );
-
-  // Calculate total consumption at on-demand rates
-  const totalConsumptionCents = useMemo(() =>
-    usageOnlyRecords.reduce((sum, record) => sum + getOnDemandEquivalentCents(record), 0),
-    [usageOnlyRecords]
-  );
-
-  // Calculate total tokens
-  const totalTokens = useMemo(() =>
-    usageOnlyRecords.reduce((sum, record) => {
-      const tokens = record.metadata?.total_tokens ||
-        ((record.metadata?.input_tokens || 0) + (record.metadata?.output_tokens || 0));
-      return sum + tokens;
-    }, 0),
-    [usageOnlyRecords]
   );
 
   const formatTokens = (tokens: number | undefined) => {
@@ -114,6 +126,8 @@ function UsageContent() {
     if (!model) return false;
     return model.includes("opus") || model.includes("codex") || model.toLowerCase().includes("max");
   };
+
+  const hasMoreRecords = !expanded && totalCount > INITIAL_LIMIT;
 
   return (
     <div className="min-h-[calc(100vh-4rem)] page-container">
@@ -141,12 +155,12 @@ function UsageContent() {
                       </div>
                       <div>
                         <p className="text-sm text-gray-400">Total Consumption</p>
-                        <p className="text-2xl font-bold text-white">{formatCost(totalConsumptionCents)}</p>
+                        <p className="text-2xl font-bold text-white">{formatCost(aggregates.total_consumption_cents)}</p>
                       </div>
                     </div>
                     <div className="text-right">
                       <p className="text-sm text-gray-400">Total Tokens</p>
-                      <p className="text-lg font-semibold text-gray-200">{formatTokens(totalTokens)}</p>
+                      <p className="text-lg font-semibold text-gray-200">{formatTokens(aggregates.total_tokens)}</p>
                     </div>
                   </div>
                 </CardContent>
@@ -159,7 +173,12 @@ function UsageContent() {
                     <BarChart3 className="w-5 h-5 text-blue-400" />
                     Usage History
                   </CardTitle>
-                  <CardDescription className="text-gray-400">Your recent AI model usage</CardDescription>
+                  <CardDescription className="text-gray-400">
+                    {expanded
+                      ? `Showing all ${usageOnlyRecords.length} usage records`
+                      : `Your recent AI model usage${totalCount > INITIAL_LIMIT ? ` (${INITIAL_LIMIT} most recent of ${totalCount})` : ""}`
+                    }
+                  </CardDescription>
                 </CardHeader>
                 <CardContent>
                   {usageOnlyRecords.length === 0 ? (
@@ -167,50 +186,82 @@ function UsageContent() {
                       No usage records yet. Start a trading session to see AI usage.
                     </div>
                   ) : (
-                    <div className="overflow-x-auto">
-                      <Table>
-                        <TableHeader>
-                          <TableRow className="border-blue-500/20 hover:bg-transparent">
-                            <TableHead className="text-gray-400">Date</TableHead>
-                            <TableHead className="text-gray-400">Model</TableHead>
-                            <TableHead className="text-gray-400 text-right">Tokens</TableHead>
-                            <TableHead className="text-gray-400 text-right">Cost</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {usageOnlyRecords.map((record) => {
-                            const recordTokens = record.metadata?.total_tokens ||
-                              ((record.metadata?.input_tokens || 0) + (record.metadata?.output_tokens || 0));
-                            const onDemandCost = getOnDemandEquivalentCents(record);
-                            const model = record.metadata?.model || "-";
+                    <>
+                      <div className="overflow-x-auto">
+                        <Table>
+                          <TableHeader>
+                            <TableRow className="border-blue-500/20 hover:bg-transparent">
+                              <TableHead className="text-gray-400">Date</TableHead>
+                              <TableHead className="text-gray-400">Model</TableHead>
+                              <TableHead className="text-gray-400 text-right">Tokens</TableHead>
+                              <TableHead className="text-gray-400 text-right">Cost</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {usageOnlyRecords.map((record) => {
+                              const recordTokens = record.metadata?.total_tokens ||
+                                ((record.metadata?.input_tokens || 0) + (record.metadata?.output_tokens || 0));
+                              const chargedCents = getChargedCents(record);
+                              const model = record.metadata?.model || "-";
+                              const isSubscription = record.transaction_type === "subscription_usage";
 
-                            return (
-                              <TableRow key={record.id} className="border-blue-500/20 hover:bg-blue-950/20">
-                                <TableCell className="text-sm text-gray-300">
-                                  <FormattedDate date={record.created_at} format="compact" />
-                                </TableCell>
-                                <TableCell className="text-gray-300">
-                                  <div className="flex items-center gap-2">
-                                    <span>{model}</span>
-                                    {isMaxModel(model) && (
-                                      <Badge variant="outline" className="text-xs bg-blue-500/10 text-blue-400 border-blue-500/30">
-                                        MAX
-                                      </Badge>
-                                    )}
-                                  </div>
-                                </TableCell>
-                                <TableCell className="text-right text-gray-300">
-                                  {formatTokens(recordTokens)}
-                                </TableCell>
-                                <TableCell className="text-right text-gray-300">
-                                  {formatCost(onDemandCost)}
-                                </TableCell>
-                              </TableRow>
-                            );
-                          })}
-                        </TableBody>
-                      </Table>
-                    </div>
+                              return (
+                                <TableRow key={record.id} className="border-blue-500/20 hover:bg-blue-950/20">
+                                  <TableCell className="text-sm text-gray-300">
+                                    <FormattedDate date={record.created_at} format="compact" />
+                                  </TableCell>
+                                  <TableCell className="text-gray-300">
+                                    <div className="flex items-center gap-2">
+                                      <span>{model}</span>
+                                      {isMaxModel(model) && (
+                                        <Badge variant="outline" className="text-xs bg-blue-500/10 text-blue-400 border-blue-500/30">
+                                          MAX
+                                        </Badge>
+                                      )}
+                                      {isSubscription && (
+                                        <Badge variant="outline" className="text-xs bg-purple-500/10 text-purple-400 border-purple-500/30">
+                                          SUB
+                                        </Badge>
+                                      )}
+                                    </div>
+                                  </TableCell>
+                                  <TableCell className="text-right text-gray-300">
+                                    {formatTokens(recordTokens)}
+                                  </TableCell>
+                                  <TableCell className="text-right text-gray-300">
+                                    {formatCost(chargedCents)}
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })}
+                          </TableBody>
+                        </Table>
+                      </div>
+
+                      {/* Show All button */}
+                      {hasMoreRecords && (
+                        <div className="flex justify-center pt-4">
+                          <Button
+                            variant="outline"
+                            className="border-blue-500/30 text-blue-400 hover:bg-blue-950/30 hover:text-blue-300"
+                            onClick={loadAllUsage}
+                            disabled={loadingMore}
+                          >
+                            {loadingMore ? (
+                              <>
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                Loading all usage...
+                              </>
+                            ) : (
+                              <>
+                                <ChevronDown className="w-4 h-4 mr-2" />
+                                Show all {totalCount} records
+                              </>
+                            )}
+                          </Button>
+                        </div>
+                      )}
+                    </>
                   )}
                 </CardContent>
               </Card>

@@ -114,7 +114,7 @@ export async function POST(request: NextRequest) {
 
 /**
  * GET /api/credits/usage
- * Get balance transaction history
+ * Get balance transaction history with server-side aggregates
  */
 export async function GET(request: NextRequest) {
   try {
@@ -124,28 +124,63 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url);
-    const limit = Math.min(parseInt(searchParams.get("limit") || "50"), 100);
+    const limit = Math.min(parseInt(searchParams.get("limit") || "50"), 5000);
     const offset = parseInt(searchParams.get("offset") || "0");
 
     const serviceClient = createFreshServiceClient();
 
-    const { data, error, count } = await serviceClient
-      .from("balance_transactions")
-      .select("*", { count: "exact" })
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: false })
-      .range(offset, offset + limit - 1);
+    // Run paginated transaction query and aggregate query in parallel
+    const [txResult, balanceResult, tokenResult] = await Promise.all([
+      // 1. Paginated transactions for the table
+      serviceClient
+        .from("balance_transactions")
+        .select("*", { count: "exact" })
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false })
+        .range(offset, offset + limit - 1),
 
-    if (error) {
-      console.error("[GET /api/credits/usage] Error fetching transactions:", error);
+      // 2. lifetime_spent_cents from user_balance (accurate source of truth)
+      serviceClient
+        .from("user_balance")
+        .select("lifetime_spent_cents")
+        .eq("user_id", user.id)
+        .single(),
+
+      // 3. All usage records — only metadata column for token aggregation
+      // Use .range() to override Supabase's default 1000-row limit
+      serviceClient
+        .from("balance_transactions")
+        .select("metadata")
+        .eq("user_id", user.id)
+        .in("transaction_type", ["usage", "subscription_usage"])
+        .range(0, 49999),
+    ]);
+
+    if (txResult.error) {
+      console.error("[GET /api/credits/usage] Error fetching transactions:", txResult.error);
       return NextResponse.json(
         { error: "Failed to fetch transaction history" },
         { status: 500 }
       );
     }
 
+    // Compute total tokens server-side from all usage records
+    let totalTokens = 0;
+    if (tokenResult.data) {
+      for (const row of tokenResult.data) {
+        const meta = row.metadata as any;
+        if (meta) {
+          totalTokens += meta.total_tokens ||
+            ((meta.input_tokens || 0) + (meta.output_tokens || 0));
+        }
+      }
+    }
+
+    // lifetime_spent_cents is the accurate total across ALL transactions
+    const lifetimeSpentCents = balanceResult.data?.lifetime_spent_cents || 0;
+
     // Transform transactions to include USD values
-    const transactions = (data || []).map(tx => ({
+    const transactions = (txResult.data || []).map(tx => ({
       ...tx,
       amount_usd: (tx.amount / 100).toFixed(4),
       balance_after_usd: (tx.balance_after / 100).toFixed(2),
@@ -153,9 +188,13 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       transactions,
-      total: count || 0,
+      total: txResult.count || 0,
       limit,
       offset,
+      aggregates: {
+        total_consumption_cents: lifetimeSpentCents,
+        total_tokens: totalTokens,
+      },
     });
   } catch (error: any) {
     console.error("[GET /api/credits/usage] Unexpected error:", error);
