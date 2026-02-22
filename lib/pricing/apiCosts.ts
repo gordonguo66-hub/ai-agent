@@ -192,13 +192,17 @@ export const API_PRICING: Record<string, { input_per_1m: number; output_per_1m: 
   // ============================================
   // Google Gemini models
   // ============================================
-  'gemini-2.0-flash': {
-    input_per_1m: 0.10,
-    output_per_1m: 0.40,
+  'gemini-2.5-flash': {
+    input_per_1m: 0.15,
+    output_per_1m: 0.60,
   },
-  'gemini-2.0-flash-exp': {
-    input_per_1m: 0.10,
-    output_per_1m: 0.40,
+  'gemini-2.5-pro': {
+    input_per_1m: 1.25,
+    output_per_1m: 10.00,
+  },
+  'gemini-2.5-flash-lite': {
+    input_per_1m: 0.075,
+    output_per_1m: 0.30,
   },
   'gemini-1.5-pro': {
     input_per_1m: 1.25,
@@ -211,6 +215,35 @@ export const API_PRICING: Record<string, { input_per_1m: number; output_per_1m: 
   'gemini-pro': {
     input_per_1m: 0.50,
     output_per_1m: 1.50,
+  },
+  // Legacy model names (in case API response uses old names)
+  'gemini-2.0-flash': {
+    input_per_1m: 0.15,
+    output_per_1m: 0.60,
+  },
+  'gemini-2.0-flash-exp': {
+    input_per_1m: 0.15,
+    output_per_1m: 0.60,
+  },
+  'gemini-3-pro': {
+    input_per_1m: 1.25,
+    output_per_1m: 10.00,
+  },
+  'gemini-3-pro-preview': {
+    input_per_1m: 1.25,
+    output_per_1m: 10.00,
+  },
+  'gemini-3.1-pro-preview': {
+    input_per_1m: 1.25,
+    output_per_1m: 10.00,
+  },
+  'gemini-3-flash': {
+    input_per_1m: 0.15,
+    output_per_1m: 0.60,
+  },
+  'gemini-3-flash-preview': {
+    input_per_1m: 0.15,
+    output_per_1m: 0.60,
   },
 
   // ============================================

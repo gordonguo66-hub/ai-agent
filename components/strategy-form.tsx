@@ -41,10 +41,12 @@ const MODELS_BY_PROVIDER: Record<string, { id: string; name: string; description
     { id: "deepseek-reasoner", name: "DeepSeek R1", description: "Complex reasoning tasks" },
   ],
   google: [
-    { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash", description: "Fast multimodal model" },
-    { id: "gemini-2.0-flash-exp", name: "Gemini 2.0 Flash Exp", description: "Experimental variant" },
-    { id: "gemini-1.5-pro", name: "Gemini 1.5 Pro", description: "Long context window" },
-    { id: "gemini-1.5-flash", name: "Gemini 1.5 Flash", description: "Fast variant" },
+    { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash", description: "Fast, great price-performance" },
+    { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro", description: "Advanced reasoning and coding" },
+    { id: "gemini-2.5-flash-lite", name: "Gemini 2.5 Flash Lite", description: "Fastest, most budget-friendly" },
+    { id: "gemini-3.1-pro-preview", name: "Gemini 3.1 Pro", description: "Latest: agentic coding and complex tasks (preview)" },
+    { id: "gemini-3-flash-preview", name: "Gemini 3 Flash", description: "Next-gen speed and visual reasoning (preview)" },
+    { id: "gemini-3-pro-preview", name: "Gemini 3 Pro", description: "State-of-the-art multimodal (preview)" },
   ],
   xai: [
     { id: "grok-4", name: "Grok-4", description: "Latest flagship (256K context)" },

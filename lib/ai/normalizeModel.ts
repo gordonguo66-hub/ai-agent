@@ -20,6 +20,13 @@ const ANTHROPIC_MODEL_MAP: Record<string, string> = {
   "claude-haiku-4.5": "claude-haiku-4-5-20251001",
 };
 
+const GOOGLE_MODEL_MAP: Record<string, string> = {
+  // gemini-2.0-flash retired Feb 2026, shutdown Jun 2026
+  "gemini-2.0-flash": "gemini-2.5-flash",
+  "gemini-2.0-flash-exp": "gemini-2.5-flash",
+  "gemini-2.0-flash-lite": "gemini-2.5-flash-lite",
+};
+
 export function normalizeModelName(provider: string, model: string): string {
   const trimmed = model.trim();
 
@@ -29,6 +36,10 @@ export function normalizeModelName(provider: string, model: string): string {
 
   if (provider === "anthropic") {
     return ANTHROPIC_MODEL_MAP[trimmed] || trimmed;
+  }
+
+  if (provider === "google") {
+    return GOOGLE_MODEL_MAP[trimmed] || trimmed;
   }
 
   return trimmed;
