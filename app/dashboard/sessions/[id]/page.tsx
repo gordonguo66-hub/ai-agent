@@ -204,9 +204,16 @@ function SessionDetailContent({ sessionId }: { sessionId: string }) {
   const lastProcessedTransitionRef = useRef<string | null>(null);
   
   // Function to set up auto-tick interval - called from loadAll, NOT from useEffect
+  // NOTE: Dashboard auto-tick is DISABLED. The Railway cron worker handles all ticking
+  // (runs every 60s). Dashboard auto-tick was racing with the cron — it would acquire
+  // the tick lock and update last_tick_at before the cron could check cadence, causing
+  // the cron to always see "just ticked, skip". The dashboard still shows live updates
+  // via the 10-second auto-refresh poll (loadAll) which reads new decisions from the DB.
   const setupAutoTick = () => {
+    return; // Cron worker handles all ticking
+
     const currentStatus = sessionStatusRef.current;
-    
+
     // Only proceed if status is "running" and we haven't set up yet
     if (currentStatus !== "running" || setupCompleteRef.current || ticking || !session) {
       return;
