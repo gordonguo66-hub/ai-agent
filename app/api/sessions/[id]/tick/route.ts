@@ -462,48 +462,40 @@ export async function POST(
       return NextResponse.json({ error: "Session is not running" }, { status: 400 });
     }
 
-    // TICK DEDUPLICATION: Use RPC function to bypass PostgREST schema cache issue
-    // This guarantees only ONE request can proceed, even with concurrent requests
-    // CRITICAL: Internal cron calls SKIP the lock entirely.
-    // The cron worker runs once per minute from a single Railway process — no duplicates possible.
-    // The lock only protects against dashboard auto-tick rapid-fire from the browser.
-    // Without this bypass, the dashboard auto-tick steals the lock and the cron can never tick.
-    if (!isInternalCall) {
-      const lockStrategy = Array.isArray(session.strategies) ? session.strategies[0] : session.strategies;
-      const lockFilters = (lockStrategy as any)?.filters || {};
-      const lockCadenceSeconds = lockFilters.cadenceSeconds || session.cadence_seconds || 30;
-      const lockCadenceMs = lockCadenceSeconds * 1000;
-      const MIN_TICK_INTERVAL_MS = Math.max(10000, lockCadenceMs - 5000);
+    // TICK DEDUPLICATION: Use PostgreSQL acquire_tick_lock() for ALL callers.
+    // This function atomically checks last_tick_at and sets it to NOW() if enough
+    // time has passed. It runs directly in PostgreSQL — immune to Next.js fetch caching.
+    // Previously, cron calls bypassed the lock, but tick-all-sessions' cadence pre-filter
+    // (which reads last_tick_at via Supabase REST API) returned stale/cached data,
+    // causing all sessions to appear "just ticked" and never actually tick.
+    // Now tick-all-sessions dispatches ALL running sessions, and THIS lock handles cadence.
+    const lockStrategy = Array.isArray(session.strategies) ? session.strategies[0] : session.strategies;
+    const lockFilters = (lockStrategy as any)?.filters || {};
+    const lockCadenceSeconds = lockFilters.cadenceSeconds || session.cadence_seconds || 30;
+    const lockCadenceMs = Number(lockCadenceSeconds) * 1000;
+    const MIN_TICK_INTERVAL_MS = Math.max(10000, lockCadenceMs - 5000);
 
-      const { data: lockAcquired, error: lockError } = await serviceClient
-        .rpc('acquire_tick_lock', {
-          p_session_id: sessionId,
-          p_min_interval_ms: MIN_TICK_INTERVAL_MS
-        });
+    const { data: lockAcquired, error: lockError } = await serviceClient
+      .rpc('acquire_tick_lock', {
+        p_session_id: sessionId,
+        p_min_interval_ms: MIN_TICK_INTERVAL_MS
+      });
 
-      if (lockError) {
-        console.error(`[Tick API] ❌ Lock acquisition error:`, lockError);
-        return NextResponse.json({ error: "Failed to acquire tick lock" }, { status: 500 });
-      }
-
-      if (!lockAcquired) {
-        console.log(`[Tick API] ⏭️ SKIPPED - Another tick is in progress or completed recently`);
-        return NextResponse.json({
-          skipped: true,
-          reason: "tick_lock_failed",
-          message: "Another tick is already in progress or completed recently",
-          minIntervalMs: MIN_TICK_INTERVAL_MS,
-        });
-      }
-      console.log(`[Tick API] 🔒 Acquired tick lock via RPC`);
-    } else {
-      // Cron call — update last_tick_at directly (no lock needed, cron is single-threaded)
-      await serviceClient
-        .from('strategy_sessions')
-        .update({ last_tick_at: new Date().toISOString() })
-        .eq('id', sessionId);
-      console.log(`[Tick API] 🔒 Cron call — skipped lock, updated last_tick_at directly`);
+    if (lockError) {
+      console.error(`[Tick API] ❌ Lock acquisition error:`, lockError);
+      return NextResponse.json({ error: "Failed to acquire tick lock" }, { status: 500 });
     }
+
+    if (!lockAcquired) {
+      console.log(`[Tick API] ⏭️ SKIPPED - Lock not acquired (minInterval=${MIN_TICK_INTERVAL_MS}ms, cadence=${lockCadenceSeconds}s)`);
+      return NextResponse.json({
+        skipped: true,
+        reason: "tick_lock_failed",
+        message: "Session ticked recently, waiting for cadence",
+        minIntervalMs: MIN_TICK_INTERVAL_MS,
+      });
+    }
+    console.log(`[Tick API] 🔒 Acquired tick lock (cadence=${lockCadenceSeconds}s, minInterval=${MIN_TICK_INTERVAL_MS}ms)`);
 
     // INVARIANT LOG: Verify tick is processing this session with correct mode and markets
     const sessionMode = session.mode || "virtual";

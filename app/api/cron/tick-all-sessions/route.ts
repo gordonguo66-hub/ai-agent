@@ -151,88 +151,15 @@ export async function GET(request: NextRequest) {
     
     console.log(`[Cron] Using app URL: ${appUrl} (Internal API Key: ${internalApiKey ? 'SET' : 'NOT SET'})`);
 
-    // Filter sessions that need ticking first (to reduce parallel processing)
-    // Filter sessions that need ticking
-    const sessionsToTick = runningSessions.filter((session) => {
-      // CRITICAL: strategies is an array from Supabase join, get first element
-      const strategy = Array.isArray(session.strategies) ? session.strategies[0] : session.strategies;
-      const strategyFilters = (strategy as any)?.filters || {};
-      
-      // CRITICAL: Always use strategy filters cadence (most up-to-date)
-      // Session cadence_seconds may be outdated if strategy was edited after session creation
-      // Strategy filters cadence is the source of truth
-      // Also ensure we're reading the LATEST last_tick_at from database
-      let cadenceSeconds = strategyFilters.cadenceSeconds;
-      const cadenceSource = strategyFilters.cadenceSeconds ? 'strategyFilters' : 'session';
-      const strategyId = (strategy as any)?.id;
-      
-      // Log cadence source (compact)
-      
-      // CRITICAL FIX: Only fall back to session cadence if strategy filters has NO cadence
-      // Otherwise, always use strategy filters (even if it differs from session)
-      // This ensures edits to strategy cadence take effect immediately
-      if (!cadenceSeconds || cadenceSeconds <= 0 || !Number.isInteger(Number(cadenceSeconds))) {
-        cadenceSeconds = session.cadence_seconds || 30;
-        console.warn(`[Cron] ⚠️ Session ${session.id} has no valid cadence in strategy filters, using session.cadence_seconds: ${cadenceSeconds}s`);
-      } else {
-        // Strategy has cadence - use it (ignore session.cadence_seconds which may be outdated)
-        // Strategy cadence takes precedence over session cadence
-      }
-      cadenceSeconds = Number(cadenceSeconds); // Convert to number explicitly
-      
-      if (isNaN(cadenceSeconds) || cadenceSeconds <= 0) {
-        console.warn(`[Cron] ⚠️ Session ${session.id} has invalid cadence (${cadenceSeconds}), using default 30s`);
-        cadenceSeconds = 30;
-      }
-      
-      // Cadence resolved
-      
-      const cadenceMs = cadenceSeconds * 1000;
+    // DISPATCH ALL running sessions — cadence deduplication is handled by
+    // acquire_tick_lock() in the per-session tick handler (PostgreSQL function).
+    // Previously, this route pre-filtered by cadence using last_tick_at from
+    // the Supabase REST API, but Next.js fetch caching caused stale reads,
+    // permanently blocking all sessions with "6s/60s" cadence-skipped.
+    // The PG function reads last_tick_at directly — immune to HTTP caching.
+    const sessionsToTick = runningSessions;
 
-      const lastTickAt = session.last_tick_at 
-        ? new Date(session.last_tick_at).getTime() 
-        : session.started_at 
-        ? new Date(session.started_at).getTime() 
-        : 0; // If never ticked and no started_at, tick immediately
-
-      // If never ticked, always tick
-      if (!lastTickAt || lastTickAt === 0) {
-        console.log(`[Cron] Session ${session.id} has never been ticked - will tick now (cadence: ${cadenceSeconds}s)`);
-        return true;
-      }
-
-      const timeSinceLastTick = now - lastTickAt;
-      const timeSinceLastTickSeconds = Math.floor(timeSinceLastTick / 1000);
-      
-      // CRITICAL FIX: Add NEGATIVE tolerance to account for cron timing variance
-      // Problem: cron-job.org doesn't run at EXACTLY 60s intervals - it might run at 58s, 59s, 61s, etc.
-      // When cron runs slightly EARLY (e.g., at 58s), the check fails and we skip.
-      // Then next cron runs at ~118s total, creating 120s gaps.
-      // Solution: Subtract 5s from cadence threshold (tick if >= 55s for 60s cadence)
-      // This ensures we tick on EVERY cron run, even if it's slightly early.
-      const toleranceMs = 5000; // 5 seconds early is acceptable
-      const shouldTick = timeSinceLastTick >= (cadenceMs - toleranceMs);
-      
-      if (shouldTick) {
-        const delaySeconds = timeSinceLastTickSeconds - cadenceSeconds;
-        console.log(`[Cron] 🔔 ${session.id.slice(0, 8)} TICKING (${timeSinceLastTickSeconds}s/${cadenceSeconds}s)${delaySeconds > 0 ? ` ${delaySeconds}s late` : ''}`);
-      } else {
-        const nextTickInSeconds = Math.ceil((cadenceMs - timeSinceLastTick) / 1000);
-        console.log(`[Cron] ⏭️ ${session.id.slice(0, 8)} skip (${timeSinceLastTickSeconds}s/${cadenceSeconds}s, next in ${nextTickInSeconds}s)`);
-      }
-      
-      return shouldTick;
-    });
-
-    // BUGFIX: Use the complement of sessionsToTick to avoid sessions appearing in both lists.
-    // Previously used a different threshold (cadenceMs vs cadenceMs - toleranceMs), causing
-    // sessions in the tolerance window to appear in both lists.
-    const tickSessionIds = new Set(sessionsToTick.map(s => s.id));
-    const sessionsToSkip = runningSessions.filter(s => !tickSessionIds.has(s.id));
-
-    // Skip logging already done above in compact format
-
-    console.log(`[Cron] Processing ${sessionsToTick.length} sessions that need ticking (skipping ${sessionsToSkip.length})`);
+    console.log(`[Cron] Dispatching ALL ${sessionsToTick.length} running sessions (lock dedup in PG)`);
 
     // Process sessions in batches to avoid overwhelming the system
     for (let i = 0; i < sessionsToTick.length; i += BATCH_SIZE) {
@@ -346,19 +273,8 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Build cadence debug info for sessions NOT ticked (helps diagnose stuck sessions)
-    const cadenceDebug = sessionsToSkip.map((session) => {
-      const strategy = Array.isArray(session.strategies) ? session.strategies[0] : session.strategies;
-      const sf = (strategy as any)?.filters || {};
-      let cs = sf.cadenceSeconds;
-      if (!cs || cs <= 0) cs = session.cadence_seconds || 30;
-      cs = Number(cs);
-      const lt = session.last_tick_at
-        ? new Date(session.last_tick_at).getTime()
-        : session.started_at ? new Date(session.started_at).getTime() : 0;
-      const since = lt ? Math.floor((now - lt) / 1000) : -1;
-      return `${session.id.slice(0, 8)}:${since}s/${cs}s`;
-    });
+    // Build debug info for lock-skipped sessions (deduped by PG lock)
+    const cadenceDebug = lockSkipped;
 
     // Diagnostic: check platform API key availability (shows in Railway logs)
     const platformKeyDiag = ['openai', 'anthropic', 'deepseek', 'google', 'xai', 'qwen']
