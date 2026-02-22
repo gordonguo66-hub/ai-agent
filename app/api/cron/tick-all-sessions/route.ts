@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceRoleClient } from "@/lib/supabase/server";
 
+// CRITICAL: Next.js 14 caches fetch() by default. The Supabase client uses fetch internally.
+// Without this, the Supabase query response gets cached and returns stale last_tick_at values,
+// causing the cadence check to always skip sessions (processed: 0 forever).
+export const dynamic = 'force-dynamic';
+
 /**
  * Server-side cron job to tick all running sessions
  * This runs 24/7 on the server, independent of client connections

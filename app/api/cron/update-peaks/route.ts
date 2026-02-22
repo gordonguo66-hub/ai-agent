@@ -3,6 +3,9 @@ import { createServiceRoleClient } from "@/lib/supabase/server";
 import { getMidPrices as getHLPrices } from "@/lib/hyperliquid/prices";
 import { getMidPrices as getCBPrices } from "@/lib/coinbase/prices";
 
+// Disable Next.js fetch caching — cron routes must always query fresh data
+export const dynamic = 'force-dynamic';
+
 /**
  * Lightweight cron job to update peak_price for all positions
  * Runs independently of strategy ticks to capture intraday price extremes
