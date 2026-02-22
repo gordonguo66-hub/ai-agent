@@ -1186,26 +1186,26 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
       <div className="lg:col-span-2">
         <Card className="overflow-hidden">
           <div className="h-0.5 bg-gradient-to-r from-blue-600 via-blue-500 to-cyan-400" />
-          <CardHeader className="pb-4">
-            <CardTitle className="text-2xl font-bold">Strategy Builder</CardTitle>
-            <CardDescription className="text-base">
+          <CardHeader className="px-4 sm:px-6 pb-4">
+            <CardTitle className="text-xl sm:text-2xl font-bold">Strategy Builder</CardTitle>
+            <CardDescription className="text-sm sm:text-base">
               {isEditMode ? "Update your AI trading strategy settings" : "Configure your AI trading strategy with advanced settings"}
             </CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="px-4 sm:px-6">
             <form onSubmit={handleSubmit} className="space-y-6">
               <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-                <TabsList className="grid w-full grid-cols-5">
-                  <TabsTrigger value="basics"><Zap size={14} className="mr-1.5 hidden sm:inline" />Basics</TabsTrigger>
-                  <TabsTrigger value="markets"><Globe size={14} className="mr-1.5 hidden sm:inline" />Markets</TabsTrigger>
-                  <TabsTrigger value="ai"><Brain size={14} className="mr-1.5 hidden sm:inline" />AI Inputs</TabsTrigger>
-                  <TabsTrigger value="entry"><Target size={14} className="mr-1.5 hidden sm:inline" />Entry/Exit</TabsTrigger>
-                  <TabsTrigger value="risk"><Shield size={14} className="mr-1.5 hidden sm:inline" />Risk</TabsTrigger>
+                <TabsList className="grid w-full grid-cols-5 gap-0.5">
+                  <TabsTrigger value="basics"><Zap size={14} className="mr-1 hidden sm:inline" />Basics</TabsTrigger>
+                  <TabsTrigger value="markets"><Globe size={14} className="mr-1 hidden sm:inline" />Markets</TabsTrigger>
+                  <TabsTrigger value="ai"><Brain size={14} className="mr-1 hidden sm:inline" />AI Inputs</TabsTrigger>
+                  <TabsTrigger value="entry"><Target size={14} className="mr-1 hidden sm:inline" />Entry/Exit</TabsTrigger>
+                  <TabsTrigger value="risk"><Shield size={14} className="mr-1 hidden sm:inline" />Risk</TabsTrigger>
                 </TabsList>
 
-                <TabsContent value="basics" className="space-y-6 mt-6">
+                <TabsContent value="basics" className="space-y-4 sm:space-y-6 mt-4 sm:mt-6">
                   {/* Setup Mode */}
-                    <div className="space-y-4 p-4 glass-section">
+                    <div className="space-y-3 sm:space-y-4 p-3 sm:p-4 glass-section">
                       <label className="text-sm font-semibold">Setup Mode</label>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <button
@@ -1214,7 +1214,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                             setSetupMode("quick");
                             applyPreset(presetMode);
                           }}
-                          className={`p-4 border rounded-lg text-left transition-all duration-200 ${
+                          className={`p-3 sm:p-4 border rounded-lg text-left transition-all duration-200 ${
                             setupMode === "quick"
                               ? "border-primary bg-primary/10 ring-2 ring-primary/30 shadow-[0_0_15px_rgba(59,130,246,0.15)]"
                               : "border-border hover:border-muted-foreground/50 hover:bg-white/[0.02]"
@@ -1222,7 +1222,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                         >
                           <div className="flex items-center gap-2">
                             <Sparkles size={16} className="text-primary" />
-                            <span className="font-semibold">Quick Setup</span>
+                            <span className="font-semibold text-sm sm:text-base">Quick Setup</span>
                           </div>
                           <div className="text-xs text-muted-foreground mt-1">
                             Pick a trading style and we&apos;ll configure everything for you. You can still tweak any setting.
@@ -1231,7 +1231,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                         <button
                           type="button"
                           onClick={() => setSetupMode("full")}
-                          className={`p-4 border rounded-lg text-left transition-all duration-200 ${
+                          className={`p-3 sm:p-4 border rounded-lg text-left transition-all duration-200 ${
                             setupMode === "full"
                               ? "border-primary bg-primary/10 ring-2 ring-primary/30 shadow-[0_0_15px_rgba(59,130,246,0.15)]"
                               : "border-border hover:border-muted-foreground/50 hover:bg-white/[0.02]"
@@ -1239,7 +1239,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                         >
                           <div className="flex items-center gap-2">
                             <Settings2 size={16} />
-                            <span className="font-semibold">Full Control</span>
+                            <span className="font-semibold text-sm sm:text-base">Full Control</span>
                           </div>
                           <div className="text-xs text-muted-foreground mt-1">
                             Start from scratch and configure every parameter yourself.
@@ -1282,15 +1282,15 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                                     setPresetMode(key);
                                     applyPreset(key);
                                   }}
-                                  className={`p-4 border rounded-lg text-left transition-all duration-200 ${
+                                  className={`p-3 sm:p-4 border rounded-lg text-left transition-all duration-200 ${
                                     isSelected ? colors.border : "border-border hover:border-muted-foreground/50 hover:bg-white/[0.02]"
                                   }`}
                                 >
-                                  <div className="flex items-center gap-2 mb-2">
+                                  <div className="flex items-center gap-2 mb-1.5 sm:mb-2">
                                     <Icon size={18} className={isSelected ? colors.icon : "text-muted-foreground"} />
-                                    <span className="font-semibold">{preset.label}</span>
+                                    <span className="font-semibold text-sm sm:text-base">{preset.label}</span>
                                   </div>
-                                  <p className="text-xs text-muted-foreground mb-3">{preset.description}</p>
+                                  <p className="text-xs text-muted-foreground mb-2 sm:mb-3">{preset.description}</p>
                                   <div className="flex flex-wrap gap-1.5">
                                     <span className={`text-[10px] px-1.5 py-0.5 rounded border ${colors.badge}`}>
                                       {preset.risk.maxLeverage}x leverage
@@ -1311,7 +1311,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                     </div>
 
                   {/* Venue Selection */}
-                  <div className="space-y-3 p-4 glass-section">
+                  <div className="space-y-3 p-3 sm:p-4 glass-section">
                     <label className="text-sm font-semibold">
                       Exchange Venue *
                     </label>
@@ -1441,7 +1441,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                   </div>
                 </TabsContent>
 
-                <TabsContent value="markets" className="space-y-6 mt-6">
+                <TabsContent value="markets" className="space-y-4 sm:space-y-6 mt-4 sm:mt-6">
                   <div className="space-y-4">
                     <div>
                       <label className="text-sm font-semibold mb-3 block">
@@ -1850,7 +1850,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                   </div>
                 </TabsContent>
 
-                <TabsContent value="ai" className="space-y-6 mt-6">
+                <TabsContent value="ai" className="space-y-4 sm:space-y-6 mt-4 sm:mt-6">
                   <div className="space-y-4">
                     {/* Agentic Mode Toggle */}
                     <div className="p-4 rounded-lg border border-amber-500/30 bg-amber-500/5">
@@ -2678,7 +2678,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                   </div>
                 </TabsContent>
 
-                <TabsContent value="entry" className="space-y-6 mt-6">
+                <TabsContent value="entry" className="space-y-4 sm:space-y-6 mt-4 sm:mt-6">
                   {/* Entry Configuration */}
                   <Card className="border-l-2 border-l-emerald-500/30">
                     <CardHeader>
@@ -3430,7 +3430,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                   </Card>
                 </TabsContent>
 
-                <TabsContent value="risk" className="space-y-6 mt-6">
+                <TabsContent value="risk" className="space-y-4 sm:space-y-6 mt-4 sm:mt-6">
                   <div className="space-y-4">
                     <div className="space-y-2">
                       <label className="text-sm font-semibold">Max Daily Loss (%)</label>
