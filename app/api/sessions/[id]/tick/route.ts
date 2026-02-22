@@ -484,9 +484,9 @@ export async function POST(
         console.error(`[Tick ${sessionId}] 🚫 No balance — pausing session (balance=$${((bal?.balance_cents || 0)/100).toFixed(2)}, sub_budget=$${((bal?.subscription_budget_cents || 0)/100).toFixed(2)})`);
         await serviceClient
           .from("strategy_sessions")
-          .update({ status: "paused", error_message: "Insufficient balance. Please add funds to resume." })
+          .update({ status: "paused" })
           .eq("id", sessionId);
-        return NextResponse.json({ error: "Insufficient balance" }, { status: 402 });
+        return NextResponse.json({ error: "Insufficient balance. Please add funds to resume." }, { status: 402 });
       }
     }
 
@@ -1597,10 +1597,7 @@ export async function POST(
                 console.error(`[Tick ${sessionId}] Insufficient balance and subscription budget, pausing session`);
                 await serviceClient
                   .from("strategy_sessions")
-                  .update({
-                    status: "paused",
-                    error_message: "Insufficient balance and subscription budget. Please add funds or wait for your next billing cycle to resume."
-                  })
+                  .update({ status: "paused" })
                   .eq("id", sessionId);
 
                 return NextResponse.json(
