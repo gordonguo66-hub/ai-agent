@@ -402,11 +402,14 @@ async function callOpenAI(
 ): Promise<NormalizedResponse> {
   const openaiMessages = messagesToOpenAI(messages, systemPrompt);
 
+  // OpenAI reasoning models (o1, o3, etc.) don't support custom temperature
+  const isReasoningModel = /^(o[0-9])/.test(model);
+
   const body: any = {
     model,
     messages: openaiMessages,
     stream: false,
-    temperature: 0.2,
+    ...(isReasoningModel ? {} : { temperature: 0.2 }),
   };
   if (tools && tools.length > 0) {
     body.tools = tools;

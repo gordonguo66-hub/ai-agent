@@ -536,6 +536,9 @@ export async function openAICompatibleIntentCall(args: {
   // Check if this is Anthropic (uses different API format)
   const isAnthropic = args.provider === "anthropic" || baseUrl.includes("anthropic.com");
 
+  // OpenAI reasoning models (o1, o3, etc.) don't support custom temperature
+  const isReasoningModel = /^(o[0-9])/.test(model);
+
   let res: Response;
   let data: any;
 
@@ -595,7 +598,7 @@ export async function openAICompatibleIntentCall(args: {
           { role: "user", content: user },
         ],
         stream: false,
-        temperature: 0.2,
+        ...(isReasoningModel ? {} : { temperature: 0.2 }),
       }),
     });
 
