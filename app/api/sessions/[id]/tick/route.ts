@@ -373,8 +373,12 @@ export async function POST(
   { params }: { params: { id: string } }
 ) {
   const sessionId = params.id;
-  console.log(`[Tick API] ⚡ TICK HANDLER CALLED for session ${sessionId}`);
-  
+  // Diagnostic: log platform API key availability at the very start of every tick
+  const _platformDiag = ['openai', 'anthropic', 'deepseek', 'google', 'xai', 'qwen']
+    .map(p => `${p}=${process.env[`PLATFORM_${p.toUpperCase()}_API_KEY`] ? 'Y' : 'N'}`)
+    .join(',');
+  console.log(`[Tick API] ⚡ TICK HANDLER for ${sessionId} | keys: ${_platformDiag}`);
+
   try {
     // Allow internal cron calls (bypass auth for server-side cron)
     const internalApiKey = request.headers.get("X-Internal-API-Key");
@@ -1489,9 +1493,11 @@ export async function POST(
         if (isAdmin) {
           console.log(`[Tick ${sessionId}] Admin user - skipping billing`);
         } else {
-          // Deduct from balance based on actual API usage with tiered markup
+          // Deduct from balance using dual-pool system:
+          // Priority 1: Top-up balance at on-demand rate (2×)
+          // Priority 2: Subscription budget at plan rate (1.6× for Pro, etc.)
           try {
-            const { calculateCost, calculateChargedCents, getMarkupForTier } = await import("@/lib/pricing/apiCosts");
+            const { calculateCost, getMarkupForTier } = await import("@/lib/pricing/apiCosts");
 
             // Get user's subscription tier for tiered markup (use fresh client to avoid caching issues)
             const freshClient = createFreshServiceClient();
@@ -1503,20 +1509,23 @@ export async function POST(
 
             // Determine tier: active subscription = plan_id, otherwise on_demand
             const tier = (userSub?.status === "active" && userSub?.plan_id) ? userSub.plan_id : "on_demand";
-            const markup = getMarkupForTier(tier);
+            const ondemandMarkup = getMarkupForTier("on_demand");
+            const subscriptionMarkup = getMarkupForTier(tier);
 
             const actualCostUsd = calculateCost(
               aiResponse.model,
               aiResponse.usage.inputTokens,
               aiResponse.usage.outputTokens
             );
-            const chargedCents = calculateChargedCents(actualCostUsd, tier);
+            const baseCostCents = Math.round(actualCostUsd * 100);
 
-            // Deduct balance directly via RPC (not HTTP) to avoid auth issues with cron-triggered ticks
+            // Deduct via dual-pool RPC: tries top-up first, then subscription budget
             const deductClient = createFreshServiceClient();
-            const { data: deductResult, error: deductError } = await deductClient.rpc('decrement_user_balance', {
+            const { data: deductResult, error: deductError } = await deductClient.rpc('decrement_user_balance_v2', {
               p_user_id: user.id,
-              p_amount_cents: chargedCents,
+              p_base_cost_cents: baseCostCents,
+              p_ondemand_markup: ondemandMarkup,
+              p_subscription_markup: subscriptionMarkup,
               p_description: `AI decision (${aiResponse.model})`,
               p_metadata: {
                 session_id: sessionId,
@@ -1525,9 +1534,7 @@ export async function POST(
                 output_tokens: aiResponse.usage.outputTokens,
                 total_tokens: aiResponse.usage.totalTokens,
                 actual_cost_usd: actualCostUsd,
-                actual_cost_cents: Math.round(actualCostUsd * 100),
-                charged_cents: chargedCents,
-                markup_percent: markup * 100,
+                actual_cost_cents: baseCostCents,
                 tier: tier,
                 bias: intent.bias,
               },
@@ -1537,13 +1544,13 @@ export async function POST(
               console.error(`[Tick ${sessionId}] Balance deduction RPC error:`, deductError.message);
             } else if (deductResult && typeof deductResult === 'object') {
               if (deductResult.error === 'insufficient_balance' || deductResult.error === 'no_balance') {
-                // Insufficient balance - pause session
-                console.error(`[Tick ${sessionId}] Insufficient balance, pausing session`);
+                // Both pools insufficient - pause session
+                console.error(`[Tick ${sessionId}] Insufficient balance and subscription budget, pausing session`);
                 await serviceClient
                   .from("strategy_sessions")
                   .update({
                     status: "paused",
-                    error_message: "Insufficient balance to continue trading. Please add funds to resume."
+                    error_message: "Insufficient balance and subscription budget. Please add funds or wait for your next billing cycle to resume."
                   })
                   .eq("id", sessionId);
 
@@ -1554,11 +1561,12 @@ export async function POST(
               }
               if (deductResult.success) {
                 console.log(`[Tick ${sessionId}] Balance deducted:`, {
+                  source: deductResult.source,
                   tier: tier,
-                  markup: `${(markup * 100).toFixed(0)}%`,
-                  chargedCents: chargedCents,
-                  chargedUsd: (chargedCents / 100).toFixed(4),
+                  deductedCents: deductResult.amount_deducted_cents,
+                  deductedUsd: (deductResult.amount_deducted_cents / 100).toFixed(4),
                   newBalanceCents: deductResult.new_balance_cents,
+                  newSubBudgetCents: deductResult.new_subscription_budget_cents,
                   model: aiResponse.model,
                   tokens: aiResponse.usage.totalTokens,
                   actualCostUsd: actualCostUsd.toFixed(6),
