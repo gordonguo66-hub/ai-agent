@@ -36,7 +36,14 @@ export async function resolveStrategyApiKey(
   const apiKey = getPlatformApiKey(model_provider);
 
   if (!apiKey) {
-    console.error(`[resolveStrategyApiKey] No platform key configured for provider: ${model_provider}`);
+    // Diagnostic: check env var directly to help debug
+    const envVarName = `PLATFORM_${model_provider.toUpperCase()}_API_KEY`;
+    const envVal = process.env[envVarName];
+    const allPlatformKeys = Object.keys(process.env)
+      .filter(k => k.startsWith('PLATFORM_'))
+      .map(k => `${k}=${process.env[k] ? 'set' : 'empty'}`)
+      .join(', ');
+    console.error(`[resolveStrategyApiKey] No platform key for ${model_provider} | envVar=${envVarName} raw=${envVal === undefined ? 'UNDEFINED' : envVal === '' ? 'EMPTY' : `set(${envVal.length}ch)`} | allPlatform=[${allPlatformKeys}]`);
     throw new Error(
       `No API key configured for ${model_provider}. ` +
       `Please contact support or try a different AI provider.`
