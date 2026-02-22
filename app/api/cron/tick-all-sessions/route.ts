@@ -43,6 +43,11 @@ export async function GET(request: NextRequest) {
   
   console.log(`[Cron] ✅ Tick-all-sessions endpoint called at ${new Date().toISOString()}`);
 
+  // Diagnostic: log platform API key presence immediately (helps debug "No API key configured" errors)
+  const keyNames = ['PLATFORM_OPENAI_API_KEY', 'PLATFORM_ANTHROPIC_API_KEY', 'PLATFORM_DEEPSEEK_API_KEY', 'PLATFORM_GOOGLE_API_KEY', 'PLATFORM_XAI_API_KEY', 'PLATFORM_QWEN_API_KEY'];
+  const keyStatus = keyNames.map(k => `${k}=${process.env[k] ? `✅(${process.env[k]!.length}ch)` : '❌MISSING'}`).join(' | ');
+  console.log(`[Cron] 🔑 Platform keys: ${keyStatus}`);
+
   try {
     const serviceClient = createFreshServiceClient();
     
@@ -355,6 +360,15 @@ export async function GET(request: NextRequest) {
       return `${session.id.slice(0, 8)}:${since}s/${cs}s`;
     });
 
+    // Diagnostic: check platform API key availability (shows in Railway logs)
+    const platformKeyDiag = ['openai', 'anthropic', 'deepseek', 'google', 'xai', 'qwen']
+      .map(p => {
+        const envVar = `PLATFORM_${p.toUpperCase()}_API_KEY`;
+        const val = process.env[envVar];
+        return `${p}=${val ? `set(${val.length}ch)` : 'MISSING'}`;
+      })
+      .join(', ');
+
     return NextResponse.json({
       message: "Cron job completed",
       total: runningSessions.length,
@@ -365,6 +379,7 @@ export async function GET(request: NextRequest) {
       lockSkippedSessions: lockSkipped,
       skippedSessions: skipped,
       cadenceSkipped: cadenceDebug,
+      platformKeys: platformKeyDiag,
     });
   } catch (error: any) {
     console.error("[Cron] Fatal error:", error);
