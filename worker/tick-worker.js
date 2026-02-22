@@ -75,6 +75,10 @@ async function tick() {
       if (data.cadenceSkipped && data.cadenceSkipped.length > 0) {
         console.log(`[Worker] Cadence-skipped: [${data.cadenceSkipped.join(', ')}]`);
       }
+      // Log platform API key availability
+      if (data.platformKeys) {
+        console.log(`[Worker] Platform keys: ${data.platformKeys}`);
+      }
     } else {
       failCount++;
       const errorText = await response.text().catch(() => 'Unknown error');
