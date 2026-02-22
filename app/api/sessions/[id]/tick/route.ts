@@ -469,6 +469,27 @@ export async function POST(
       return NextResponse.json({ error: "Session is not running" }, { status: 400 });
     }
 
+    // BALANCE PRE-CHECK: Reject ticks for users with $0 before making any AI calls.
+    // This prevents free-riding and avoids wasting platform API credits.
+    {
+      const balClient = createFreshServiceClient();
+      const { data: bal } = await balClient
+        .from("user_balance")
+        .select("balance_cents, subscription_budget_cents")
+        .eq("user_id", user.id)
+        .single();
+
+      const available = (bal?.balance_cents || 0) + (bal?.subscription_budget_cents || 0);
+      if (available <= 0) {
+        console.error(`[Tick ${sessionId}] 🚫 No balance — pausing session (balance=$${((bal?.balance_cents || 0)/100).toFixed(2)}, sub_budget=$${((bal?.subscription_budget_cents || 0)/100).toFixed(2)})`);
+        await serviceClient
+          .from("strategy_sessions")
+          .update({ status: "paused", error_message: "Insufficient balance. Please add funds to resume." })
+          .eq("id", sessionId);
+        return NextResponse.json({ error: "Insufficient balance" }, { status: 402 });
+      }
+    }
+
     // TICK DEDUPLICATION: Use PostgreSQL acquire_tick_lock() for ALL callers.
     // This function atomically checks last_tick_at and sets it to NOW() if enough
     // time has passed. It runs directly in PostgreSQL — immune to Next.js fetch caching.
