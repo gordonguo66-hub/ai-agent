@@ -464,40 +464,46 @@ export async function POST(
 
     // TICK DEDUPLICATION: Use RPC function to bypass PostgREST schema cache issue
     // This guarantees only ONE request can proceed, even with concurrent requests
-    // Use session's actual cadence for tick lock instead of fixed 10 seconds
-    // This prevents both cron and frontend auto-tick from firing within the same cadence window
-    // CRITICAL: Handle array case - Supabase may return strategies as array
-    const lockStrategy = Array.isArray(session.strategies) ? session.strategies[0] : session.strategies;
-    const lockFilters = (lockStrategy as any)?.filters || {};
-    const lockCadenceSeconds = lockFilters.cadenceSeconds || session.cadence_seconds || 30;
-    const lockCadenceMs = lockCadenceSeconds * 1000;
-    // Lock interval: cadence minus 5s tolerance (matching cron's tolerance), minimum 10s
-    const MIN_TICK_INTERVAL_MS = Math.max(10000, lockCadenceMs - 5000);
+    // CRITICAL: Internal cron calls SKIP the lock entirely.
+    // The cron worker runs once per minute from a single Railway process — no duplicates possible.
+    // The lock only protects against dashboard auto-tick rapid-fire from the browser.
+    // Without this bypass, the dashboard auto-tick steals the lock and the cron can never tick.
+    if (!isInternalCall) {
+      const lockStrategy = Array.isArray(session.strategies) ? session.strategies[0] : session.strategies;
+      const lockFilters = (lockStrategy as any)?.filters || {};
+      const lockCadenceSeconds = lockFilters.cadenceSeconds || session.cadence_seconds || 30;
+      const lockCadenceMs = lockCadenceSeconds * 1000;
+      const MIN_TICK_INTERVAL_MS = Math.max(10000, lockCadenceMs - 5000);
 
-    // Call RPC function for atomic lock acquisition
-    const { data: lockAcquired, error: lockError } = await serviceClient
-      .rpc('acquire_tick_lock', {
-        p_session_id: sessionId,
-        p_min_interval_ms: MIN_TICK_INTERVAL_MS
-      });
+      const { data: lockAcquired, error: lockError } = await serviceClient
+        .rpc('acquire_tick_lock', {
+          p_session_id: sessionId,
+          p_min_interval_ms: MIN_TICK_INTERVAL_MS
+        });
 
-    if (lockError) {
-      console.error(`[Tick API] ❌ Lock acquisition error:`, lockError);
-      return NextResponse.json({ error: "Failed to acquire tick lock" }, { status: 500 });
+      if (lockError) {
+        console.error(`[Tick API] ❌ Lock acquisition error:`, lockError);
+        return NextResponse.json({ error: "Failed to acquire tick lock" }, { status: 500 });
+      }
+
+      if (!lockAcquired) {
+        console.log(`[Tick API] ⏭️ SKIPPED - Another tick is in progress or completed recently`);
+        return NextResponse.json({
+          skipped: true,
+          reason: "tick_lock_failed",
+          message: "Another tick is already in progress or completed recently",
+          minIntervalMs: MIN_TICK_INTERVAL_MS,
+        });
+      }
+      console.log(`[Tick API] 🔒 Acquired tick lock via RPC`);
+    } else {
+      // Cron call — update last_tick_at directly (no lock needed, cron is single-threaded)
+      await serviceClient
+        .from('strategy_sessions')
+        .update({ last_tick_at: new Date().toISOString() })
+        .eq('id', sessionId);
+      console.log(`[Tick API] 🔒 Cron call — skipped lock, updated last_tick_at directly`);
     }
-
-    if (!lockAcquired) {
-      // Another request won the race - this tick should be skipped
-      console.log(`[Tick API] ⏭️ SKIPPED - Another tick is in progress or completed recently`);
-      return NextResponse.json({
-        skipped: true,
-        reason: "tick_lock_failed",
-        message: "Another tick is already in progress or completed recently",
-        minIntervalMs: MIN_TICK_INTERVAL_MS,
-      });
-    }
-
-    console.log(`[Tick API] 🔒 Acquired tick lock via RPC`);
 
     // INVARIANT LOG: Verify tick is processing this session with correct mode and markets
     const sessionMode = session.mode || "virtual";
@@ -1275,7 +1281,8 @@ export async function POST(
         }
 
         // Resolve API key (always uses Corebound platform keys)
-        console.log(`[Tick] 🔑 Resolving platform key for strategy ${strategy.id}, provider: ${strategy.model_provider}`);
+        const providerEnvVar = `PLATFORM_${strategy.model_provider.toUpperCase()}_API_KEY`;
+        console.log(`[Tick] 🔑 Resolving platform key for ${strategy.model_provider} | env=${providerEnvVar} present=${!!process.env[providerEnvVar]} len=${process.env[providerEnvVar]?.length || 0}`);
         const resolvedKey = await resolveStrategyApiKey({
           id: strategy.id,
           model_provider: strategy.model_provider,
