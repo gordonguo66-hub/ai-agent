@@ -140,7 +140,7 @@ const [topupPackages, setTopupPackages] = useState<TopupPackage[]>(DEFAULT_PACKA
 
       // Load transaction history (non-critical)
       setLoadingTransactions(true);
-      const txRes = await fetch("/api/credits/usage?limit=20", {
+      const txRes = await fetch("/api/credits/usage?limit=20&exclude=usage,subscription_usage", {
         headers: { Authorization: bearer },
       });
       if (txRes.ok) {

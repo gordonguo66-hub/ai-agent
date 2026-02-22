@@ -126,18 +126,31 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const limit = Math.min(parseInt(searchParams.get("limit") || "50"), 5000);
     const offset = parseInt(searchParams.get("offset") || "0");
+    // Optional: filter to exclude certain transaction types (e.g. "exclude=usage,subscription_usage")
+    const excludeTypes = searchParams.get("exclude")?.split(",").filter(Boolean) || [];
 
     const serviceClient = createFreshServiceClient();
+
+    // Build the paginated transaction query
+    let txQuery = serviceClient
+      .from("balance_transactions")
+      .select("*", { count: "exact" })
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false });
+
+    // Apply type exclusion filter if provided
+    if (excludeTypes.length > 0) {
+      for (const t of excludeTypes) {
+        txQuery = txQuery.neq("transaction_type", t);
+      }
+    }
+
+    txQuery = txQuery.range(offset, offset + limit - 1);
 
     // Run paginated transaction query and aggregate query in parallel
     const [txResult, balanceResult, tokenResult] = await Promise.all([
       // 1. Paginated transactions for the table
-      serviceClient
-        .from("balance_transactions")
-        .select("*", { count: "exact" })
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false })
-        .range(offset, offset + limit - 1),
+      txQuery,
 
       // 2. lifetime_spent_cents from user_balance (accurate source of truth)
       serviceClient
