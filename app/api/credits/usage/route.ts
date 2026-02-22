@@ -148,25 +148,16 @@ export async function GET(request: NextRequest) {
     txQuery = txQuery.range(offset, offset + limit - 1);
 
     // Run paginated transaction query and aggregate query in parallel
-    const [txResult, balanceResult, tokenResult] = await Promise.all([
+    const [txResult, balanceResult] = await Promise.all([
       // 1. Paginated transactions for the table
       txQuery,
 
-      // 2. lifetime_spent_cents from user_balance (accurate source of truth)
+      // 2. Aggregates from user_balance (accurate running counters, no row-scan limit)
       serviceClient
         .from("user_balance")
-        .select("lifetime_spent_cents")
+        .select("lifetime_spent_cents, lifetime_tokens_used")
         .eq("user_id", user.id)
         .single(),
-
-      // 3. All usage records — only metadata column for token aggregation
-      // Use .range() to override Supabase's default 1000-row limit
-      serviceClient
-        .from("balance_transactions")
-        .select("metadata")
-        .eq("user_id", user.id)
-        .in("transaction_type", ["usage", "subscription_usage"])
-        .range(0, 49999),
     ]);
 
     if (txResult.error) {
@@ -177,20 +168,9 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Compute total tokens server-side from all usage records
-    let totalTokens = 0;
-    if (tokenResult.data) {
-      for (const row of tokenResult.data) {
-        const meta = row.metadata as any;
-        if (meta) {
-          totalTokens += meta.total_tokens ||
-            ((meta.input_tokens || 0) + (meta.output_tokens || 0));
-        }
-      }
-    }
-
-    // lifetime_spent_cents is the accurate total across ALL transactions
+    // Both values come from atomic counters in user_balance — no row limit
     const lifetimeSpentCents = balanceResult.data?.lifetime_spent_cents || 0;
+    const totalTokens = balanceResult.data?.lifetime_tokens_used || 0;
 
     // Transform transactions to include USD values
     const transactions = (txResult.data || []).map(tx => ({

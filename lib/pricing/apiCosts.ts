@@ -108,8 +108,8 @@ export const API_PRICING: Record<string, { input_per_1m: number; output_per_1m: 
     output_per_1m: 10.00,
   },
   'gpt-5.2': {
-    input_per_1m: 1.25,
-    output_per_1m: 10.00,
+    input_per_1m: 1.75,
+    output_per_1m: 14.00,
   },
   'gpt-4-turbo': {
     input_per_1m: 10.00,
@@ -120,8 +120,8 @@ export const API_PRICING: Record<string, { input_per_1m: number; output_per_1m: 
     output_per_1m: 60.00,
   },
   'o1-mini': {
-    input_per_1m: 3.00,
-    output_per_1m: 12.00,
+    input_per_1m: 1.10,
+    output_per_1m: 4.40,
   },
 
   // ============================================
@@ -144,8 +144,8 @@ export const API_PRICING: Record<string, { input_per_1m: number; output_per_1m: 
     output_per_1m: 15.00,
   },
   'claude-haiku-4-5-20251001': {
-    input_per_1m: 0.80,
-    output_per_1m: 4.00,
+    input_per_1m: 1.00,
+    output_per_1m: 5.00,
   },
   // Legacy model names (keep for existing strategies)
   'claude-opus-4.5': {
@@ -193,16 +193,16 @@ export const API_PRICING: Record<string, { input_per_1m: number; output_per_1m: 
   // Google Gemini models
   // ============================================
   'gemini-2.5-flash': {
-    input_per_1m: 0.15,
-    output_per_1m: 0.60,
+    input_per_1m: 0.30,
+    output_per_1m: 2.50,
   },
   'gemini-2.5-pro': {
     input_per_1m: 1.25,
     output_per_1m: 10.00,
   },
   'gemini-2.5-flash-lite': {
-    input_per_1m: 0.075,
-    output_per_1m: 0.30,
+    input_per_1m: 0.10,
+    output_per_1m: 0.40,
   },
   'gemini-1.5-pro': {
     input_per_1m: 1.25,
@@ -218,32 +218,32 @@ export const API_PRICING: Record<string, { input_per_1m: number; output_per_1m: 
   },
   // Legacy model names (in case API response uses old names)
   'gemini-2.0-flash': {
-    input_per_1m: 0.15,
-    output_per_1m: 0.60,
+    input_per_1m: 0.10,
+    output_per_1m: 0.40,
   },
   'gemini-2.0-flash-exp': {
-    input_per_1m: 0.15,
-    output_per_1m: 0.60,
+    input_per_1m: 0.10,
+    output_per_1m: 0.40,
   },
   'gemini-3-pro': {
-    input_per_1m: 1.25,
-    output_per_1m: 10.00,
+    input_per_1m: 2.00,
+    output_per_1m: 12.00,
   },
   'gemini-3-pro-preview': {
-    input_per_1m: 1.25,
-    output_per_1m: 10.00,
+    input_per_1m: 2.00,
+    output_per_1m: 12.00,
   },
   'gemini-3.1-pro-preview': {
-    input_per_1m: 1.25,
-    output_per_1m: 10.00,
+    input_per_1m: 2.00,
+    output_per_1m: 12.00,
   },
   'gemini-3-flash': {
-    input_per_1m: 0.15,
-    output_per_1m: 0.60,
+    input_per_1m: 0.50,
+    output_per_1m: 3.00,
   },
   'gemini-3-flash-preview': {
-    input_per_1m: 0.15,
-    output_per_1m: 0.60,
+    input_per_1m: 0.50,
+    output_per_1m: 3.00,
   },
 
   // ============================================
@@ -270,12 +270,12 @@ export const API_PRICING: Record<string, { input_per_1m: number; output_per_1m: 
   // Qwen models (Alibaba)
   // ============================================
   'qwen-max': {
-    input_per_1m: 1.20,
-    output_per_1m: 6.00,
+    input_per_1m: 1.60,
+    output_per_1m: 6.40,
   },
   'qwen-plus': {
     input_per_1m: 0.40,
-    output_per_1m: 2.00,
+    output_per_1m: 1.20,
   },
   'qwen-turbo': {
     input_per_1m: 0.05,

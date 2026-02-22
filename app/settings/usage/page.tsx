@@ -42,13 +42,14 @@ function getChargedCents(record: UsageRecord): number {
 }
 
 const INITIAL_LIMIT = 50;
+const PAGE_SIZE = 200;
 
 function UsageContent() {
   const [usageRecords, setUsageRecords] = useState<UsageRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [expanded, setExpanded] = useState(false);
   const [totalCount, setTotalCount] = useState(0);
+  const [allLoaded, setAllLoaded] = useState(false);
   const [aggregates, setAggregates] = useState<Aggregates>({ total_consumption_cents: 0, total_tokens: 0 });
 
   useEffect(() => {
@@ -65,8 +66,12 @@ function UsageContent() {
       });
       if (res.ok) {
         const data = await res.json();
-        setUsageRecords(data.transactions || []);
+        const records = data.transactions || [];
+        setUsageRecords(records);
         setTotalCount(data.total || 0);
+        if (records.length >= (data.total || 0)) {
+          setAllLoaded(true);
+        }
         if (data.aggregates) {
           setAggregates(data.aggregates);
         }
@@ -78,27 +83,31 @@ function UsageContent() {
     }
   };
 
-  const loadAllUsage = useCallback(async () => {
-    if (expanded || loadingMore) return;
+  const loadMore = useCallback(async () => {
+    if (allLoaded || loadingMore) return;
     setLoadingMore(true);
     try {
       const bearer = await getBearerToken();
       if (!bearer) return;
 
-      const res = await fetch(`/api/credits/usage?limit=5000&offset=${INITIAL_LIMIT}`, {
+      const currentOffset = usageRecords.length;
+      const res = await fetch(`/api/credits/usage?limit=${PAGE_SIZE}&offset=${currentOffset}`, {
         headers: { Authorization: bearer },
       });
       if (res.ok) {
         const data = await res.json();
-        setUsageRecords(prev => [...prev, ...(data.transactions || [])]);
-        setExpanded(true);
+        const newRecords = data.transactions || [];
+        setUsageRecords(prev => [...prev, ...newRecords]);
+        if (currentOffset + newRecords.length >= (data.total || 0) || newRecords.length < PAGE_SIZE) {
+          setAllLoaded(true);
+        }
       }
     } catch (error) {
-      console.error("Failed to load all usage:", error);
+      console.error("Failed to load more usage:", error);
     } finally {
       setLoadingMore(false);
     }
-  }, [expanded, loadingMore]);
+  }, [allLoaded, loadingMore, usageRecords.length]);
 
   // Filter to only usage records (both top-up usage and subscription usage)
   const usageOnlyRecords = useMemo(() =>
@@ -127,7 +136,7 @@ function UsageContent() {
     return model.includes("opus") || model.includes("codex") || model.toLowerCase().includes("max");
   };
 
-  const hasMoreRecords = !expanded && totalCount > INITIAL_LIMIT;
+  const hasMoreRecords = !allLoaded && usageRecords.length < totalCount;
 
   return (
     <div className="min-h-[calc(100vh-4rem)] page-container">
@@ -174,9 +183,9 @@ function UsageContent() {
                     Usage History
                   </CardTitle>
                   <CardDescription className="text-gray-400">
-                    {expanded
+                    {allLoaded
                       ? `Showing all ${usageOnlyRecords.length} usage records`
-                      : `Your recent AI model usage${totalCount > INITIAL_LIMIT ? ` (${INITIAL_LIMIT} most recent of ${totalCount})` : ""}`
+                      : `Showing ${usageOnlyRecords.length} of ${totalCount} usage records`
                     }
                   </CardDescription>
                 </CardHeader>
@@ -238,24 +247,24 @@ function UsageContent() {
                         </Table>
                       </div>
 
-                      {/* Show All button */}
+                      {/* Load More button — keeps loading in pages until all records are shown */}
                       {hasMoreRecords && (
-                        <div className="flex justify-center pt-4">
+                        <div className="flex flex-col items-center gap-2 pt-4">
                           <Button
                             variant="outline"
                             className="border-blue-500/30 text-blue-400 hover:bg-blue-950/30 hover:text-blue-300"
-                            onClick={loadAllUsage}
+                            onClick={loadMore}
                             disabled={loadingMore}
                           >
                             {loadingMore ? (
                               <>
                                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                Loading all usage...
+                                Loading more...
                               </>
                             ) : (
                               <>
                                 <ChevronDown className="w-4 h-4 mr-2" />
-                                Show all {totalCount} records
+                                Load more ({totalCount - usageRecords.length} remaining)
                               </>
                             )}
                           </Button>

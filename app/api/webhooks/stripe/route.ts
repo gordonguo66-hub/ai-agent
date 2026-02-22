@@ -229,7 +229,7 @@ async function handleInvoicePaid(invoice: Stripe.Invoice) {
     p_budget_cents: plan.budget_cents,
     p_event_id: eventId,
     p_event_type: 'invoice.paid',
-    p_description: `${planId} monthly budget: $${(plan.budget_cents / 100).toFixed(2)}`,
+    p_description: `${planId.charAt(0).toUpperCase() + planId.slice(1).replace('_', '+')} subscription ($${(plan.budget_cents / 100).toFixed(2)}/mo)`,
     p_metadata: {
       invoice_id: invoice.id,
       plan_id: planId,

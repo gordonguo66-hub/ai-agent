@@ -126,7 +126,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
   const isEditMode = !!strategyId;
 
   // Setup mode: quick (preset-based) vs full (all tabs)
-  const [setupMode, setSetupMode] = useState<SetupMode>(isEditMode ? "full" : "quick");
+  const [setupMode, setSetupMode] = useState<SetupMode>("quick");
   const [presetMode, setPresetMode] = useState<PresetMode>("balanced");
 
   // Venue selection
@@ -1204,8 +1204,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                 </TabsList>
 
                 <TabsContent value="basics" className="space-y-6 mt-6">
-                  {/* Setup Mode - Only show for new strategies */}
-                  {!isEditMode && (
+                  {/* Setup Mode */}
                     <div className="space-y-4 p-4 glass-section">
                       <label className="text-sm font-semibold">Setup Mode</label>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1310,7 +1309,6 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                         </div>
                       )}
                     </div>
-                  )}
 
                   {/* Venue Selection */}
                   <div className="space-y-3 p-4 glass-section">
@@ -3580,76 +3578,121 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                 </p>
               )}
 
-              <div className="flex gap-3 pt-4 border-t">
-                {activeTab !== "risk" ? (
-                  <Button
-                    type="button"
-                    size="lg"
-                    className="flex-1 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 shadow-lg shadow-blue-600/25 transition-all duration-200"
-                    onClick={() => {
-                      // Validate current tab before advancing
-                      const scrollToField = (field: string) => {
-                        setTimeout(() => {
-                          const el = document.getElementById(field);
-                          if (el) { el.scrollIntoView({ behavior: "smooth", block: "center" }); el.focus(); }
-                        }, 100);
-                      };
-                      const setFieldError = (msg: string, field: string) => {
-                        setError(msg);
-                        setErrorField(field);
-                        scrollToField(field);
-                      };
-
-                      if (activeTab === "basics") {
-                        if (!name || !name.trim()) { setFieldError("Please enter a Strategy Name", "strategy-name"); return; }
-                        if (!modelProvider || !modelProvider.trim()) { setFieldError("Please select a Model Provider", "model-provider"); return; }
-                        if (!modelName || !modelName.trim()) { setFieldError("Please select a Model Name", "model-name"); return; }
-                        if (!prompt || !prompt.trim()) { setFieldError("Please enter a Trading Prompt", "trading-prompt"); return; }
-                        const totalCadence = getTotalCadenceSeconds();
-                        if (totalCadence <= 0) { setFieldError("Please set a decision cadence", "cadence"); return; }
-                        if (totalCadence < 60) { setFieldError("Minimum AI cadence is 60 seconds", "cadence"); return; }
-                      } else if (activeTab === "markets") {
-                        const markets = useManualInput && manualMarketsInput.trim() ? parseManualMarkets(manualMarketsInput) : selectedMarkets;
-                        if (markets.length === 0) { setError("Please select at least one market"); setErrorField("markets"); return; }
-                      } else if (activeTab === "entry") {
-                        if (entryExit.exit.mode === "trailing" && (!entryExit.exit.trailingStopPct || entryExit.exit.trailingStopPct <= 0)) {
-                          setError("Trailing Stop % is required for Trailing exit mode"); return;
-                        }
-                        if (entryExit.exit.mode === "tp_sl") {
-                          if (!entryExit.exit.takeProfitPct || entryExit.exit.takeProfitPct <= 0) { setError("Take Profit % must be greater than 0"); return; }
-                          if (!entryExit.exit.stopLossPct || entryExit.exit.stopLossPct <= 0) { setError("Stop Loss % must be greater than 0"); return; }
-                          if (entryExit.exit.takeProfitPct <= entryExit.exit.stopLossPct) { setError("Take Profit % must be greater than Stop Loss %"); return; }
-                        }
-                      }
-
-                      const tabOrder = ["basics", "markets", "ai", "entry", "risk"];
-                      const currentIndex = tabOrder.indexOf(activeTab);
-                      if (currentIndex < tabOrder.length - 1) {
-                        setActiveTab(tabOrder[currentIndex + 1]);
-                        window.scrollTo({ top: 0, behavior: "smooth" });
-                      }
-                    }}
-                  >
-                    Continue
-                  </Button>
+              <div className="flex items-center gap-3 pt-4 border-t">
+                {isEditMode ? (
+                  <>
+                    {/* Edit mode: Update button always visible, Next + Cancel right-aligned */}
+                    <Button
+                      type="submit"
+                      disabled={loading}
+                      size="lg"
+                      className="flex-1 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 shadow-lg shadow-blue-600/25 transition-all duration-200"
+                    >
+                      {loading ? "Updating..." : "Update Strategy"}
+                    </Button>
+                    <div className="flex items-center gap-2 ml-auto">
+                      {activeTab !== "risk" && (
+                        <Button
+                          type="button"
+                          size="lg"
+                          variant="ghost"
+                          className="text-muted-foreground hover:text-foreground"
+                          onClick={() => {
+                            const tabOrder = ["basics", "markets", "ai", "entry", "risk"];
+                            const currentIndex = tabOrder.indexOf(activeTab);
+                            if (currentIndex < tabOrder.length - 1) {
+                              setActiveTab(tabOrder[currentIndex + 1]);
+                              window.scrollTo({ top: 0, behavior: "smooth" });
+                            }
+                          }}
+                        >
+                          Next →
+                        </Button>
+                      )}
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="lg"
+                        className="text-muted-foreground hover:text-foreground"
+                        onClick={() => router.back()}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  </>
                 ) : (
-                  <Button
-                    type="submit"
-                    disabled={loading}
-                    size="lg"
-                    className="flex-1 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 shadow-lg shadow-blue-600/25 transition-all duration-200"
-                  >
-                    {loading ? (isEditMode ? "Updating..." : "Creating...") : (isEditMode ? "Update Strategy" : "Create Strategy")}
-                  </Button>
+                  <>
+                    {/* Create mode: original layout — Continue or Create + Cancel */}
+                    {activeTab !== "risk" ? (
+                      <Button
+                        type="button"
+                        size="lg"
+                        className="flex-1 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 shadow-lg shadow-blue-600/25 transition-all duration-200"
+                        onClick={() => {
+                          const scrollToField = (field: string) => {
+                            setTimeout(() => {
+                              const el = document.getElementById(field);
+                              if (el) { el.scrollIntoView({ behavior: "smooth", block: "center" }); el.focus(); }
+                            }, 100);
+                          };
+                          const setFieldError = (msg: string, field: string) => {
+                            setError(msg);
+                            setErrorField(field);
+                            scrollToField(field);
+                          };
+
+                          if (activeTab === "basics") {
+                            if (!name || !name.trim()) { setFieldError("Please enter a Strategy Name", "strategy-name"); return; }
+                            if (!modelProvider || !modelProvider.trim()) { setFieldError("Please select a Model Provider", "model-provider"); return; }
+                            if (!modelName || !modelName.trim()) { setFieldError("Please select a Model Name", "model-name"); return; }
+                            if (!prompt || !prompt.trim()) { setFieldError("Please enter a Trading Prompt", "trading-prompt"); return; }
+                            const totalCadence = getTotalCadenceSeconds();
+                            if (totalCadence <= 0) { setFieldError("Please set a decision cadence", "cadence"); return; }
+                            if (totalCadence < 60) { setFieldError("Minimum AI cadence is 60 seconds", "cadence"); return; }
+                          } else if (activeTab === "markets") {
+                            const markets = useManualInput && manualMarketsInput.trim() ? parseManualMarkets(manualMarketsInput) : selectedMarkets;
+                            if (markets.length === 0) { setError("Please select at least one market"); setErrorField("markets"); return; }
+                          } else if (activeTab === "entry") {
+                            if (entryExit.exit.mode === "trailing" && (!entryExit.exit.trailingStopPct || entryExit.exit.trailingStopPct <= 0)) {
+                              setError("Trailing Stop % is required for Trailing exit mode"); return;
+                            }
+                            if (entryExit.exit.mode === "tp_sl") {
+                              if (!entryExit.exit.takeProfitPct || entryExit.exit.takeProfitPct <= 0) { setError("Take Profit % must be greater than 0"); return; }
+                              if (!entryExit.exit.stopLossPct || entryExit.exit.stopLossPct <= 0) { setError("Stop Loss % must be greater than 0"); return; }
+                              if (entryExit.exit.takeProfitPct <= entryExit.exit.stopLossPct) { setError("Take Profit % must be greater than Stop Loss %"); return; }
+                            }
+                          }
+
+                          const tabOrder = ["basics", "markets", "ai", "entry", "risk"];
+                          const currentIndex = tabOrder.indexOf(activeTab);
+                          if (currentIndex < tabOrder.length - 1) {
+                            setActiveTab(tabOrder[currentIndex + 1]);
+                            window.scrollTo({ top: 0, behavior: "smooth" });
+                          }
+                        }}
+                      >
+                        Continue
+                      </Button>
+                    ) : (
+                      <Button
+                        type="submit"
+                        disabled={loading}
+                        size="lg"
+                        className="flex-1 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 shadow-lg shadow-blue-600/25 transition-all duration-200"
+                      >
+                        {loading ? "Creating..." : "Create Strategy"}
+                      </Button>
+                    )}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="lg"
+                      onClick={() => router.back()}
+                    >
+                      Cancel
+                    </Button>
+                  </>
                 )}
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="lg"
-                  onClick={() => router.back()}
-                >
-                  Cancel
-                </Button>
               </div>
             </form>
           </CardContent>
@@ -3664,7 +3707,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
           </CardHeader>
           <CardContent className="space-y-0 text-sm divide-y divide-border/50">
             {/* Trading Style - shown when using a preset */}
-            {setupMode === "quick" && !isEditMode && (
+            {setupMode === "quick" && (
               <div className="pb-3">
                 <div className="flex items-center gap-2 text-muted-foreground">
                   <span className={`h-1.5 w-1.5 rounded-full ${
@@ -3682,7 +3725,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                 </div>
               </div>
             )}
-            <div className={setupMode === "quick" && !isEditMode ? "py-3" : "pb-3"}>
+            <div className={setupMode === "quick" ? "py-3" : "pb-3"}>
               <div className="flex items-center gap-2 text-muted-foreground">
                 <span className="h-1.5 w-1.5 rounded-full bg-blue-500" />
                 Exchange

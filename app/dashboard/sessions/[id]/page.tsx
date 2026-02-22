@@ -33,6 +33,7 @@ function SessionDetailContent({ sessionId }: { sessionId: string }) {
   const [sessionStatus, setSessionStatus] = useState<string | null>(null);
   const [waitingForFreshData, setWaitingForFreshData] = useState(false);
   const [arenaEntry, setArenaEntry] = useState<any>(null);
+  const [showAllTrades, setShowAllTrades] = useState(false);
   const [debugContextOpen, setDebugContextOpen] = useState(false);
   const [debugContext, setDebugContext] = useState<any>(null);
   const [loadingDebugContext, setLoadingDebugContext] = useState(false);
@@ -1827,7 +1828,11 @@ function SessionDetailContent({ sessionId }: { sessionId: string }) {
           <Card className="mb-8">
               <CardHeader>
                 <CardTitle>Trade History</CardTitle>
-                <CardDescription>All executed trades</CardDescription>
+                <CardDescription>
+                  {trades && trades.length > 0
+                    ? `${showAllTrades ? trades.length : Math.min(30, trades.length)} of ${trades.length} trades`
+                    : "All executed trades"}
+                </CardDescription>
               </CardHeader>
               <CardContent>
                 {!trades || trades.length === 0 ? (
@@ -1849,7 +1854,7 @@ function SessionDetailContent({ sessionId }: { sessionId: string }) {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {(trades || []).map((trade: any) => {
+                        {(showAllTrades ? trades : trades.slice(0, 30)).map((trade: any) => {
                           if (!trade || !trade.id) {
                             return null;
                           }
@@ -1961,6 +1966,28 @@ function SessionDetailContent({ sessionId }: { sessionId: string }) {
                         })}
                       </TableBody>
                     </Table>
+                    {!showAllTrades && trades.length > 30 && (
+                      <div className="flex justify-center pt-4">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setShowAllTrades(true)}
+                        >
+                          Show all {trades.length} trades
+                        </Button>
+                      </div>
+                    )}
+                    {showAllTrades && trades.length > 30 && (
+                      <div className="flex justify-center pt-4">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setShowAllTrades(false)}
+                        >
+                          Show recent 30 only
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 )}
               </CardContent>

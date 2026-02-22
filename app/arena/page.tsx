@@ -9,6 +9,7 @@ import { getBearerToken } from "@/lib/api/clientAuth";
 import { useRouter } from "next/navigation";
 import { TrendingUp, Trophy } from "lucide-react";
 import { useAuthGate } from "@/components/auth-gate-provider";
+import { useTimezone } from "@/components/timezone-provider";
 
 // Curated palette of 20 visually distinct colors for dark backgrounds
 // Assigned by rank index to guarantee uniqueness within displayed set
@@ -193,6 +194,7 @@ function ChartAvatarDot(props: any) {
 function ArenaContent() {
   const router = useRouter();
   const { gatedNavigate, user } = useAuthGate();
+  const { timezone } = useTimezone();
   const [virtualLeaderboard, setVirtualLeaderboard] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [equityChartData, setEquityChartData] = useState<any[]>([]);
@@ -642,12 +644,13 @@ function ArenaContent() {
                           tickFormatter={(value) => {
                             if (!Number.isFinite(value) || value < 0) return "";
                             const date = new Date(value);
+                            const tzOpt: Intl.DateTimeFormatOptions = timezone ? { timeZone: timezone } : {};
                             // Compact format: "Jan 30" or just "30" if same month
                             if (chartRangeHours <= 24) {
-                              return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
+                              return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false, ...tzOpt });
                             }
                             // Just show "D Mon" format like "30 Jan", "4 Feb"
-                            return `${date.getDate()} ${date.toLocaleDateString(undefined, { month: 'short' })}`;
+                            return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', ...tzOpt });
                           }}
                           tickCount={4}
                           minTickGap={60}
@@ -711,7 +714,8 @@ function ArenaContent() {
                                 year: 'numeric',
                                 hour: '2-digit',
                                 minute: '2-digit',
-                                hour12: false
+                                hour12: false,
+                                ...(timezone ? { timeZone: timezone } : {}),
                               });
 
                               // Format the value
@@ -983,7 +987,7 @@ function ArenaContent() {
                             </TableCell>
                             <TableCell className="text-right text-gray-400 text-sm">
                               {entry.optedInAt
-                                ? new Date(entry.optedInAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+                                ? new Date(entry.optedInAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", ...(timezone ? { timeZone: timezone } : {}) })
                                 : "N/A"}
                             </TableCell>
                             <TableCell>

@@ -241,27 +241,58 @@ const [topupPackages, setTopupPackages] = useState<TopupPackage[]>(DEFAULT_PACKA
       const bearer = await getBearerToken();
       if (!bearer) return;
 
-      const res = await fetch("/api/subscriptions/checkout", {
-        method: "POST",
-        headers: {
-          Authorization: bearer,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ plan_id: planId }),
-      });
+      const hasActiveSubscription =
+        userData?.subscription.status === "active" &&
+        userData?.subscription.plan_id !== null;
 
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || "Failed to create checkout session");
-      }
+      if (hasActiveSubscription) {
+        // Existing subscriber: change plan via API (stays in app)
+        const res = await fetch("/api/subscriptions/change", {
+          method: "POST",
+          headers: {
+            Authorization: bearer,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ plan_id: planId }),
+        });
 
-      const data = await res.json();
-      if (data.checkout_url) {
-        window.location.href = data.checkout_url;
+        if (!res.ok) {
+          const error = await res.json();
+          throw new Error(error.error || "Failed to change plan");
+        }
+
+        const data = await res.json();
+        const planName = planId === "pro" ? "Pro" : planId === "pro_plus" ? "Pro+" : "Ultra";
+        setSuccessMessage(
+          data.is_upgrade
+            ? `Successfully upgraded to ${planName}! Your new budget will be available shortly.`
+            : `Successfully switched to ${planName}. Your current budget remains until next renewal.`
+        );
+        loadData();
+      } else {
+        // New subscriber: go through Stripe Checkout
+        const res = await fetch("/api/subscriptions/checkout", {
+          method: "POST",
+          headers: {
+            Authorization: bearer,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ plan_id: planId }),
+        });
+
+        if (!res.ok) {
+          const error = await res.json();
+          throw new Error(error.error || "Failed to create checkout session");
+        }
+
+        const data = await res.json();
+        if (data.checkout_url) {
+          window.location.href = data.checkout_url;
+        }
       }
     } catch (error: any) {
-      console.error("Failed to start subscription:", error);
-      alert(error.message || "Failed to start checkout. Please try again.");
+      console.error("Failed to change subscription:", error);
+      alert(error.message || "Failed to process subscription change. Please try again.");
     } finally {
       setPurchasingPlan(null);
     }
@@ -366,7 +397,7 @@ const [topupPackages, setTopupPackages] = useState<TopupPackage[]>(DEFAULT_PACKA
       case "subscription_usage":
         return { label: "Sub Usage", color: "bg-purple-100 text-purple-700 border-purple-200" };
       case "subscription_budget_grant":
-        return { label: "Budget Grant", color: "bg-blue-100 text-blue-700 border-blue-200" };
+        return { label: "Subscription", color: "bg-blue-100 text-blue-700 border-blue-200" };
       case "purchase":
       case "topup":
         return { label: "Top-up", color: "bg-green-100 text-green-700 border-green-200" };
@@ -448,7 +479,22 @@ const [topupPackages, setTopupPackages] = useState<TopupPackage[]>(DEFAULT_PACKA
                       </div>
                     )}
                     <div className="flex gap-2">
-                      {userData.subscription.plan_id !== "ultra" && !userData.subscription.cancel_at_period_end && (
+                      {userData.subscription.cancel_at_period_end && userData.subscription.plan_id && (
+                        <Button
+                          variant="outline"
+                          className="flex-1"
+                          onClick={() => handleSubscribe(userData.subscription.plan_id!)}
+                          disabled={purchasingPlan !== null}
+                        >
+                          {purchasingPlan ? (
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          ) : (
+                            <Check className="w-4 h-4 mr-2" />
+                          )}
+                          Reactivate
+                        </Button>
+                      )}
+                      {userData.subscription.plan_id !== "ultra" && (
                         <Link href="/pricing" className="flex-1">
                           <Button className="w-full" variant="outline">
                             <CreditCard className="w-4 h-4 mr-2" />

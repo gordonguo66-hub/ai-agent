@@ -116,20 +116,45 @@ export default function PricingPage() {
     setSubscribing(planId);
     try {
       const bearer = await getBearerToken();
-      const res = await fetch("/api/subscriptions/checkout", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: bearer || "",
-        },
-        body: JSON.stringify({ plan_id: planId }),
-      });
 
-      const data = await res.json();
-      if (res.ok && data.checkout_url) {
-        window.location.href = data.checkout_url;
+      const hasActiveSubscription =
+        userBalance?.subscription?.status === "active" &&
+        userBalance?.subscription?.plan_id !== null;
+
+      if (hasActiveSubscription) {
+        // Existing subscriber: change plan via API
+        const res = await fetch("/api/subscriptions/change", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: bearer || "",
+          },
+          body: JSON.stringify({ plan_id: planId }),
+        });
+
+        const data = await res.json();
+        if (res.ok && data.success) {
+          window.location.href = `/settings/billing?success=subscription&plan=${planId}`;
+        } else {
+          alert(data.error || "Failed to change plan");
+        }
       } else {
-        alert(data.error || "Failed to start checkout");
+        // New subscriber: go through Stripe Checkout
+        const res = await fetch("/api/subscriptions/checkout", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: bearer || "",
+          },
+          body: JSON.stringify({ plan_id: planId }),
+        });
+
+        const data = await res.json();
+        if (res.ok && data.checkout_url) {
+          window.location.href = data.checkout_url;
+        } else {
+          alert(data.error || "Failed to start checkout");
+        }
       }
     } catch (error) {
       console.error("Checkout error:", error);
@@ -338,7 +363,15 @@ export default function PricingPage() {
                             : "bg-blue-600 hover:bg-blue-700 text-white"
                         }`}
                       >
-                        {isCurrent ? "Current Plan" : subscribing === plan.id ? "Redirecting..." : "Subscribe"}
+                        {isCurrent
+                          ? "Current Plan"
+                          : subscribing === plan.id
+                            ? "Processing..."
+                            : userBalance?.subscription?.plan_id && userBalance.subscription.status === "active"
+                              ? plan.price_cents > (plans.find(p => p.id === userBalance.subscription.plan_id)?.price_cents || 0)
+                                ? "Upgrade"
+                                : "Switch"
+                              : "Subscribe"}
                       </Button>
                     </div>
                   </div>

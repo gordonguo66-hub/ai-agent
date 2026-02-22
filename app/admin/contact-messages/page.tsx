@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/browser";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { AuthGuard } from "@/components/auth-guard";
+import { FormattedDate } from "@/components/formatted-date";
 import { getBearerToken } from "@/lib/api/clientAuth";
 
 interface ContactSubmission {
@@ -124,7 +125,7 @@ function AdminContactMessagesContent() {
                         )}
                       </div>
                       <p className="text-xs text-gray-500">
-                        {new Date(submission.submitted_at).toLocaleString()}
+                        <FormattedDate date={submission.submitted_at} format="compact" />
                       </p>
                     </div>
                     {!submission.read && (
