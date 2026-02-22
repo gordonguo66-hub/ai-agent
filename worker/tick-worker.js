@@ -62,6 +62,10 @@ async function tick() {
         skipped: data.skipped || 0,
         total: data.total || 0,
       });
+      // Log WHY sessions were skipped (lock-skip vs error)
+      if (data.skippedSessions && data.skippedSessions.length > 0) {
+        console.log(`[Worker] Skipped details: [${data.skippedSessions.join(', ')}]`);
+      }
       // Log cadence-skipped sessions to diagnose stuck sessions
       if (data.cadenceSkipped && data.cadenceSkipped.length > 0) {
         console.log(`[Worker] Cadence-skipped: [${data.cadenceSkipped.join(', ')}]`);

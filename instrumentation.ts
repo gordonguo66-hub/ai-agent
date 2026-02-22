@@ -10,12 +10,8 @@ export async function register() {
     const { ensureEncryptionKey } = await import("./lib/crypto/autoSetup");
     ensureEncryptionKey();
 
-    // Start cron scheduler on Railway (long-running server only)
-    // Vercel is serverless so this won't persist there — that's fine,
-    // Vercel only handles update-peaks via vercel.json cron.
-    if (process.env.RAILWAY_ENVIRONMENT) {
-      const { startTickCron } = await import("./lib/cron/tickScheduler");
-      startTickCron();
-    }
+    // NOTE: tick-all-sessions is handled by the dedicated Railway tick-worker
+    // (worker/tick-worker.js). The old tickScheduler was removed because having
+    // both caused lock-skip races (processed: 6, skipped: 6 pattern).
   }
 }
