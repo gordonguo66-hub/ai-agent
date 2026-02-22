@@ -273,6 +273,16 @@ export async function GET(request: NextRequest) {
             });
 
             if (tickResponse.ok) {
+              // Check if the tick was actually executed or just lock-skipped
+              let tickBody: any = {};
+              try { tickBody = await tickResponse.clone().json(); } catch {}
+              if (tickBody.skipped && tickBody.reason === 'tick_lock_failed') {
+                // Lock failed — session was ticked recently by another source
+                const lockSkipMsg = `${session.id.slice(0, 8)} (lock: minInterval=${tickBody.minIntervalMs}ms)`;
+                skipped.push(lockSkipMsg);
+                console.log(`[Cron] 🔒 Lock-skipped ${lockSkipMsg}`);
+                return { sessionId: session.id, success: false, error: 'lock_skipped' };
+              }
               processed.push(session.id);
               console.log(`[Cron] ✅ Successfully ticked session ${session.id}`);
               return { sessionId: session.id, success: true };
