@@ -1520,28 +1520,53 @@ export async function POST(
               aiResponse.usage.inputTokens,
               aiResponse.usage.outputTokens
             );
-            const baseCostCents = Math.round(actualCostUsd * 100);
+            // Ensure minimum 1 cent base cost for any real AI call (sub-cent costs round to 0 otherwise)
+            const baseCostCents = Math.max(1, Math.round(actualCostUsd * 100));
 
-            // Deduct via dual-pool RPC: tries top-up first, then subscription budget
+            // Deduct via dual-pool RPC: tries v2 first (subscription-aware), falls back to v1
             const deductClient = createFreshServiceClient();
-            const { data: deductResult, error: deductError } = await deductClient.rpc('decrement_user_balance_v2', {
+            const deductMetadata = {
+              session_id: sessionId,
+              model: aiResponse.model,
+              input_tokens: aiResponse.usage.inputTokens,
+              output_tokens: aiResponse.usage.outputTokens,
+              total_tokens: aiResponse.usage.totalTokens,
+              actual_cost_usd: actualCostUsd,
+              actual_cost_cents: baseCostCents,
+              tier: tier,
+              bias: intent.bias,
+            };
+
+            let deductResult: any = null;
+            let deductError: any = null;
+
+            // Try v2 (dual-pool with subscription budget)
+            const v2 = await deductClient.rpc('decrement_user_balance_v2', {
               p_user_id: user.id,
               p_base_cost_cents: baseCostCents,
               p_ondemand_markup: ondemandMarkup,
               p_subscription_markup: subscriptionMarkup,
               p_description: `AI decision (${aiResponse.model})`,
-              p_metadata: {
-                session_id: sessionId,
-                model: aiResponse.model,
-                input_tokens: aiResponse.usage.inputTokens,
-                output_tokens: aiResponse.usage.outputTokens,
-                total_tokens: aiResponse.usage.totalTokens,
-                actual_cost_usd: actualCostUsd,
-                actual_cost_cents: baseCostCents,
-                tier: tier,
-                bias: intent.bias,
-              },
+              p_metadata: deductMetadata,
             });
+
+            if (v2.error && v2.error.code === 'PGRST202') {
+              // v2 function doesn't exist — fall back to v1 (flat deduction from top-up balance)
+              // Calculate from raw USD to avoid double-rounding precision loss
+              const totalChargeCents = Math.max(1, Math.round(actualCostUsd * (1 + ondemandMarkup) * 100));
+              console.log(`[Tick ${sessionId}] v2 RPC not found, falling back to v1 (charge: ${totalChargeCents}c)`);
+              const v1 = await deductClient.rpc('decrement_user_balance', {
+                p_user_id: user.id,
+                p_amount_cents: totalChargeCents,
+                p_description: `AI decision (${aiResponse.model})`,
+                p_metadata: deductMetadata,
+              });
+              deductResult = v1.data;
+              deductError = v1.error;
+            } else {
+              deductResult = v2.data;
+              deductError = v2.error;
+            }
 
             if (deductError) {
               console.error(`[Tick ${sessionId}] Balance deduction RPC error:`, deductError.message);
