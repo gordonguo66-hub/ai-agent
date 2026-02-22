@@ -325,6 +325,20 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Build cadence debug info for sessions NOT ticked (helps diagnose stuck sessions)
+    const cadenceDebug = sessionsToSkip.map((session) => {
+      const strategy = Array.isArray(session.strategies) ? session.strategies[0] : session.strategies;
+      const sf = (strategy as any)?.filters || {};
+      let cs = sf.cadenceSeconds;
+      if (!cs || cs <= 0) cs = session.cadence_seconds || 30;
+      cs = Number(cs);
+      const lt = session.last_tick_at
+        ? new Date(session.last_tick_at).getTime()
+        : session.started_at ? new Date(session.started_at).getTime() : 0;
+      const since = lt ? Math.floor((now - lt) / 1000) : -1;
+      return `${session.id.slice(0, 8)}:${since}s/${cs}s`;
+    });
+
     return NextResponse.json({
       message: "Cron job completed",
       total: runningSessions.length,
@@ -332,6 +346,7 @@ export async function GET(request: NextRequest) {
       skipped: skipped.length,
       processedSessions: processed,
       skippedSessions: skipped,
+      cadenceSkipped: cadenceDebug,
     });
   } catch (error: any) {
     console.error("[Cron] Fatal error:", error);

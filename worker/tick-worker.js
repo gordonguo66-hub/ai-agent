@@ -62,6 +62,10 @@ async function tick() {
         skipped: data.skipped || 0,
         total: data.total || 0,
       });
+      // Log cadence-skipped sessions to diagnose stuck sessions
+      if (data.cadenceSkipped && data.cadenceSkipped.length > 0) {
+        console.log(`[Worker] Cadence-skipped: [${data.cadenceSkipped.join(', ')}]`);
+      }
     } else {
       failCount++;
       const errorText = await response.text().catch(() => 'Unknown error');
