@@ -284,7 +284,10 @@ export async function GET(request: NextRequest) {
                 return { sessionId: session.id, success: false, error: 'lock_skipped' };
               }
               processed.push(session.id);
-              console.log(`[Cron] ✅ Successfully ticked session ${session.id}`);
+              // Log response body to diagnose if AI calls are actually happening
+              const decisionsCount = tickBody.decisions?.length || 0;
+              const firstDecision = tickBody.decisions?.[0];
+              console.log(`[Cron] ✅ Ticked ${session.id.slice(0, 8)} | decisions=${decisionsCount} | action=${firstDecision?.action_summary || 'none'} | error=${firstDecision?.error || 'none'}`);
               return { sessionId: session.id, success: true };
             } else {
               // Try to get error message from response
