@@ -45,6 +45,9 @@ interface UserData {
     balance: number;
     balance_cents: number;
     balance_usd: string;
+    subscription_budget_cents: number;
+    subscription_budget_usd: string;
+    subscription_budget_granted_cents: number;
     lifetime_used: number;
     lifetime_spent_cents: number;
     updated_at?: string;
@@ -346,6 +349,10 @@ const [topupPackages, setTopupPackages] = useState<TopupPackage[]>(DEFAULT_PACKA
         return { label: "Subscription", color: "bg-blue-100 text-blue-700 border-blue-200" };
       case "usage":
         return { label: "AI Usage", color: "bg-orange-100 text-orange-700 border-orange-200" };
+      case "subscription_usage":
+        return { label: "Sub Usage", color: "bg-purple-100 text-purple-700 border-purple-200" };
+      case "subscription_budget_grant":
+        return { label: "Budget Grant", color: "bg-blue-100 text-blue-700 border-blue-200" };
       case "purchase":
       case "topup":
         return { label: "Top-up", color: "bg-green-100 text-green-700 border-green-200" };
@@ -463,9 +470,37 @@ const [topupPackages, setTopupPackages] = useState<TopupPackage[]>(DEFAULT_PACKA
                     <CardDescription>Your available balance for AI trading decisions</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    <div className="text-4xl font-medium text-gray-900">
-                      {formatUsd(userData.credits.balance_cents)}
+                    {/* Top-up Balance */}
+                    <div>
+                      <div className="text-xs uppercase tracking-wide text-gray-400 mb-1">Top-up Balance</div>
+                      <div className="text-4xl font-medium text-gray-900">
+                        {formatUsd(userData.credits.balance_cents)}
+                      </div>
                     </div>
+
+                    {/* Subscription Budget (only shown for subscribers) */}
+                    {userData.credits.subscription_budget_granted_cents > 0 && (
+                      <div className="pt-3 border-t border-gray-100">
+                        <div className="text-xs uppercase tracking-wide text-gray-400 mb-1">Subscription Budget</div>
+                        <div className="flex items-baseline gap-2">
+                          <span className="text-2xl font-medium text-gray-900">
+                            {formatUsd(userData.credits.subscription_budget_cents)}
+                          </span>
+                          <span className="text-sm text-gray-400">
+                            / {formatUsd(userData.credits.subscription_budget_granted_cents)}
+                          </span>
+                        </div>
+                        {/* Progress bar */}
+                        <div className="mt-2 w-full bg-gray-100 rounded-full h-1.5">
+                          <div
+                            className="bg-blue-500 h-1.5 rounded-full transition-all"
+                            style={{
+                              width: `${Math.round((userData.credits.subscription_budget_cents / userData.credits.subscription_budget_granted_cents) * 100)}%`,
+                            }}
+                          />
+                        </div>
+                      </div>
+                    )}
 
                     <div className="pt-2 space-y-2">
                       <div className="text-sm text-gray-500">
@@ -474,12 +509,12 @@ const [topupPackages, setTopupPackages] = useState<TopupPackage[]>(DEFAULT_PACKA
                       {getSavePercent(userData.subscription.plan_id) > 0 ? (
                         <div className="flex items-center gap-2 text-sm text-green-600">
                           <Sparkles className="w-3.5 h-3.5" />
-                          Save {getSavePercent(userData.subscription.plan_id)}% on every AI call
+                          Save {getSavePercent(userData.subscription.plan_id)}% on every AI call with subscription budget
                         </div>
                       ) : (
                         <div className="flex items-center gap-2 text-sm text-green-600">
                           <Sparkles className="w-3.5 h-3.5" />
-                          Subscribe to save up to 33% on every AI call
+                          Subscribe to get a monthly AI budget at better rates
                         </div>
                       )}
                     </div>
@@ -644,7 +679,7 @@ const [topupPackages, setTopupPackages] = useState<TopupPackage[]>(DEFAULT_PACKA
                 <CardContent>
                   {loadingTransactions ? (
                     <div className="text-center text-gray-500 py-8">Loading transactions...</div>
-                  ) : transactions.length === 0 ? (
+                  ) : transactions.filter(tx => !["usage", "subscription_usage"].includes(tx.transaction_type)).length === 0 ? (
                     <div className="text-center text-gray-500 py-8">
                       No transactions yet. Add funds or subscribe to see your transaction history.
                     </div>
@@ -661,7 +696,7 @@ const [topupPackages, setTopupPackages] = useState<TopupPackage[]>(DEFAULT_PACKA
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {transactions.map((tx) => {
+                          {transactions.filter(tx => !["usage", "subscription_usage"].includes(tx.transaction_type)).map((tx) => {
                             const typeInfo = getTransactionTypeLabel(tx.transaction_type);
                             const amountCents = tx.amount;
                             const balanceAfterCents = tx.balance_after;

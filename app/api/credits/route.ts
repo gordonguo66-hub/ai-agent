@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
     // Get user balance
     const { data: balance, error: balanceError } = await serviceClient
       .from("user_balance")
-      .select("balance_cents, lifetime_spent_cents, updated_at")
+      .select("balance_cents, subscription_budget_cents, subscription_budget_granted_cents, lifetime_spent_cents, updated_at")
       .eq("user_id", user.id)
       .single();
 
@@ -77,7 +77,7 @@ export async function GET(request: NextRequest) {
       if (initBalanceError) {
         console.error("[GET /api/credits] Error initializing balance:", initBalanceError);
       }
-      actualBalance = { balance_cents: 0, lifetime_spent_cents: 0, updated_at: null };
+      actualBalance = { balance_cents: 0, subscription_budget_cents: 0, subscription_budget_granted_cents: 0, lifetime_spent_cents: 0, updated_at: null };
     }
 
     const planData = subscription?.subscription_plans as any;
@@ -87,9 +87,13 @@ export async function GET(request: NextRequest) {
       credits: {
         // Legacy field for backwards compatibility (1 credit = 1 cent)
         balance: actualBalance?.balance_cents || 0,
-        // New USD-based fields
+        // USD-based fields
         balance_cents: actualBalance?.balance_cents || 0,
         balance_usd: ((actualBalance?.balance_cents || 0) / 100).toFixed(2),
+        // Subscription budget fields
+        subscription_budget_cents: actualBalance?.subscription_budget_cents || 0,
+        subscription_budget_usd: ((actualBalance?.subscription_budget_cents || 0) / 100).toFixed(2),
+        subscription_budget_granted_cents: actualBalance?.subscription_budget_granted_cents || 0,
         // Legacy field
         lifetime_used: actualBalance?.lifetime_spent_cents || 0,
         // New field

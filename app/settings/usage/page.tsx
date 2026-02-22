@@ -20,8 +20,10 @@ interface UsageRecord {
     output_tokens?: number;
     total_tokens?: number;
     actual_cost_cents?: number;
+    base_cost_cents?: number;
     charged_cents?: number;
     tier?: string;
+    source?: string;
   };
   amount_cents?: number;
   amount?: number;
@@ -33,9 +35,9 @@ interface UsageRecord {
  * so subscribers can see the value they're getting from their plan
  */
 function getOnDemandEquivalentCents(record: UsageRecord): number {
-  // actual_cost_cents is the base API cost before any markup
+  // base_cost_cents (or legacy actual_cost_cents) is the base API cost before any markup
   // On-demand rate is 2× the base cost (100% markup)
-  const baseCostCents = record.metadata?.actual_cost_cents;
+  const baseCostCents = record.metadata?.base_cost_cents ?? record.metadata?.actual_cost_cents;
   if (baseCostCents !== undefined && baseCostCents !== null) {
     return baseCostCents * 2;
   }
@@ -70,9 +72,9 @@ function UsageContent() {
     }
   };
 
-  // Filter to only usage records
+  // Filter to only usage records (both top-up usage and subscription usage)
   const usageOnlyRecords = useMemo(() =>
-    usageRecords.filter(record => record.transaction_type === "usage"),
+    usageRecords.filter(record => record.transaction_type === "usage" || record.transaction_type === "subscription_usage"),
     [usageRecords]
   );
 

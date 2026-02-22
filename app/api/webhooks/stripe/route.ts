@@ -172,23 +172,89 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
 }
 
 /**
- * Handle paid invoice (subscription renewals)
+ * Handle paid invoice (subscription creation & renewals)
+ * Grants monthly subscription budget on initial payment and each renewal.
  */
 async function handleInvoicePaid(invoice: Stripe.Invoice) {
   console.log(`[Stripe Webhook] Invoice paid: ${invoice.id}`);
 
+  const subscriptionId = (invoice as any).subscription as string | null;
+
   // Only process subscription invoices
-  if (!(invoice as any).subscription) {
+  if (!subscriptionId) {
     console.log("[Stripe Webhook] Not a subscription invoice, skipping");
     return;
   }
 
-  // Log renewal for tracking
-  if (invoice.billing_reason === "subscription_cycle") {
-    const customerId = invoice.customer as string;
-    const userId = await getUserIdFromCustomer(customerId);
-    console.log(`[Stripe Webhook] Subscription renewal processed for user ${userId}`);
+  const customerId = invoice.customer as string;
+  const userId = await getUserIdFromCustomer(customerId);
+
+  if (!userId) {
+    console.error(`[Stripe Webhook] Cannot find user for invoice: ${invoice.id}, customer: ${customerId}`);
+    return;
   }
+
+  // Retrieve the Stripe subscription to determine the plan
+  let stripeSubscription: Stripe.Subscription;
+  try {
+    stripeSubscription = await stripe.subscriptions.retrieve(subscriptionId);
+  } catch (err: any) {
+    console.error(`[Stripe Webhook] Error retrieving subscription ${subscriptionId}:`, err.message);
+    return;
+  }
+
+  const planId = getPlanIdFromSubscription(stripeSubscription);
+  if (!planId) {
+    console.warn(`[Stripe Webhook] Unknown plan for subscription ${subscriptionId}, cannot grant budget`);
+    return;
+  }
+
+  // Look up budget_cents for this plan
+  const serviceClient = createFreshServiceClient();
+  const { data: plan, error: planError } = await serviceClient
+    .from("subscription_plans")
+    .select("budget_cents")
+    .eq("id", planId)
+    .single();
+
+  if (planError || !plan?.budget_cents) {
+    console.error(`[Stripe Webhook] Could not find budget_cents for plan ${planId}:`, planError?.message);
+    return;
+  }
+
+  // Grant subscription budget with idempotency
+  const eventId = `invoice_budget_${invoice.id}`;
+  const { data: result, error: rpcError } = await serviceClient.rpc('grant_subscription_budget', {
+    p_user_id: userId,
+    p_budget_cents: plan.budget_cents,
+    p_event_id: eventId,
+    p_event_type: 'invoice.paid',
+    p_description: `${planId} monthly budget: $${(plan.budget_cents / 100).toFixed(2)}`,
+    p_metadata: {
+      invoice_id: invoice.id,
+      plan_id: planId,
+      subscription_id: subscriptionId,
+      billing_reason: invoice.billing_reason,
+    },
+  });
+
+  if (rpcError) {
+    console.error(`[Stripe Webhook] Error granting subscription budget:`, rpcError.message);
+    throw rpcError;
+  }
+
+  if (result && typeof result === 'object') {
+    if (result.error === 'duplicate_event') {
+      console.log(`[Stripe Webhook] Budget grant for invoice ${invoice.id} already processed, skipping`);
+      return;
+    }
+    if (result.success) {
+      console.log(`[Stripe Webhook] Granted $${(plan.budget_cents / 100).toFixed(2)} subscription budget to user ${userId} (plan: ${planId})`);
+      return;
+    }
+  }
+
+  console.error("[Stripe Webhook] Unexpected result from grant_subscription_budget:", result);
 }
 
 /**
@@ -373,7 +439,21 @@ async function handleSubscriptionCanceled(subscription: Stripe.Subscription) {
       console.error("[Stripe Webhook] Error canceling subscription:", error);
       throw error;
     }
-    console.log(`[Stripe Webhook] Subscription fully terminated for user ${userId} (period ended)`);
+
+    // Zero out subscription budget
+    const { error: budgetError } = await serviceClient
+      .from("user_balance")
+      .update({
+        subscription_budget_cents: 0,
+        subscription_budget_granted_cents: 0,
+      })
+      .eq("user_id", userId);
+
+    if (budgetError) {
+      console.error("[Stripe Webhook] Error zeroing subscription budget:", budgetError);
+    }
+
+    console.log(`[Stripe Webhook] Subscription fully terminated for user ${userId} (period ended, budget zeroed)`);
   } else {
     // Period hasn't ended yet - keep plan_id so user retains tier pricing until period end
     const { error } = await serviceClient
