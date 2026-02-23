@@ -245,11 +245,16 @@ export function calculateBollingerBands(
   return { upper, middle, lower, bandwidth, percentB };
 }
 
+export interface SRLevel {
+  price: number;
+  touches: number;
+}
+
 /**
  * Calculate Support and Resistance levels from swing highs/lows
  * @param candles - Array of candles (oldest first)
  * @param lookback - Number of candles to analyze (default 50)
- * @returns Support/resistance levels with nearest to current price
+ * @returns Support/resistance levels with nearest to current price and touch counts
  */
 export function calculateSupportResistance(
   candles: Candle[],
@@ -257,8 +262,12 @@ export function calculateSupportResistance(
 ): {
   supports: number[];
   resistances: number[];
+  supportLevels: SRLevel[];
+  resistanceLevels: SRLevel[];
   nearestSupport: number;
   nearestResistance: number;
+  nearestSupportTouches: number;
+  nearestResistanceTouches: number;
 } | null {
   const recent = candles.slice(-lookback);
   if (recent.length < 5) return null;
@@ -286,7 +295,7 @@ export function calculateSupportResistance(
   if (swingHighs.length === 0 && swingLows.length === 0) return null;
 
   // Cluster nearby levels within 0.5% of each other
-  const clusterLevels = (levels: number[]): number[] => {
+  const clusterLevels = (levels: number[]): SRLevel[] => {
     if (levels.length === 0) return [];
     const sorted = [...levels].sort((a, b) => a - b);
     const clusters: { sum: number; count: number }[] = [];
@@ -303,24 +312,42 @@ export function calculateSupportResistance(
       }
     }
 
-    // Return cluster averages, sorted by touch count (most tested first)
+    // Return cluster averages with touch counts, sorted by touch count (most tested first)
     return clusters
       .sort((a, b) => b.count - a.count)
       .slice(0, 5)
-      .map((c) => c.sum / c.count);
+      .map((c) => ({ price: c.sum / c.count, touches: c.count }));
   };
 
-  const resistances = clusterLevels(swingHighs).filter((l) => l > currentPrice);
-  const supports = clusterLevels(swingLows).filter((l) => l < currentPrice);
+  const resistanceLevels = clusterLevels(swingHighs).filter((l) => l.price > currentPrice);
+  const supportLevels = clusterLevels(swingLows).filter((l) => l.price < currentPrice);
 
-  const nearestResistance = resistances.length > 0
-    ? resistances.reduce((nearest, l) => (l < nearest ? l : nearest), Infinity)
-    : currentPrice * 1.02; // Default 2% above if no resistance found
-  const nearestSupport = supports.length > 0
-    ? supports.reduce((nearest, l) => (l > nearest ? l : nearest), 0)
-    : currentPrice * 0.98; // Default 2% below if no support found
+  // Backward-compatible plain number arrays
+  const resistances = resistanceLevels.map((l) => l.price);
+  const supports = supportLevels.map((l) => l.price);
 
-  return { supports, resistances, nearestSupport, nearestResistance };
+  const nearestResLevel = resistanceLevels.length > 0
+    ? resistanceLevels.reduce((nearest, l) => (l.price < nearest.price ? l : nearest))
+    : null;
+  const nearestSupLevel = supportLevels.length > 0
+    ? supportLevels.reduce((nearest, l) => (l.price > nearest.price ? l : nearest))
+    : null;
+
+  const nearestResistance = nearestResLevel?.price ?? currentPrice * 1.02;
+  const nearestSupport = nearestSupLevel?.price ?? currentPrice * 0.98;
+  const nearestResistanceTouches = nearestResLevel?.touches ?? 0;
+  const nearestSupportTouches = nearestSupLevel?.touches ?? 0;
+
+  return {
+    supports,
+    resistances,
+    supportLevels,
+    resistanceLevels,
+    nearestSupport,
+    nearestResistance,
+    nearestSupportTouches,
+    nearestResistanceTouches,
+  };
 }
 
 /**

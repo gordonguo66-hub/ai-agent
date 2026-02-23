@@ -84,12 +84,13 @@ export async function openAICompatibleIntentCall(args: {
       };
       macd?: { macdLine: number; signalLine: number; histogram: number };
       bollingerBands?: { upper: number; middle: number; lower: number; bandwidth: number; percentB: number };
-      supportResistance?: { nearestSupport: number; nearestResistance: number; supports: number[]; resistances: number[] };
+      supportResistance?: { nearestSupport: number; nearestResistance: number; nearestSupportTouches?: number; nearestResistanceTouches?: number; supports: number[]; resistances: number[] };
       volume?: { avgVolume: number; currentVolumeRatio: number; volumeTrend: string };
     };
     marketAnalysis?: {
       regime: { trend: string; trendStrength: number; regime: string; confidence: number };
-      keyLevels: { nearestSupport: number; nearestResistance: number; distanceToSupportPct: number; distanceToResistancePct: number; pricePosition: string } | null;
+      keyLevels: { nearestSupport: number; nearestResistance: number; nearestSupportTouches?: number; nearestResistanceTouches?: number; distanceToSupportPct: number; distanceToResistancePct: number; pricePosition: string } | null;
+      htfKeyLevels?: { nearestSupport: number; nearestResistance: number; nearestSupportTouches?: number; nearestResistanceTouches?: number; distanceToSupportPct: number; distanceToResistancePct: number; pricePosition: string } | null;
       multiTimeframe: { htfTrend: string; htfRSI?: number; alignment: string; primaryTimeframe: string; higherTimeframe: string } | null;
       summary: string;
     } | null;
@@ -368,7 +369,9 @@ export async function openAICompatibleIntentCall(args: {
     }
     if (indicators.supportResistance) {
       const sr = indicators.supportResistance;
-      indicatorParts.push(`Support: $${sr.nearestSupport.toFixed(2)} | Resistance: $${sr.nearestResistance.toFixed(2)}`);
+      const supTouches = sr.nearestSupportTouches ? ` (${sr.nearestSupportTouches}x tested)` : "";
+      const resTouches = sr.nearestResistanceTouches ? ` (${sr.nearestResistanceTouches}x tested)` : "";
+      indicatorParts.push(`Support: $${sr.nearestSupport.toFixed(2)}${supTouches} | Resistance: $${sr.nearestResistance.toFixed(2)}${resTouches}`);
     }
     if (indicators.volume) {
       const v = indicators.volume;
@@ -447,7 +450,16 @@ export async function openAICompatibleIntentCall(args: {
     analysisParts.push(`Regime: ${r.regime.toUpperCase()} | Trend: ${r.trend.replace(/_/g, ' ')} (strength: ${r.trendStrength}/100, confidence: ${(r.confidence * 100).toFixed(0)}%)`);
     if (marketAnalysis.keyLevels) {
       const kl = marketAnalysis.keyLevels;
-      analysisParts.push(`Key Levels: Support $${kl.nearestSupport.toFixed(2)} (${kl.distanceToSupportPct.toFixed(1)}% away) | Resistance $${kl.nearestResistance.toFixed(2)} (${kl.distanceToResistancePct.toFixed(1)}% away) | Position: ${kl.pricePosition}`);
+      const supT = kl.nearestSupportTouches ? ` (${kl.nearestSupportTouches}x tested)` : "";
+      const resT = kl.nearestResistanceTouches ? ` (${kl.nearestResistanceTouches}x tested)` : "";
+      analysisParts.push(`Key Levels: Support $${kl.nearestSupport.toFixed(2)}${supT} (${kl.distanceToSupportPct.toFixed(1)}% away) | Resistance $${kl.nearestResistance.toFixed(2)}${resT} (${kl.distanceToResistancePct.toFixed(1)}% away) | Position: ${kl.pricePosition}`);
+    }
+    if (marketAnalysis.htfKeyLevels) {
+      const hkl = marketAnalysis.htfKeyLevels;
+      const htfTf = marketAnalysis.multiTimeframe?.higherTimeframe || "HTF";
+      const hSupT = hkl.nearestSupportTouches ? ` (${hkl.nearestSupportTouches}x tested)` : "";
+      const hResT = hkl.nearestResistanceTouches ? ` (${hkl.nearestResistanceTouches}x tested)` : "";
+      analysisParts.push(`HTF Key Levels (${htfTf}): Support $${hkl.nearestSupport.toFixed(2)}${hSupT} (${hkl.distanceToSupportPct.toFixed(1)}% away) | Resistance $${hkl.nearestResistance.toFixed(2)}${hResT} (${hkl.distanceToResistancePct.toFixed(1)}% away) | Position: ${hkl.pricePosition}`);
     }
     if (marketAnalysis.multiTimeframe) {
       const mtf = marketAnalysis.multiTimeframe;

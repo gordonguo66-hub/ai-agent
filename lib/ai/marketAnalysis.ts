@@ -27,6 +27,8 @@ export interface MarketRegime {
 export interface KeyLevels {
   nearestSupport: number;
   nearestResistance: number;
+  nearestSupportTouches?: number;
+  nearestResistanceTouches?: number;
   distanceToSupportPct: number;
   distanceToResistancePct: number;
   pricePosition: "near_support" | "near_resistance" | "mid_range" | "above_resistance" | "below_support";
@@ -43,6 +45,7 @@ export interface MultiTimeframeSignal {
 export interface MarketAnalysis {
   regime: MarketRegime;
   keyLevels: KeyLevels | null;
+  htfKeyLevels: KeyLevels | null;
   multiTimeframe: MultiTimeframeSignal | null;
   summary: string;
 }
@@ -204,6 +207,8 @@ export function analyzeKeyLevels(
   supportResistance: {
     nearestSupport: number;
     nearestResistance: number;
+    nearestSupportTouches?: number;
+    nearestResistanceTouches?: number;
     supports: number[];
     resistances: number[];
   } | null
@@ -225,6 +230,8 @@ export function analyzeKeyLevels(
   return {
     nearestSupport,
     nearestResistance,
+    nearestSupportTouches: supportResistance.nearestSupportTouches,
+    nearestResistanceTouches: supportResistance.nearestResistanceTouches,
     distanceToSupportPct,
     distanceToResistancePct,
     pricePosition,
@@ -324,7 +331,9 @@ export function generateMarketSummary(
   indicators: Record<string, any>,
   regime: MarketRegime,
   keyLevels: KeyLevels | null,
-  mtf: MultiTimeframeSignal | null
+  mtf: MultiTimeframeSignal | null,
+  htfKeyLevels?: KeyLevels | null,
+  htfTimeframe?: string
 ): string {
   const parts: string[] = [];
 
@@ -390,12 +399,23 @@ export function generateMarketSummary(
     parts.push(`- EMA(${indicators.ema.fast.period}/${indicators.ema.slow.period}): ${cross} cross (${separation.toFixed(2)}% separation)`);
   }
 
-  // Support/Resistance
+  // Support/Resistance (primary timeframe)
   if (keyLevels) {
+    const supTouches = keyLevels.nearestSupportTouches ? ` (${keyLevels.nearestSupportTouches}x tested)` : "";
+    const resTouches = keyLevels.nearestResistanceTouches ? ` (${keyLevels.nearestResistanceTouches}x tested)` : "";
     parts.push(
-      `- Support: $${keyLevels.nearestSupport.toFixed(2)} (${keyLevels.distanceToSupportPct.toFixed(1)}% below) | Resistance: $${keyLevels.nearestResistance.toFixed(2)} (${keyLevels.distanceToResistancePct.toFixed(1)}% above)`
+      `- Support: $${keyLevels.nearestSupport.toFixed(2)}${supTouches} (${keyLevels.distanceToSupportPct.toFixed(1)}% below) | Resistance: $${keyLevels.nearestResistance.toFixed(2)}${resTouches} (${keyLevels.distanceToResistancePct.toFixed(1)}% above)`
     );
     parts.push(`- Price Position: ${keyLevels.pricePosition.replace(/_/g, " ")}`);
+  }
+
+  // HTF Support/Resistance (structural levels from higher timeframe)
+  if (htfKeyLevels && htfTimeframe) {
+    const htfSupTouches = htfKeyLevels.nearestSupportTouches ? ` (${htfKeyLevels.nearestSupportTouches}x tested)` : "";
+    const htfResTouches = htfKeyLevels.nearestResistanceTouches ? ` (${htfKeyLevels.nearestResistanceTouches}x tested)` : "";
+    parts.push(
+      `- HTF S/R (${htfTimeframe}): Support $${htfKeyLevels.nearestSupport.toFixed(2)}${htfSupTouches} (${htfKeyLevels.distanceToSupportPct.toFixed(1)}% below) | Resistance $${htfKeyLevels.nearestResistance.toFixed(2)}${htfResTouches} (${htfKeyLevels.distanceToResistancePct.toFixed(1)}% above)`
+    );
   }
 
   // Volume
@@ -450,6 +470,11 @@ export function runMarketAnalysis(args: {
     ? analyzeKeyLevels(currentPrice, indicators.supportResistance)
     : null;
 
+  // 2b. Analyze HTF key levels (structural levels from higher timeframe)
+  const htfKeyLevels = htfIndicators?.supportResistance
+    ? analyzeKeyLevels(currentPrice, htfIndicators.supportResistance)
+    : null;
+
   // 3. Multi-timeframe analysis (only if HTF data provided)
   const multiTimeframe =
     htfIndicators && primaryTimeframe && htfTimeframe
@@ -457,7 +482,7 @@ export function runMarketAnalysis(args: {
       : null;
 
   // 4. Generate summary
-  const summary = generateMarketSummary(market, currentPrice, candles, indicators, regime, keyLevels, multiTimeframe);
+  const summary = generateMarketSummary(market, currentPrice, candles, indicators, regime, keyLevels, multiTimeframe, htfKeyLevels, htfTimeframe);
 
-  return { regime, keyLevels, multiTimeframe, summary };
+  return { regime, keyLevels, htfKeyLevels, multiTimeframe, summary };
 }

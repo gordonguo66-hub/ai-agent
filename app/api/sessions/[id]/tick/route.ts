@@ -1210,6 +1210,7 @@ export async function POST(
                 rsi: { enabled: true, period: 14 },
                 ema: { enabled: true, fast: 12, slow: 26 },
                 macd: { enabled: true },
+                supportResistance: { enabled: true, lookback: 50 },
               });
             }
           } catch (htfError: any) {
@@ -1898,45 +1899,81 @@ export async function POST(
             riskResult = { passed: false, reason: actionSummary };
             console.log("[Tick] ⛔ All entry behaviors disabled - blocking entry");
           } else {
-            // Classify the AI's intent as trend/breakout/meanReversion based on indicators and reasoning
+            // Classify the AI's intent as trend/breakout/meanReversion based on HTF S/R levels and indicators
             let entryType: "trend" | "breakout" | "meanReversion" | "unknown" = "unknown";
-            
-            // 1. Check indicators for classification
-            if (indicatorsSnapshot) {
-              // Trend: Strong EMA alignment
-              if (indicatorsSnapshot.ema?.fast && indicatorsSnapshot.ema?.slow) {
-                const emaFast = indicatorsSnapshot.ema.fast.value;
-                const emaSlow = indicatorsSnapshot.ema.slow.value;
-                const emaDiff = Math.abs((emaFast - emaSlow) / emaSlow) * 100;
-                if (emaDiff > 1.0) { // EMA divergence > 1% = trend
-                  entryType = "trend";
-                }
+
+            // 1. Check HTF S/R proximity for breakout detection (most reliable signal)
+            const htfKL = marketAnalysis?.htfKeyLevels;
+            const volumeRatio = indicatorsSnapshot?.volume?.currentVolumeRatio;
+            const hasVolumeData = volumeRatio !== undefined && volumeRatio !== null;
+            if (htfKL) {
+              const nearHTFSupport = htfKL.distanceToSupportPct < 0.5 || currentPrice < htfKL.nearestSupport;
+              const nearHTFResistance = htfKL.distanceToResistancePct < 0.5 || currentPrice > htfKL.nearestResistance;
+              // With volume data: require volume > 1.3x average
+              // Without volume data: use tighter S/R proximity (price already broke through level)
+              const hasVolumeConfirmation = hasVolumeData ? volumeRatio > 1.3 : false;
+              const priceBrokeThrough = currentPrice < htfKL.nearestSupport || currentPrice > htfKL.nearestResistance;
+
+              if ((nearHTFSupport || nearHTFResistance) && (hasVolumeConfirmation || priceBrokeThrough)) {
+                entryType = "breakout";
+                console.log(`[Tick] 📊 Breakout classified: price near HTF ${nearHTFResistance ? "resistance" : "support"} ($${nearHTFResistance ? htfKL.nearestResistance.toFixed(2) : htfKL.nearestSupport.toFixed(2)})${hasVolumeData ? `, volume ${volumeRatio.toFixed(1)}x` : ", no volume data (price broke level)"}`);
               }
-              
-              // Breakout: High volatility
-              if (indicatorsSnapshot.atr && entryType === "unknown") {
-                const atrPct = (indicatorsSnapshot.atr.value / currentPrice) * 100;
-                if (atrPct > 2.0) { // ATR > 2% = breakout conditions
-                  entryType = "breakout";
-                }
-              }
-              
-              // Mean Reversion: RSI extremes
-              if (indicatorsSnapshot.rsi && entryType === "unknown") {
-                const rsi = indicatorsSnapshot.rsi.value;
-                if (rsi < 30 || rsi > 70) { // RSI extreme = mean reversion
+            }
+
+            // 2. Mean Reversion: Price deviating significantly from average (BB %B extreme + RSI confirmation)
+            if (entryType === "unknown") {
+              const bb = indicatorsSnapshot?.bollingerBands;
+              const rsi = indicatorsSnapshot?.rsi?.value;
+              const regime = marketAnalysis?.regime;
+
+              // Skip in strong trends — price "should" keep moving away from average
+              const strongTrend = regime && regime.regime === "trending" && regime.trendStrength >= 50;
+
+              if (bb && !strongTrend) {
+                const bbExtreme = bb.percentB < 0.15 || bb.percentB > 0.85;
+                const bbVeryExtreme = bb.percentB < 0.05 || bb.percentB > 0.95;
+                const rsiConfirms = rsi !== undefined && (rsi < 35 || rsi > 65);
+
+                if (bbVeryExtreme || (bbExtreme && rsiConfirms)) {
                   entryType = "meanReversion";
+                  console.log(`[Tick] 🔄 Mean reversion classified: BB %B=${(bb.percentB * 100).toFixed(0)}%${rsi !== undefined ? `, RSI=${rsi.toFixed(0)}` : ""}${regime ? `, regime=${regime.regime}` : ""}`);
+                }
+              } else if (!bb && !strongTrend && rsi !== undefined && (rsi < 25 || rsi > 75)) {
+                // Fallback: if no BB data, use tighter RSI threshold (was 30/70, now 25/75)
+                entryType = "meanReversion";
+              }
+            }
+
+            // 3. Trend: Use market regime detection (only for GRADUAL trends, not sharp moves)
+            if (marketAnalysis?.regime && entryType === "unknown") {
+              const { regime, trendStrength } = marketAnalysis.regime;
+              const htfAligned = marketAnalysis.multiTimeframe?.alignment === "aligned_bullish"
+                || marketAnalysis.multiTimeframe?.alignment === "aligned_bearish";
+
+              if (regime === "trending" && (trendStrength >= 40 || (trendStrength >= 25 && htfAligned))) {
+                // Check if this is a sharp/impulsive move (breakout) rather than a gradual trend
+                // BB bandwidth > 5% means bands are very wide = recent volatility explosion = sharp move
+                const bbBandwidth = indicatorsSnapshot?.bollingerBands?.bandwidth;
+
+                if (bbBandwidth !== undefined && bbBandwidth > 5.0) {
+                  entryType = "breakout";
+                  console.log(`[Tick] 📊 Sharp move reclassified as breakout (not trend): BB bandwidth=${bbBandwidth.toFixed(1)}% (>5% = impulsive move, not gradual trend)`);
+                } else {
+                  entryType = "trend";
+                  console.log(`[Tick] 📈 Trend classified: ${regime} (strength: ${trendStrength}/100${htfAligned ? ", HTF aligned" : ""}${bbBandwidth !== undefined ? `, bandwidth=${bbBandwidth.toFixed(1)}%` : ""})`);
                 }
               }
             }
-            
-            // 2. Use AI reasoning as fallback/confirmation
+
+            // 4. Fallback: Use AI reasoning keywords if no indicator-based classification
             const reasoning = (intent.reasoning || "").toLowerCase();
             if (entryType === "unknown") {
-              if (reasoning.includes("trend") || reasoning.includes("momentum") || reasoning.includes("uptrend") || reasoning.includes("downtrend")) {
-                entryType = "trend";
-              } else if (reasoning.includes("breakout") || reasoning.includes("break out") || reasoning.includes("resistance") || reasoning.includes("support")) {
+              if (reasoning.includes("breakout") || reasoning.includes("break out") || reasoning.includes("broke through") || reasoning.includes("broke above") || reasoning.includes("broke below")) {
                 entryType = "breakout";
+              } else if (reasoning.includes("trend") || reasoning.includes("momentum") || reasoning.includes("uptrend") || reasoning.includes("downtrend")) {
+                // Check if this is actually a sharp move — AI may say "downtrend" about a crash
+                const bbBw = indicatorsSnapshot?.bollingerBands?.bandwidth;
+                entryType = (bbBw !== undefined && bbBw > 5.0) ? "breakout" : "trend";
               } else if (reasoning.includes("reversion") || reasoning.includes("oversold") || reasoning.includes("overbought") || reasoning.includes("mean")) {
                 entryType = "meanReversion";
               }
