@@ -828,7 +828,10 @@ export async function POST(
     
     for (const position of allPositionsForExit) {
       const positionPrice = pricesByMarket[position.market];
-      if (!positionPrice) continue;
+      if (!positionPrice) {
+        console.warn(`[Tick] ⚠️ EXIT CHECK SKIPPED for ${position.market} (${position.side} position): price data unavailable. TP/SL/trailing stop will not trigger until price is restored.`);
+        continue;
+      }
 
       const entryPrice = Number(position.avg_entry);
       const size = Number(position.size);
@@ -859,9 +862,9 @@ export async function POST(
         .limit(1)
         .maybeSingle();
       
-      const positionAgeMinutes = firstTrade 
+      const positionAgeMinutes = firstTrade
         ? (now.getTime() - new Date(firstTrade.created_at).getTime()) / (60 * 1000)
-        : 0;
+        : Infinity; // If no trade record found, don't block exits with min hold time
 
       let shouldExit = false;
       let exitReason = "";
@@ -894,9 +897,10 @@ export async function POST(
           shouldExit = true;
           exitReason = `Take profit: ${unrealizedPnlPct.toFixed(2)}% >= ${exitRules.takeProfitPct}%`;
         }
-        // Stop Loss
+        // Stop Loss — marked as emergency so it bypasses min hold time (capital protection)
         else if (exitRules.stopLossPct && unrealizedPnlPct <= -Math.abs(exitRules.stopLossPct)) {
           shouldExit = true;
+          isEmergencyExit = true;
           exitReason = `Stop loss: ${Math.abs(unrealizedPnlPct).toFixed(2)}% >= ${exitRules.stopLossPct}%`;
         }
       }
@@ -934,6 +938,7 @@ export async function POST(
 
         if (dropFromPeakPct >= exitRules.trailingStopPct) {
           shouldExit = true;
+          isEmergencyExit = true; // Stop losses must bypass min hold time to protect capital
           const extremeLabel = position.side === "long" ? "peak" : "trough";
           exitReason = `Trailing stop: ${dropFromPeakPct.toFixed(2)}% from ${extremeLabel} $${peakPrice.toFixed(2)} >= ${exitRules.trailingStopPct}%`;
         }
@@ -941,6 +946,7 @@ export async function POST(
         // Check optional initial hard stop loss (NOT take profit)
         if (!shouldExit && exitRules.initialStopLossPct && unrealizedPnlPct <= -Math.abs(exitRules.initialStopLossPct)) {
           shouldExit = true;
+          isEmergencyExit = true; // Stop losses must bypass min hold time to protect capital
           exitReason = `Initial stop loss: ${Math.abs(unrealizedPnlPct).toFixed(2)}% >= ${exitRules.initialStopLossPct}%`;
         }
       }
@@ -1394,7 +1400,7 @@ export async function POST(
           sessionVenue === "hyperliquid" || sessionMode === "virtual" || sessionMode === "arena" ||
           (sessionVenue === "coinbase" && isIntxEnabled);
         const marketType = isPerpsMarket ? "perpetual" : "spot";
-        const maxLeverage = isPerpsMarket ? (risk.maxLeverage || 1) : 1;
+        const maxLeverage = isPerpsMarket ? (risk.maxLeverage ?? 2) : 1;
         const canShort = isPerpsMarket && guardrails.allowShort !== false;
 
         console.log(`[Tick] 📊 Market type: ${marketType}, Max leverage: ${maxLeverage}x, Shorts allowed: ${canShort}`);
@@ -1992,6 +1998,17 @@ export async function POST(
               actionSummary = "Entry type 'Mean Reversion' not allowed by strategy settings";
               riskResult = { passed: false, reason: actionSummary };
               console.log("[Tick] ⛔ Mean reversion entry blocked - meanReversion behavior disabled");
+            } else if (entryType === "unknown" && (!behaviors.trend || !behaviors.breakout || !behaviors.meanReversion)) {
+              // If any behavior is disabled and we can't classify the entry, block it —
+              // otherwise unclassifiable trades bypass the user's behavior restrictions
+              const disabledBehaviors = [
+                !behaviors.trend ? "Trend" : null,
+                !behaviors.breakout ? "Breakout" : null,
+                !behaviors.meanReversion ? "Mean Reversion" : null,
+              ].filter(Boolean).join(", ");
+              actionSummary = `Entry type could not be classified — blocked because ${disabledBehaviors} behavior(s) disabled`;
+              riskResult = { passed: false, reason: actionSummary };
+              console.log(`[Tick] ⛔ Unclassified entry blocked: disabled behaviors [${disabledBehaviors}], insufficient indicator data to verify entry type`);
             } else {
               console.log(`[Tick] ✅ Entry type '${entryType}' is allowed (Behaviors: Trend=${behaviors.trend}, Breakout=${behaviors.breakout}, MeanRev=${behaviors.meanReversion})`);
             }
@@ -2280,24 +2297,28 @@ export async function POST(
               // Use ATR or volatility indicator for real volatility measurement
               let currentVolatility = 0;
               
+              let hasVolatilityData = true;
               if (indicatorsSnapshot?.atr) {
-                // ATR as percentage of price (most accurate)
                 currentVolatility = (indicatorsSnapshot.atr.value / currentPrice) * 100;
               } else if (indicatorsSnapshot?.volatility) {
-                // Use calculated volatility indicator
                 currentVolatility = indicatorsSnapshot.volatility.value;
+              } else if (candles.length > 0) {
+                const recentCandle = candles[candles.length - 1];
+                currentVolatility = ((recentCandle.high - recentCandle.low) / recentCandle.close) * 100;
               } else {
-                // Fallback: Use price change (original MVP implementation)
-                currentVolatility = Math.abs((currentPrice - (marketPosition?.avg_entry || currentPrice)) / currentPrice) * 100;
+                hasVolatilityData = false;
+                console.warn(`[Tick] ⚠️ Volatility check skipped for ${market}: no ATR, volatility indicator, or candle data. Enable candles in strategy settings for accurate volatility filtering.`);
               }
-              
-              const volatilitySource = indicatorsSnapshot?.atr ? "ATR" : indicatorsSnapshot?.volatility ? "StdDev" : "Price Change";
-              if (confirmation.volatilityMin && currentVolatility < confirmation.volatilityMin) {
-                actionSummary = `Entry confirmation: Volatility ${currentVolatility.toFixed(2)}% (${volatilitySource}) below min ${confirmation.volatilityMin}%`;
-                riskResult = { passed: false, reason: actionSummary };
-              } else if (confirmation.volatilityMax && currentVolatility > confirmation.volatilityMax) {
-                actionSummary = `Entry confirmation: Volatility ${currentVolatility.toFixed(2)}% (${volatilitySource}) exceeds max ${confirmation.volatilityMax}%`;
-                riskResult = { passed: false, reason: actionSummary };
+
+              if (hasVolatilityData) {
+                const volatilitySource = indicatorsSnapshot?.atr ? "ATR" : indicatorsSnapshot?.volatility ? "StdDev" : "Candle Range";
+                if (confirmation.volatilityMin && currentVolatility < confirmation.volatilityMin) {
+                  actionSummary = `Entry confirmation: Volatility ${currentVolatility.toFixed(2)}% (${volatilitySource}) below min ${confirmation.volatilityMin}%`;
+                  riskResult = { passed: false, reason: actionSummary };
+                } else if (confirmation.volatilityMax && currentVolatility > confirmation.volatilityMax) {
+                  actionSummary = `Entry confirmation: Volatility ${currentVolatility.toFixed(2)}% (${volatilitySource}) exceeds max ${confirmation.volatilityMax}%`;
+                  riskResult = { passed: false, reason: actionSummary };
+                }
               }
             }
           }
@@ -2309,11 +2330,15 @@ export async function POST(
               console.warn("[Tick] waitForClose is deprecated and ignored.");
             }
             
-            // Check maxSlippage - Calculate expected slippage and reject if too high
-            // For MVP, we use a simple estimate based on typical crypto market conditions
-            const estimatedSlippagePct = 0.0005; // Assume 0.05% slippage for market orders (5bps)
+            // Check maxSlippage using real orderbook spread when available
             const maxSlippagePct = entryTiming.maxSlippagePct ?? 0.15;
-            
+            let estimatedSlippagePct = 0.0005; // Default 5bps if no orderbook
+
+            if (orderbookSnapshot?.mid && orderbookSnapshot.mid > 0 && orderbookSnapshot.spread !== undefined) {
+              // Half-spread as percentage of mid price = immediate cost of crossing bid-ask
+              estimatedSlippagePct = (orderbookSnapshot.spread / 2) / orderbookSnapshot.mid;
+            }
+
             if (estimatedSlippagePct > maxSlippagePct) {
               actionSummary = `Max slippage exceeded: estimated ${(estimatedSlippagePct * 100).toFixed(2)}% > max ${(maxSlippagePct * 100).toFixed(2)}%`;
               riskResult = { passed: false, reason: actionSummary };
