@@ -62,6 +62,14 @@ EFFICIENCY:
 - If flat and first data shows clear ranging market, decide "neutral" quickly.
 - If in a position, check recent_decisions to remember your entry thesis.
 
+INTERNAL SELF-CHECK (mandatory before every entry — do NOT include this in your output):
+Before deciding long or short, mentally evaluate:
+1. Why would price go UP from here? (bull case)
+2. Why would price go DOWN from here? (bear case)
+3. Which case has stronger evidence? If the opposing case is stronger, do NOT enter.
+If both cases are roughly equal → choose "neutral". Do not force a trade.
+Your "reasoning" output should contain only your final conclusion — not the bull/bear analysis steps.
+
 FINAL OUTPUT:
 When ready, output ONLY valid JSON (no markdown, no code blocks):
 {"market":"...","bias":"...","confidence":0.0,"entry_zone":{"lower":0,"upper":0},"stop_loss":0,"take_profit":0,"risk":0.0,"leverage":1,"reasoning":"..."}
@@ -109,6 +117,7 @@ export async function agenticIntentCall(args: {
     allowShort: boolean;
     entryInstructions: string;
   };
+  marketPerformanceStats?: { market: string; wins: number; losses: number; totalPnl: number }[];
 }): Promise<IntentWithUsage> {
   const baseUrl = normalizeBaseUrl(args.baseUrl);
   const isAnthropic =
@@ -297,6 +306,18 @@ function buildInitialMessage(args: {
     .join(", ");
   parts.push(`CONSTRAINTS: ${constraints}`);
   parts.push(`ENTRY TYPES: ${sc.entryInstructions}`);
+
+  // Per-market performance feedback
+  if ((args as any).marketPerformanceStats?.length > 0) {
+    const stats = (args as any).marketPerformanceStats as { market: string; wins: number; losses: number; totalPnl: number }[];
+    const statsLines = stats.map(s =>
+      `- ${s.market}: ${s.wins}W / ${s.losses}L (total PnL: ${s.totalPnl >= 0 ? '+' : '-'}$${Math.abs(s.totalPnl).toFixed(2)})`
+    );
+    parts.push(
+      `YOUR TRACK RECORD THIS SESSION:\n${statsLines.join('\n')}\nReview your record before entering. Repeated losses on a market suggest your approach isn't working for it.`
+    );
+  }
+
   parts.push("Use tools to gather data, then output your trading decision as JSON.");
 
   return parts.join("\n\n");

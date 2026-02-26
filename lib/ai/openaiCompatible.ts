@@ -248,6 +248,14 @@ export async function openAICompatibleIntentCall(args: {
     "NOTE: 'close' and 'hold' are ONLY for when a position exists. If no position exists, use 'long', 'short', or 'neutral'.",
     "NOTE: Saying 'short' while holding a long (or vice versa) will also close the position, but 'close' is clearer when exiting.",
     "",
+    "INTERNAL SELF-CHECK (mandatory before every entry — do NOT include this in your output):",
+    "Before deciding long or short, mentally evaluate:",
+    "1. Why would price go UP from here? (bull case)",
+    "2. Why would price go DOWN from here? (bear case)",
+    "3. Which case has stronger evidence? If the opposing case is stronger, do NOT enter.",
+    "If both cases are roughly equal → choose 'neutral'. Do not force a trade.",
+    "Your 'reasoning' output should contain only your final conclusion — not the bull/bear analysis steps.",
+    "",
     "DECISION FRAMEWORK (use this process every tick):",
     "1. ASSESS: What is the market regime? (trending/ranging/volatile - check MARKET ANALYSIS if provided)",
     "2. LOCATE: Where is price relative to key levels? (near support/resistance/mid-range)",
@@ -485,6 +493,17 @@ export async function openAICompatibleIntentCall(args: {
   // Add recent trades if available
   if (recentTradesContext) {
     userParts.push(recentTradesContext);
+  }
+
+  // Add per-market performance stats if available
+  const perfStats = (args.context as any).marketPerformanceStats;
+  if (perfStats && Array.isArray(perfStats) && perfStats.length > 0) {
+    const statsLines = perfStats.map((s: any) =>
+      `- ${s.market}: ${s.wins}W / ${s.losses}L (total PnL: ${s.totalPnl >= 0 ? '+' : '-'}$${Math.abs(s.totalPnl).toFixed(2)})`
+    );
+    userParts.push(
+      `YOUR TRACK RECORD THIS SESSION:\n${statsLines.join('\n')}\nReview your record before entering. Repeated losses on a market suggest your approach isn't working for it.`
+    );
   }
 
   // Add trading constraints (market type, leverage, allowed directions)

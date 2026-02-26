@@ -13,7 +13,7 @@ import { getMidPrices as getHyperliquidPrices } from "@/lib/hyperliquid/prices";
 import { getMidPrices as getCoinbasePrices, getOrderbook as getCoinbaseOrderbook } from "@/lib/coinbase/prices";
 import { getCandles as getHyperliquidCandles } from "@/lib/hyperliquid/candles";
 import { getCandles as getCoinbaseCandles } from "@/lib/coinbase/candles";
-import { placeMarketOrder as placeVirtualOrder, markToMarket, getPositions } from "@/lib/brokers/virtualBroker";
+import { markToMarket, getPositions } from "@/lib/brokers/virtualBroker";
 import { calcTotals, verifyReconciliation } from "@/lib/accounting/pnl";
 import { hyperliquidClient } from "@/lib/hyperliquid/client";
 import { CoinbaseClient } from "@/lib/coinbase/client";
@@ -24,14 +24,11 @@ import {
   syncPositionsFromCoinbase,
   updateAccountEquity,
   updateCoinbaseAccountEquity,
-  recordLiveTrade,
-  updatePositionFromTrade,
   reconstructIntxPositionsFromTrades,
   getLivePositions,
 } from "@/lib/brokers/liveBroker";
-import { placeMarketOrder as placeHyperliquidOrder } from "@/lib/hyperliquid/orderExecution";
-import { placeMarketOrder as placeCoinbaseOrder } from "@/lib/coinbase/orderExecution";
 import { Venue } from "@/lib/engine/types";
+import { placeMarketOrder } from "@/lib/trading/placeMarketOrder";
 import { fetchCryptoNews } from "@/lib/ai/newsService";
 import { agenticIntentCall } from "@/lib/ai/agenticLoop";
 import type { ToolContext } from "@/lib/ai/agenticTools";
@@ -73,299 +70,6 @@ function getTables(mode: string) {
     positions: "virtual_positions",
     accounts: "virtual_accounts",
   };
-}
-
-/**
- * Unified order execution that routes to either real or virtual broker based on session mode and venue
- */
-async function placeMarketOrder(params: {
-  sessionMode: "virtual" | "live" | "arena";
-  venue?: Venue;
-  livePrivateKey?: string;
-  liveApiKey?: string;
-  liveApiSecret?: string;
-  account_id: string;
-  strategy_id: string;
-  session_id: string;
-  market: string;
-  side: "buy" | "sell";
-  notionalUsd: number;
-  slippageBps: number;
-  feeBps: number;
-  isExit?: boolean; // Whether this is an exit/close order (for reduce_only and action tracking)
-  exitPosition?: { side: "long" | "short"; avgEntry: number }; // Position data for calculating realized PnL on exits
-  exitPositionSize?: number; // Exact position size for complete closes (prevents dust)
-  leverage?: number; // Leverage to use for Hyperliquid entry orders (default 1x)
-}): Promise<{
-  success: boolean;
-  error?: string;
-  trade?: any;
-}> {
-  const { sessionMode, venue = "hyperliquid", livePrivateKey, liveApiKey, liveApiSecret, isExit, exitPosition, exitPositionSize, leverage = 1, ...orderParams } = params;
-
-  console.log(`[Order Execution] Session mode: ${sessionMode}, Venue: ${venue}`);
-
-  if (sessionMode === "live") {
-    // LIVE MODE: Place real order on exchange based on venue
-    if (venue === "coinbase") {
-      // COINBASE LIVE ORDER
-      if (!liveApiKey || !liveApiSecret) {
-        return { success: false, error: "Coinbase API credentials required for live trading" };
-      }
-
-      console.log(`[Order Execution] 🔴 LIVE MODE: Placing REAL order on Coinbase`);
-
-      // For exits (closing positions), use sellAll (spot) or exactSize (INTX) to ensure complete close
-      const isIntxMarket = orderParams.market.includes("-PERP") || orderParams.market.endsWith("-INTX");
-      const isSellAll = isExit && orderParams.side === "sell" && !isIntxMarket; // sellAll is for spot only
-      const exactSizeForIntx = isExit && isIntxMarket ? exitPositionSize : undefined;
-
-      if (isSellAll) {
-        console.log(`[Order Execution] 🔄 Exit order (spot): Using sellAll to close entire position`);
-      }
-      if (exactSizeForIntx) {
-        console.log(`[Order Execution] 🔄 Exit order (INTX): Using exact size ${exactSizeForIntx} to close position`);
-      }
-
-      try {
-        const result = await placeCoinbaseOrder(
-          liveApiKey,
-          liveApiSecret,
-          orderParams.market, // Already in BTC-USD format or ETH-PERP-INTX for INTX
-          orderParams.side,
-          orderParams.notionalUsd,
-          isSellAll, // sellAll flag for spot complete closes
-          exactSizeForIntx // exact size for INTX complete closes
-        );
-
-        if (result.success) {
-          console.log(`[Order Execution] ✅ Coinbase order placed successfully: ${result.orderId}`);
-
-          // Record the trade in our database
-          try {
-            const tradeSize = result.fillSize || 0;
-            const tradePrice = result.fillPrice || 0;
-            const tradeFee = (result.fillValue || orderParams.notionalUsd) * (orderParams.feeBps / 10000);
-
-            // Calculate realized PnL for exit trades
-            let realizedPnl = 0;
-            if (isExit && exitPosition && tradeSize > 0 && tradePrice > 0) {
-              if (exitPosition.side === "long") {
-                // Long position: profit = (exit price - entry price) * size
-                realizedPnl = (tradePrice - exitPosition.avgEntry) * tradeSize;
-              } else {
-                // Short position: profit = (entry price - exit price) * size
-                realizedPnl = (exitPosition.avgEntry - tradePrice) * tradeSize;
-              }
-              console.log(`[Order Execution] 💰 Calculated realized PnL: ${exitPosition.side} entry=$${exitPosition.avgEntry.toFixed(2)}, exit=$${tradePrice.toFixed(2)}, size=${tradeSize.toFixed(8)} → PnL=$${realizedPnl.toFixed(4)}`);
-            }
-
-            // Determine leverage - INTX perpetuals can use leverage, spot is always 1x
-            const isIntxMarket = orderParams.market.includes("-PERP") || orderParams.market.endsWith("-INTX");
-            const tradeLeverage = isIntxMarket ? (leverage || 1) : 1;
-
-            await recordLiveTrade(
-              orderParams.account_id,
-              orderParams.session_id || "",
-              {
-                market: orderParams.market,
-                action: isExit ? "close" : "open",
-                side: orderParams.side,
-                size: tradeSize,
-                price: tradePrice,
-                fee: tradeFee,
-                realized_pnl: realizedPnl,
-                venue_order_id: result.orderId,
-                leverage: tradeLeverage,
-              }
-            );
-            console.log(`[Order Execution] ✅ Coinbase trade recorded: ${tradeSize.toFixed(8)} @ $${tradePrice.toFixed(2)}, PnL: $${realizedPnl.toFixed(4)} (${tradeLeverage}x leverage)`);
-
-            // For INTX perpetuals, update position locally since we can't sync from Coinbase API
-            // Spot positions are synced via syncPositionsFromCoinbase which reads spot balances
-            if (isIntxMarket) {
-              await updatePositionFromTrade(
-                orderParams.account_id,
-                {
-                  market: orderParams.market,
-                  action: isExit ? "close" : "open",
-                  side: orderParams.side,
-                  size: tradeSize,
-                  price: tradePrice,
-                  leverage: tradeLeverage,
-                }
-              );
-            }
-          } catch (dbError: any) {
-            console.error(`[CRITICAL] Live Coinbase trade executed but DB recording failed. Manual intervention required.`);
-            console.error(`[CRITICAL] Trade details:`, JSON.stringify({
-              account_id: orderParams.account_id,
-              session_id: orderParams.session_id,
-              market: orderParams.market,
-              side: orderParams.side,
-              orderId: result.orderId,
-              fillPrice: result.fillPrice,
-              fillSize: result.fillSize,
-              error: dbError.message,
-            }));
-
-            // Pause the session to prevent further trading with corrupted state
-            try {
-              const pauseClient = createServiceRoleClient();
-              await pauseClient
-                .from("strategy_sessions")
-                .update({
-                  status: "paused",
-                  error_message: `CRITICAL: Coinbase trade executed (Order: ${result.orderId}) but failed to record in database. Manual review required.`,
-                })
-                .eq("id", orderParams.session_id);
-            } catch (pauseErr) {
-              console.error(`[CRITICAL] Also failed to pause session after trade recording failure`);
-            }
-          }
-
-          return {
-            success: true,
-            trade: {
-              order_id: result.orderId,
-              fill_price: result.fillPrice,
-              fill_size: result.fillSize,
-            },
-          };
-        } else {
-          console.error(`[Order Execution] ❌ Coinbase order failed: ${result.error}`);
-          return {
-            success: false,
-            error: result.error || "Order failed",
-          };
-        }
-      } catch (error: any) {
-        console.error(`[Order Execution] ❌ Exception placing Coinbase order:`, error);
-        return {
-          success: false,
-          error: error.message || "Failed to place order",
-        };
-      }
-    } else {
-      // HYPERLIQUID LIVE ORDER
-      if (!livePrivateKey) {
-        return { success: false, error: "Private key required for Hyperliquid live trading" };
-      }
-
-      console.log(`[Order Execution] 🔴 LIVE MODE: Placing REAL order on Hyperliquid`);
-
-      try {
-        // Remove -PERP suffix if present (SDK uses coin name without suffix)
-        const coin = orderParams.market.replace(/-PERP$/i, "");
-
-        const result = await placeHyperliquidOrder(
-          livePrivateKey,
-          coin,
-          orderParams.side,
-          orderParams.notionalUsd,
-          orderParams.slippageBps / 10000,
-          !!isExit,
-          leverage // Pass leverage to set on Hyperliquid before placing order
-        );
-
-        if (result.success) {
-          console.log(`[Order Execution] ✅ Hyperliquid order placed successfully: ${result.orderId}`);
-
-          // Record the trade in our database for tracking
-          try {
-            const tradeSize = result.fillSize || 0;
-            const tradePrice = result.fillPrice || 0;
-            const tradeFee = tradeSize * tradePrice * (orderParams.feeBps / 10000);
-
-            // Calculate realized PnL for exit trades
-            let realizedPnl = 0;
-            if (isExit && exitPosition && tradeSize > 0 && tradePrice > 0) {
-              if (exitPosition.side === "long") {
-                // Long position: profit = (exit price - entry price) * size
-                realizedPnl = (tradePrice - exitPosition.avgEntry) * tradeSize;
-              } else {
-                // Short position: profit = (entry price - exit price) * size
-                realizedPnl = (exitPosition.avgEntry - tradePrice) * tradeSize;
-              }
-              console.log(`[Order Execution] 💰 Calculated realized PnL: ${exitPosition.side} entry=$${exitPosition.avgEntry.toFixed(2)}, exit=$${tradePrice.toFixed(2)}, size=${tradeSize.toFixed(4)} → PnL=$${realizedPnl.toFixed(4)}`);
-            }
-
-            await recordLiveTrade(
-              orderParams.account_id,
-              orderParams.session_id || "",
-              {
-                market: orderParams.market,
-                action: isExit ? "close" : "open",
-                side: orderParams.side,
-                size: tradeSize,
-                price: tradePrice,
-                fee: tradeFee,
-                realized_pnl: realizedPnl,
-                venue_order_id: result.orderId,
-                leverage: leverage, // Record the leverage used for this trade
-              }
-            );
-            console.log(`[Order Execution] ✅ Trade recorded: ${tradeSize.toFixed(4)} ${coin} @ $${tradePrice.toFixed(2)}, PnL: $${realizedPnl.toFixed(4)} (${leverage}x leverage)`);
-          } catch (dbError: any) {
-            console.error(`[CRITICAL] Live Hyperliquid trade executed but DB recording failed. Manual intervention required.`);
-            console.error(`[CRITICAL] Trade details:`, JSON.stringify({
-              account_id: orderParams.account_id,
-              session_id: orderParams.session_id,
-              market: orderParams.market,
-              side: orderParams.side,
-              coin,
-              orderId: result.orderId,
-              fillPrice: result.fillPrice,
-              fillSize: result.fillSize,
-              leverage,
-              error: dbError.message,
-            }));
-
-            // Pause the session to prevent further trading with corrupted state
-            try {
-              const pauseClient = createServiceRoleClient();
-              await pauseClient
-                .from("strategy_sessions")
-                .update({
-                  status: "paused",
-                  error_message: `CRITICAL: Hyperliquid trade executed (Order: ${result.orderId}) but failed to record in database. Manual review required.`,
-                })
-                .eq("id", orderParams.session_id);
-            } catch (pauseErr) {
-              console.error(`[CRITICAL] Also failed to pause session after trade recording failure`);
-            }
-          }
-
-          return {
-            success: true,
-            trade: {
-              order_id: result.orderId,
-              fill_price: result.fillPrice,
-              fill_size: result.fillSize,
-            },
-          };
-        } else {
-          console.error(`[Order Execution] ❌ Hyperliquid order failed: ${result.error}`);
-          return {
-            success: false,
-            error: result.error || "Order failed",
-          };
-        }
-      } catch (error: any) {
-        console.error(`[Order Execution] ❌ Exception placing Hyperliquid order:`, error);
-        return {
-          success: false,
-          error: error.message || "Failed to place order",
-        };
-      }
-    }
-  } else {
-    // VIRTUAL/ARENA MODE: Use virtual broker (simulation)
-    // Arena is virtual-only ($100k competition), so it uses the same virtual broker as regular virtual mode
-    const modeLabel = sessionMode === "arena" ? "ARENA (virtual)" : "VIRTUAL";
-    console.log(`[Order Execution] 🟢 ${modeLabel} MODE: Simulating order (${leverage}x leverage)`);
-    return await placeVirtualOrder({ ...orderParams, leverage });
-  }
 }
 
 export async function POST(
@@ -1380,6 +1084,36 @@ export async function POST(
           }
         }
 
+        // Fetch per-market win/loss record for this session
+        // This gives the AI its own track record so it can avoid repeating losing patterns
+        let marketPerformanceStats: { market: string; wins: number; losses: number; totalPnl: number }[] = [];
+        try {
+          const { data: closeTrades } = await serviceClient
+            .from(tables.trades)
+            .select("market, realized_pnl")
+            .eq("session_id", sessionId)
+            .eq("action", "close");
+
+          if (closeTrades && closeTrades.length > 0) {
+            const statsMap = new Map<string, { wins: number; losses: number; totalPnl: number }>();
+            for (const t of closeTrades) {
+              const existing = statsMap.get(t.market) || { wins: 0, losses: 0, totalPnl: 0 };
+              const pnl = Number(t.realized_pnl || 0);
+              if (pnl > 0) existing.wins++;
+              else existing.losses++;
+              existing.totalPnl += pnl;
+              statsMap.set(t.market, existing);
+            }
+            marketPerformanceStats = Array.from(statsMap.entries()).map(([m, s]) => ({
+              market: m, wins: s.wins, losses: s.losses, totalPnl: s.totalPnl,
+            }));
+            console.log(`[Tick] 📊 Per-market performance:`, marketPerformanceStats.map(s => `${s.market}: ${s.wins}W/${s.losses}L ($${s.totalPnl.toFixed(2)})`).join(', '));
+          }
+        } catch (error: any) {
+          console.error(`[Tick] Failed to fetch market performance stats:`, error);
+          // Continue without stats - don't fail the tick
+        }
+
         // Build context for AI - COMPILED WITH ALL REQUESTED AI INPUTS
         const contextPositions = aiInputs.includePositionState !== false ? positionsSnapshot : [];
         const contextCurrentPosition = aiInputs.includePositionState !== false && marketPosition ? {
@@ -1441,6 +1175,7 @@ export async function POST(
             allowLong: guardrails.allowLong !== false,
             allowShort: canShort,
           },
+          marketPerformanceStats: marketPerformanceStats.length > 0 ? marketPerformanceStats : undefined,
         };
 
         // Call AI — agentic mode (tool calling) or passive mode (single prompt)
@@ -1500,6 +1235,7 @@ export async function POST(
               allowShort: canShort,
               entryInstructions,
             },
+            marketPerformanceStats: marketPerformanceStats.length > 0 ? marketPerformanceStats : undefined,
           });
           console.log(`[Tick] 🤖 Agentic response: bias=${aiResponse.intent.bias}, confidence=${aiResponse.intent.confidence}, tokens=${aiResponse.usage.totalTokens}`);
         } else {
@@ -1516,6 +1252,18 @@ export async function POST(
 
         intent = aiResponse.intent;
         confidence = intent.confidence || 0;
+
+        // CONFIDENCE CALIBRATION: Transform raw AI confidence through tanh compression
+        // Data showed DeepSeek outputs 0.82 on every trade, Grok 0.65-0.92 with zero
+        // win/loss correlation. This makes the user's min confidence threshold actually
+        // filter bad trades by squashing overconfident constant values.
+        const rawConfidence = confidence;
+        {
+          const compressed = 0.5 * (1 + Math.tanh(2.5 * (rawConfidence - 0.65)));
+          const regimePenalty = marketAnalysis?.multiTimeframe?.alignment === "conflicting" ? 0.10 : 0;
+          confidence = Math.max(0, compressed - regimePenalty);
+          console.log(`[Tick] 🧠 Confidence calibration: raw=${rawConfidence.toFixed(2)} → calibrated=${confidence.toFixed(2)}${regimePenalty > 0 ? ` (MTF conflict penalty: -${regimePenalty})` : ''}`);
+        }
 
         // Check if user is admin (skip billing for platform owner)
         const adminUserIds = (process.env.ADMIN_USER_IDS || "").split(",").map(id => id.trim()).filter(Boolean);
@@ -2015,6 +1763,18 @@ export async function POST(
           }
         }
 
+        // 2c. MTF ALIGNMENT GATE - Block entries when primary and higher timeframe trends conflict
+        // Data showed: 5m regime says "STRONG UPTREND" while 1h is bearish → AI enters longs that immediately lose.
+        // This gate blocks entries when timeframes disagree. Only applies to passive mode (agentic fetches own data).
+        if (riskResult.passed !== false && marketAnalysis?.multiTimeframe?.alignment === "conflicting") {
+          if (intent.bias === "long" || intent.bias === "short") {
+            const mtf = marketAnalysis.multiTimeframe;
+            actionSummary = `MTF conflict: ${mtf.primaryTimeframe} and ${mtf.higherTimeframe} trends disagree (alignment: conflicting)`;
+            riskResult = { passed: false, reason: actionSummary };
+            console.log(`[Tick] ⛔ MTF GATE: Blocking ${intent.bias} entry — ${mtf.primaryTimeframe} trend conflicts with ${mtf.higherTimeframe} trend`);
+          }
+        }
+
         // 3. TRADE CONTROL - Strictly enforce trade frequency and timing limits
         if (riskResult.passed !== false) {
           const tradeControl = entryExit.tradeControl || {};
@@ -2114,8 +1874,15 @@ export async function POST(
 
           // AI's per-trade leverage choice (computed early to inform position sizing)
           // AI outputs leverage directly (1 to maxLeverage), cap at user's maxLeverage setting
+          // CONFIDENCE-SCALED LEVERAGE: Scale max allowed leverage proportionally to calibrated confidence
+          // User's maxLeverage is the ceiling; low confidence = lower leverage within that range
           const aiLeverage = intent.leverage ?? 1;
-          const actualLeverage = Math.max(1, Math.min(Math.round(aiLeverage), maxLeverage));
+          const confidenceRange = 1.0 - minConfidence; // e.g., 1.0 - 0.65 = 0.35
+          const confidenceAboveMin = Math.max(0, confidence - minConfidence);
+          const leverageScale = confidenceRange > 0 ? Math.min(1.0, confidenceAboveMin / confidenceRange) : 1.0;
+          const scaledMaxLeverage = Math.max(1, Math.round(1 + (maxLeverage - 1) * leverageScale));
+          const actualLeverage = Math.max(1, Math.min(Math.round(aiLeverage), scaledMaxLeverage));
+          console.log(`[Tick] 📊 Leverage scaling: AI requested=${aiLeverage}x, confidence=${confidence.toFixed(2)}, scaledMax=${scaledMaxLeverage}x (userMax=${maxLeverage}x), actual=${actualLeverage}x`);
 
           // 4. RISK LIMITS - Strictly enforce max position size, leverage, and daily loss
           if (riskResult.passed !== false) {
