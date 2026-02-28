@@ -22,6 +22,7 @@ export interface MarketRegime {
   trendStrength: number; // 0-100
   regime: "trending" | "ranging" | "volatile";
   confidence: number; // 0-1
+  recentReversal?: boolean; // V-bounce or inverted-V detected in wider candle window
 }
 
 export interface KeyLevels {
@@ -71,21 +72,22 @@ export function detectMarketRegime(
   let totalSignals = 0;
   let volatilityLevel: "low" | "normal" | "high" = "normal";
 
-  // 1. Price structure analysis (always available - uses candles directly)
-  const recentCandles = candles.slice(-20);
+  // 1. Price structure analysis — use ALL available candles (not just last 20)
+  // The user configures candle count (e.g. 200); using them all gives full context
+  // so a crash+bounce shows mixed HH/HL and LL/LH ratios instead of false "strong uptrend"
   let higherHighs = 0;
   let lowerLows = 0;
   let higherLows = 0;
   let lowerHighs = 0;
 
-  for (let i = 1; i < recentCandles.length; i++) {
-    if (recentCandles[i].h > recentCandles[i - 1].h) higherHighs++;
-    if (recentCandles[i].l < recentCandles[i - 1].l) lowerLows++;
-    if (recentCandles[i].l > recentCandles[i - 1].l) higherLows++;
-    if (recentCandles[i].h < recentCandles[i - 1].h) lowerHighs++;
+  for (let i = 1; i < candles.length; i++) {
+    if (candles[i].h > candles[i - 1].h) higherHighs++;
+    if (candles[i].l < candles[i - 1].l) lowerLows++;
+    if (candles[i].l > candles[i - 1].l) higherLows++;
+    if (candles[i].h < candles[i - 1].h) lowerHighs++;
   }
 
-  const total = recentCandles.length - 1;
+  const total = candles.length - 1;
   const hhRatio = higherHighs / total;
   const llRatio = lowerLows / total;
   const hlRatio = higherLows / total;
@@ -107,9 +109,9 @@ export function detectMarketRegime(
 
   totalSignals += 2;
 
-  // 2. Price vs opening range
-  const firstClose = recentCandles[0].c;
-  const lastClose = recentCandles[recentCandles.length - 1].c;
+  // 2. Price vs opening range (full candle window)
+  const firstClose = candles[0].c;
+  const lastClose = candles[candles.length - 1].c;
   const priceChangePct = ((lastClose - firstClose) / firstClose) * 100;
 
   if (priceChangePct > 1.0) bullishSignals += 2;
@@ -172,26 +174,79 @@ export function detectMarketRegime(
 
   // Calculate trend strength and direction
   const netScore = totalSignals > 0 ? (bullishSignals - bearishSignals) / totalSignals : 0;
-  const trendStrength = Math.min(100, Math.round(Math.abs(netScore) * 100));
+  let trendStrength = Math.min(100, Math.round(Math.abs(netScore) * 100));
   const confidence = Math.min(1, totalSignals / 10); // More signals = more confident
 
+  // V-bounce / inverted-V detection using wider candle window
+  // Detects when price crashed then recovered (or spiked then dropped) back to ~starting level
+  let recentReversal = false;
+  const widerWindow = Math.min(candles.length, 60);
+  if (widerWindow >= 30) {
+    const widerCandles = candles.slice(-widerWindow);
+    let minClose = Infinity, maxClose = -Infinity;
+    let minIdx = 0, maxIdx = 0;
+    for (let i = 0; i < widerCandles.length; i++) {
+      if (widerCandles[i].c < minClose) { minClose = widerCandles[i].c; minIdx = i; }
+      if (widerCandles[i].c > maxClose) { maxClose = widerCandles[i].c; maxIdx = i; }
+    }
+
+    const currentClose = widerCandles[widerCandles.length - 1].c;
+    const widerRange = ((maxClose - minClose) / minClose) * 100;
+
+    if (widerRange >= 2.0) {
+      // V-bounce: price dropped then recovered — min is in the middle, price returned to start
+      const minInMiddle = minIdx > widerCandles.length * 0.15 && minIdx < widerCandles.length * 0.85;
+      if (minInMiddle && minIdx < widerCandles.length - 5) {
+        const dropFromStart = ((widerCandles[0].c - minClose) / widerCandles[0].c) * 100;
+        const recoveryFromMin = ((currentClose - minClose) / minClose) * 100;
+        const priceVsStart = Math.abs(((currentClose - widerCandles[0].c) / widerCandles[0].c) * 100);
+        if (dropFromStart >= 2.0 && recoveryFromMin >= dropFromStart * 0.6 && priceVsStart < 1.5) {
+          recentReversal = true;
+        }
+      }
+
+      // Inverted-V: price spiked then dropped — max is in the middle, price returned to start
+      if (!recentReversal) {
+        const maxInMiddle = maxIdx > widerCandles.length * 0.15 && maxIdx < widerCandles.length * 0.85;
+        if (maxInMiddle && maxIdx < widerCandles.length - 5) {
+          const riseFromStart = ((maxClose - widerCandles[0].c) / widerCandles[0].c) * 100;
+          const dropFromMax = ((maxClose - currentClose) / maxClose) * 100;
+          const priceVsStart = Math.abs(((currentClose - widerCandles[0].c) / widerCandles[0].c) * 100);
+          if (riseFromStart >= 2.0 && dropFromMax >= riseFromStart * 0.6 && priceVsStart < 1.5) {
+            recentReversal = true;
+          }
+        }
+      }
+    }
+  }
+
+  // Dampen trend strength AND netScore if V-reversal detected (bounce leg ≠ established trend)
+  // Must happen BEFORE trend label assignment so labels are consistent with dampened values
+  let dampenedNetScore = netScore;
+  if (recentReversal) {
+    trendStrength = Math.round(trendStrength * 0.5);
+    dampenedNetScore = netScore * 0.5;
+  }
+
   let trend: MarketRegime["trend"];
-  if (netScore > 0.6) trend = "strong_uptrend";
-  else if (netScore > 0.2) trend = "uptrend";
-  else if (netScore < -0.6) trend = "strong_downtrend";
-  else if (netScore < -0.2) trend = "downtrend";
+  if (dampenedNetScore > 0.6) trend = "strong_uptrend";
+  else if (dampenedNetScore > 0.2) trend = "uptrend";
+  else if (dampenedNetScore < -0.6) trend = "strong_downtrend";
+  else if (dampenedNetScore < -0.2) trend = "downtrend";
   else trend = "neutral";
 
   let regime: MarketRegime["regime"];
   if (volatilityLevel === "high" && trendStrength < 30) {
     regime = "volatile";
-  } else if (trendStrength < 25 || volatilityLevel === "low") {
+  } else if (trendStrength < 25) {
+    // Only low trendStrength → ranging. Removed "volatilityLevel === low" condition
+    // because a Bollinger squeeze in a strong trend is a continuation signal, not ranging
     regime = "ranging";
   } else {
     regime = "trending";
   }
 
-  return { trend, trendStrength, regime, confidence };
+  return { trend, trendStrength, regime, confidence, recentReversal: recentReversal || undefined };
 }
 
 // ============================================================================
@@ -220,11 +275,13 @@ export function analyzeKeyLevels(
   const distanceToSupportPct = ((currentPrice - nearestSupport) / currentPrice) * 100;
   const distanceToResistancePct = ((nearestResistance - currentPrice) / currentPrice) * 100;
 
+  // Check breakout conditions FIRST — when price is beyond S/R, distance goes negative
+  // and the < 0.3 check would incorrectly match "near" instead of "above/below"
   let pricePosition: KeyLevels["pricePosition"];
-  if (distanceToSupportPct < 0.3) pricePosition = "near_support";
-  else if (distanceToResistancePct < 0.3) pricePosition = "near_resistance";
-  else if (currentPrice > nearestResistance) pricePosition = "above_resistance";
+  if (currentPrice > nearestResistance) pricePosition = "above_resistance";
   else if (currentPrice < nearestSupport) pricePosition = "below_support";
+  else if (distanceToSupportPct < 0.3) pricePosition = "near_support";
+  else if (distanceToResistancePct < 0.3) pricePosition = "near_resistance";
   else pricePosition = "mid_range";
 
   return {
@@ -351,13 +408,18 @@ export function generateMarketSummary(
   // Regime
   const regimeLabel = regime.trend.replace(/_/g, " ").toUpperCase();
   parts.push(`- Regime: ${regimeLabel} (strength: ${regime.trendStrength}/100, ${regime.regime})`);
+  if (regime.recentReversal) {
+    parts.push(`- Recent V-reversal detected: bounce/recovery pattern, trend strength dampened`);
+  }
 
   // MACD
   if (indicators.macd) {
     const { macdLine, signalLine, histogram } = indicators.macd;
     const direction = histogram > 0 ? "bullish" : "bearish";
     // Determine if strengthening or weakening by comparing to recent
-    const momentum = Math.abs(histogram) > Math.abs(macdLine) * 0.5 ? "strong" : "moderate";
+    // Compare histogram to signal line (smoothed MACD) — more stable than raw macdLine
+    // which can be near-zero in ranging markets, making any histogram look "strong"
+    const momentum = Math.abs(histogram) > Math.abs(signalLine) * 0.3 ? "strong" : "moderate";
     parts.push(`- MACD: Histogram ${histogram > 0 ? "+" : ""}${histogram.toFixed(4)} (${direction}, ${momentum})`);
   }
 

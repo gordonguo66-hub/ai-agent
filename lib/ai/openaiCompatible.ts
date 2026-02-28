@@ -83,7 +83,7 @@ export async function openAICompatibleIntentCall(args: {
         slow?: { value: number; period: number };
       };
       macd?: { macdLine: number; signalLine: number; histogram: number };
-      bollingerBands?: { upper: number; middle: number; lower: number; bandwidth: number; percentB: number };
+      bollingerBands?: { upper: number; middle: number; lower: number; bandwidth: number; percentB: number; zScore?: number };
       supportResistance?: { nearestSupport: number; nearestResistance: number; nearestSupportTouches?: number; nearestResistanceTouches?: number; supports: number[]; resistances: number[] };
       volume?: { avgVolume: number; currentVolumeRatio: number; volumeTrend: string };
     };
@@ -119,6 +119,7 @@ export async function openAICompatibleIntentCall(args: {
       allowShort?: boolean;
     };
     newsContext?: string | null;
+    account?: { starting_equity: number; current_equity: number; cash_balance: number; total_return_pct: number };
   };
   provider?: string; // Optional provider hint for API format selection
 }): Promise<IntentWithUsage> {
@@ -373,7 +374,8 @@ export async function openAICompatibleIntentCall(args: {
     if (indicators.bollingerBands) {
       const bb = indicators.bollingerBands;
       const position = bb.percentB > 0.8 ? "near upper band" : bb.percentB < 0.2 ? "near lower band" : bb.percentB > 0.6 ? "upper half" : bb.percentB < 0.4 ? "lower half" : "mid-range";
-      indicatorParts.push(`Bollinger(20,2): Upper $${bb.upper.toFixed(2)}, Mid $${bb.middle.toFixed(2)}, Lower $${bb.lower.toFixed(2)}, Price at ${(bb.percentB * 100).toFixed(0)}% (${position})`);
+      const zScoreStr = bb.zScore !== undefined ? `, Z-score: ${bb.zScore.toFixed(2)}` : '';
+      indicatorParts.push(`Bollinger(20,2): Upper $${bb.upper.toFixed(2)}, Mid $${bb.middle.toFixed(2)}, Lower $${bb.lower.toFixed(2)}, Price at ${(bb.percentB * 100).toFixed(0)}% (${position})${zScoreStr}`);
     }
     if (indicators.supportResistance) {
       const sr = indicators.supportResistance;
@@ -444,6 +446,12 @@ export async function openAICompatibleIntentCall(args: {
     `Market data snapshot (JSON):\n${JSON.stringify(args.context.marketData)}`,
     `All positions snapshot (JSON):\n${JSON.stringify(args.context.positions)}`,
   ];
+
+  // Add account info if available (equity, cash, P&L)
+  if (args.context.account) {
+    const a = args.context.account;
+    userParts.push(`ACCOUNT: Equity $${a.current_equity.toFixed(2)}, Cash $${a.cash_balance.toFixed(2)}, Return ${a.total_return_pct >= 0 ? '+' : ''}${a.total_return_pct.toFixed(2)}%`);
+  }
 
   // Add indicators if available
   if (indicatorsContext) {

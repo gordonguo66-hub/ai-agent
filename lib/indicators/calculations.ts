@@ -26,18 +26,13 @@ export function calculateRSI(candles: Candle[], period: number = 14): number | n
   const gains = priceChanges.map((change) => (change > 0 ? change : 0));
   const losses = priceChanges.map((change) => (change < 0 ? -change : 0));
 
-  // Calculate average gain and loss over the period
-  // Use simple moving average for initial average
-  let avgGain = gains.slice(-period).reduce((sum, gain) => sum + gain, 0) / period;
-  let avgLoss = losses.slice(-period).reduce((sum, loss) => sum + loss, 0) / period;
+  // Wilder's RSI: seed from FIRST period values, then smooth forward over ALL data
+  let avgGain = gains.slice(0, period).reduce((sum, gain) => sum + gain, 0) / period;
+  let avgLoss = losses.slice(0, period).reduce((sum, loss) => sum + loss, 0) / period;
 
-  // Use Wilder's smoothing for subsequent values (more accurate RSI)
-  for (let i = candles.length - period - 1; i < candles.length - 1; i++) {
-    const idx = i - (candles.length - period - 1);
-    if (idx > 0) {
-      avgGain = (avgGain * (period - 1) + gains[i]) / period;
-      avgLoss = (avgLoss * (period - 1) + losses[i]) / period;
-    }
+  for (let i = period; i < gains.length; i++) {
+    avgGain = (avgGain * (period - 1) + gains[i]) / period;
+    avgLoss = (avgLoss * (period - 1) + losses[i]) / period;
   }
 
   if (avgLoss === 0) {
@@ -132,17 +127,13 @@ export function calculateEMA(candles: Candle[], period: number): number | null {
     return null; // Not enough data
   }
 
-  // Start with SMA for first EMA value
-  const smaPeriod = candles.slice(-period);
-  let ema = smaPeriod.reduce((sum, candle) => sum + candle.c, 0) / period;
-
-  // Calculate smoothing factor
+  // Seed SMA from FIRST period candles, then smooth forward over ALL remaining data
+  // (matches calculateEMAFromArray which correctly uses slice(0, period))
+  let ema = candles.slice(0, period).reduce((sum, c) => sum + c.c, 0) / period;
   const multiplier = 2 / (period + 1);
 
-  // Calculate EMA for remaining candles
-  for (let i = candles.length - period + 1; i < candles.length; i++) {
-    const currentPrice = candles[i].c;
-    ema = (currentPrice - ema) * multiplier + ema;
+  for (let i = period; i < candles.length; i++) {
+    ema = (candles[i].c - ema) * multiplier + ema;
   }
 
   return ema;
@@ -218,7 +209,7 @@ export function calculateBollingerBands(
   candles: Candle[],
   period: number = 20,
   stdDevMultiplier: number = 2
-): { upper: number; middle: number; lower: number; bandwidth: number; percentB: number } | null {
+): { upper: number; middle: number; lower: number; bandwidth: number; percentB: number; zScore: number } | null {
   if (candles.length < period) return null;
 
   const recentCandles = candles.slice(-period);
@@ -242,7 +233,11 @@ export function calculateBollingerBands(
   const bandWidth = upper - lower;
   const percentB = bandWidth > 0 ? (currentClose - lower) / bandWidth : 0.5;
 
-  return { upper, middle, lower, bandwidth, percentB };
+  // Z-score: how many standard deviations price is from the mean
+  // Professional quant standard for mean reversion: |Z| >= 2.0 = statistically extreme
+  const zScore = stdDev > 0 ? (currentClose - middle) / stdDev : 0;
+
+  return { upper, middle, lower, bandwidth, percentB, zScore };
 }
 
 export interface SRLevel {

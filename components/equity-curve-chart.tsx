@@ -26,29 +26,52 @@ function ModelAvatarDotInner({ logoUrl, modelName }: { logoUrl: string; modelNam
   const [hovered, setHovered] = useState(false);
   return (
     <div
-      title={modelName}
+      style={{ position: "relative", display: "inline-block" }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      style={{
-        width: hovered ? 56 : 44,
-        height: hovered ? 56 : 44,
-        borderRadius: "50%",
-        border: `2px solid ${hovered ? "white" : "rgba(255,255,255,0.8)"}`,
-        overflow: "hidden",
-        boxShadow: hovered
-          ? "0 0 12px rgba(16,185,129,0.6), 0 0 24px rgba(16,185,129,0.3)"
-          : "0 2px 8px rgba(0,0,0,0.3)",
-        background: "#1a1a2e",
-        cursor: "default",
-        transition: "all 0.2s ease",
-        margin: hovered ? -6 : 0,
-      }}
     >
-      <img
-        src={logoUrl}
-        alt={modelName || "AI Model"}
-        style={{ width: "100%", height: "100%", objectFit: "cover" }}
-      />
+      <div
+        style={{
+          width: hovered ? 56 : 44,
+          height: hovered ? 56 : 44,
+          borderRadius: "50%",
+          border: `2px solid ${hovered ? "white" : "rgba(255,255,255,0.8)"}`,
+          overflow: "hidden",
+          boxShadow: hovered
+            ? "0 0 12px rgba(16,185,129,0.6), 0 0 24px rgba(16,185,129,0.3)"
+            : "0 2px 8px rgba(0,0,0,0.3)",
+          background: "#1a1a2e",
+          cursor: "default",
+          transition: "all 0.2s ease",
+          margin: hovered ? -6 : 0,
+        }}
+      >
+        <img
+          src={logoUrl}
+          alt={modelName || "AI Model"}
+          style={{ width: "100%", height: "100%", objectFit: "cover" }}
+        />
+      </div>
+      {hovered && modelName && (
+        <div
+          style={{
+            position: "absolute",
+            right: "100%",
+            top: "50%",
+            transform: "translateY(-50%)",
+            marginRight: 8,
+            background: "rgba(0,0,0,0.8)",
+            color: "white",
+            padding: "4px 8px",
+            borderRadius: 6,
+            fontSize: 12,
+            whiteSpace: "nowrap",
+            pointerEvents: "none",
+          }}
+        >
+          {modelName}
+        </div>
+      )}
     </div>
   );
 }
@@ -328,32 +351,58 @@ export function EquityCurveChart({
     }
   };
 
-  // Format large numbers with K/M suffix
+  // Format Y-axis values — use full dollar amounts when range is small (like trading platforms)
+  const dataRange = useMemo(() => {
+    if (chartData.length === 0) return 0;
+    const values = chartData.map((d) => d.value);
+    return Math.max(...values) - Math.min(...values);
+  }, [chartData]);
+
   const formatYAxisValue = (value: number): string => {
     const absValue = Math.abs(value);
+
     if (absValue >= 1_000_000) {
-      return `$${(value / 1_000_000).toFixed(1)}M`;
-    } else if (absValue >= 10_000) {
-      return `$${(value / 1_000).toFixed(0)}K`;
+      return `${(value / 1_000_000).toFixed(1)}M`;
     } else if (absValue >= 1_000) {
-      return `$${(value / 1_000).toFixed(1)}K`;
+      const kValue = value / 1_000;
+      if (dataRange < 5_000) return `${kValue.toFixed(1)}K`;
+      return `${kValue.toFixed(0)}K`;
     } else {
-      return `$${value.toFixed(0)}`;
+      return `${value.toFixed(0)}`;
     }
   };
 
-  // Calculate Y-axis domain
-  const yAxisDomain = useMemo(() => {
-    if (chartData.length === 0) return ["auto", "auto"];
-    
+  // Calculate Y-axis domain centered on starting equity with symmetric bounds and clean ticks
+  const { yAxisDomain, yAxisTicks } = useMemo(() => {
+    if (chartData.length === 0) return { yAxisDomain: ["auto", "auto"] as any, yAxisTicks: [] };
+
+    const center = chartMode === "equity" ? startingEquity : 0;
     const values = chartData.map((d) => d.value);
     const minValue = Math.min(...values);
     const maxValue = Math.max(...values);
-    const range = maxValue - minValue;
-    const padding = Math.max(range * 0.1, chartMode === "equity" ? 100 : 50);
-    
-    return [minValue - padding, maxValue + padding];
-  }, [chartData, chartMode]);
+
+    // Max deviation from center (ensure symmetric)
+    const maxDev = Math.max(Math.abs(maxValue - center), Math.abs(minValue - center), 1);
+
+    // Pick a clean tick step: round up to a "nice" interval
+    const tickCount = 5; // aim for 5 ticks (center + 2 above + 2 below)
+    const rawStep = maxDev / 2;
+    const magnitude = Math.pow(10, Math.floor(Math.log10(rawStep)));
+    const niceMultiples = [1, 2, 2.5, 5, 10];
+    const normalized = rawStep / magnitude;
+    const niceStep = magnitude * (niceMultiples.find((m) => m >= normalized) ?? 10);
+
+    // Build symmetric ticks around center
+    const ticks: number[] = [];
+    for (let i = -2; i <= 2; i++) {
+      ticks.push(center + i * niceStep);
+    }
+
+    const domainMin = center - 2.5 * niceStep;
+    const domainMax = center + 2.5 * niceStep;
+
+    return { yAxisDomain: [domainMin, domainMax], yAxisTicks: ticks };
+  }, [chartData, chartMode, startingEquity]);
 
   // Custom tooltip
   const CustomTooltip = ({ active, payload }: any) => {
@@ -573,7 +622,7 @@ export function EquityCurveChart({
           <ResponsiveContainer width="100%" height="100%">
             <LineChart
               data={chartData}
-              margin={{ top: 20, right: modelProvider ? 24 : 10, left: 0, bottom: 30 }}
+              margin={{ top: 20, right: modelProvider ? 34 : 10, left: 0, bottom: 30 }}
             >
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" opacity={0.5} />
               <XAxis
@@ -607,8 +656,9 @@ export function EquityCurveChart({
               />
               <YAxis
                 domain={yAxisDomain}
+                ticks={yAxisTicks}
                 tickFormatter={(v) => formatYAxisValue(Number(v))}
-                width={42}
+                width={46}
                 stroke="#9ca3af"
                 tick={{ fontSize: 10 }}
               />

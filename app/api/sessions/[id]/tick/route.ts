@@ -636,9 +636,12 @@ export async function POST(
         }
 
         // Check if current price has dropped by trailingStopPct from peak
+        // Use entry price as denominator for both directions — avoids asymmetry where
+        // shorts trigger sooner (dividing by trough = smaller number = larger %)
+        const trailRefPrice = Number(position.avg_entry);
         const dropFromPeakPct = position.side === "long"
-          ? ((peakPrice - positionPrice) / peakPrice) * 100
-          : ((positionPrice - peakPrice) / peakPrice) * 100;
+          ? ((peakPrice - positionPrice) / trailRefPrice) * 100
+          : ((positionPrice - peakPrice) / trailRefPrice) * 100;
 
         if (dropFromPeakPct >= exitRules.trailingStopPct) {
           shouldExit = true;
@@ -1043,7 +1046,8 @@ export async function POST(
             if (decisionsData) {
               recentDecisions = decisionsData.map((d) => ({
                 timestamp: d.created_at,
-                intent: d.intent,
+                bias: d.intent?.bias,
+                reasoning: d.intent?.reasoning,
                 confidence: d.confidence,
                 actionSummary: d.action_summary,
                 executed: d.executed,
@@ -1238,6 +1242,46 @@ export async function POST(
             marketPerformanceStats: marketPerformanceStats.length > 0 ? marketPerformanceStats : undefined,
           });
           console.log(`[Tick] 🤖 Agentic response: bias=${aiResponse.intent.bias}, confidence=${aiResponse.intent.confidence}, tokens=${aiResponse.usage.totalTokens}`);
+
+          // Compute indicators & market analysis from agentic AI's cached candles
+          // so the entry behavior classifier has real data (not just keyword matching)
+          if (aiResponse.candleCache && aiResponse.candleCache.size > 0) {
+            try {
+              const { runMarketAnalysis } = await import("@/lib/ai/marketAnalysis");
+              // Prefer 5m candles, then 15m, then first available
+              const primaryCandles = aiResponse.candleCache.get("5m")
+                || aiResponse.candleCache.get("15m")
+                || [...aiResponse.candleCache.values()][0];
+
+              if (primaryCandles && primaryCandles.length > 0) {
+                const allIndicatorConfig = {
+                  rsi: { enabled: true }, ema: { enabled: true, fast: 9, slow: 21 },
+                  macd: { enabled: true }, bollingerBands: { enabled: true },
+                  supportResistance: { enabled: true }, volume: { enabled: true },
+                };
+                indicatorsSnapshot = calculateIndicators(primaryCandles, allIndicatorConfig);
+
+                // Determine primary interval and get HTF candles from cache
+                const primaryInterval = aiResponse.candleCache.has("5m") ? "5m"
+                  : aiResponse.candleCache.has("15m") ? "15m" : "5m";
+                const htfMap: Record<string, string> = { "1m": "15m", "5m": "1h", "15m": "4h", "1h": "1d" };
+                const htfInterval = htfMap[primaryInterval] || "1h";
+                const htfCandles = aiResponse.candleCache.get(htfInterval);
+                const htfInd = htfCandles && htfCandles.length > 0
+                  ? calculateIndicators(htfCandles, allIndicatorConfig) : undefined;
+
+                marketAnalysis = runMarketAnalysis({
+                  market, currentPrice, candles: primaryCandles,
+                  indicators: indicatorsSnapshot,
+                  htfIndicators: htfInd,
+                  primaryTimeframe: primaryInterval, htfTimeframe: htfInterval,
+                });
+                console.log(`[Tick] 📊 Agentic post-analysis: regime=${marketAnalysis.regime.regime}, strength=${marketAnalysis.regime.trendStrength}${marketAnalysis.regime.recentReversal ? " (V-reversal)" : ""}, Z-score=${indicatorsSnapshot.bollingerBands?.zScore?.toFixed(2) ?? "N/A"}`);
+              }
+            } catch (err: any) {
+              console.error(`[Tick] Failed to compute agentic post-analysis:`, err.message);
+            }
+          }
         } else {
           // PASSIVE PATH: Pre-fetched data sent in single prompt (existing flow)
           aiResponse = await openAICompatibleIntentCall({
@@ -1623,10 +1667,10 @@ export async function POST(
 
         // 2. GUARDRAILS - Strictly enforce long/short permissions and non-entry biases
         if (riskResult.passed !== false) {
-          if (intent.bias === "long" && !guardrails.allowLong) {
+          if (intent.bias === "long" && guardrails.allowLong === false) {
             actionSummary = "Long positions not allowed by strategy settings";
             riskResult = { passed: false, reason: actionSummary };
-          } else if (intent.bias === "short" && !guardrails.allowShort) {
+          } else if (intent.bias === "short" && guardrails.allowShort === false) {
             actionSummary = "Short positions not allowed by strategy settings";
             riskResult = { passed: false, reason: actionSummary };
           } else if (intent.bias === "hold") {
@@ -1674,26 +1718,26 @@ export async function POST(
               }
             }
 
-            // 2. Mean Reversion: Price deviating significantly from average (BB %B extreme + RSI confirmation)
+            // 2. Mean Reversion: Z-score based detection (professional quant standard)
+            // Z = (Price - SMA) / StdDev. |Z| >= 2.0 = price is 2+ standard deviations from mean
+            // No "strongTrend" skip — Z-score is the statistical authority on price extremes
             if (entryType === "unknown") {
               const bb = indicatorsSnapshot?.bollingerBands;
               const rsi = indicatorsSnapshot?.rsi?.value;
-              const regime = marketAnalysis?.regime;
+              const zScore = bb?.zScore;
 
-              // Skip in strong trends — price "should" keep moving away from average
-              const strongTrend = regime && regime.regime === "trending" && regime.trendStrength >= 50;
-
-              if (bb && !strongTrend) {
-                const bbExtreme = bb.percentB < 0.15 || bb.percentB > 0.85;
-                const bbVeryExtreme = bb.percentB < 0.05 || bb.percentB > 0.95;
+              if (zScore !== undefined) {
+                const absZ = Math.abs(zScore);
                 const rsiConfirms = rsi !== undefined && (rsi < 35 || rsi > 65);
 
-                if (bbVeryExtreme || (bbExtreme && rsiConfirms)) {
+                // Primary: |Z| >= 2.0 (2+ stddev from mean — professional threshold)
+                // Secondary: |Z| >= 1.5 with RSI confirmation
+                if (absZ >= 2.0 || (absZ >= 1.5 && rsiConfirms)) {
                   entryType = "meanReversion";
-                  console.log(`[Tick] 🔄 Mean reversion classified: BB %B=${(bb.percentB * 100).toFixed(0)}%${rsi !== undefined ? `, RSI=${rsi.toFixed(0)}` : ""}${regime ? `, regime=${regime.regime}` : ""}`);
+                  console.log(`[Tick] 🔄 Mean reversion classified: Z-score=${zScore.toFixed(2)}, BB %B=${(bb.percentB * 100).toFixed(0)}%${rsi !== undefined ? `, RSI=${rsi.toFixed(0)}` : ""}${marketAnalysis?.regime?.recentReversal ? " (V-reversal)" : ""}`);
                 }
-              } else if (!bb && !strongTrend && rsi !== undefined && (rsi < 25 || rsi > 75)) {
-                // Fallback: if no BB data, use tighter RSI threshold (was 30/70, now 25/75)
+              } else if (rsi !== undefined && (rsi < 25 || rsi > 75)) {
+                // Fallback: no BB data, use tight RSI threshold
                 entryType = "meanReversion";
               }
             }
@@ -1782,10 +1826,12 @@ export async function POST(
           const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
           // Fetch last trade for this market (used by multiple checks below)
+          // Use session_id (consistent with frequency counts below)
+          // account_id would let trades from other sessions trigger cooldowns
           const { data: lastTrade } = await serviceClient
             .from(tables.trades)
             .select("created_at, side, action")
-            .eq("account_id", account.id)
+            .eq("session_id", sessionId)
             .eq("market", market)
             .order("created_at", { ascending: false })
             .limit(1)
@@ -1793,16 +1839,20 @@ export async function POST(
 
           // CRITICAL FIX: Filter by session_id, not just account_id.
           // Multiple sessions on the same account should have independent trade limits.
+          // Also filter action="open" — only count entries, not exits.
+          // Without this, each entry+exit = 2 trades, making limits 2x more restrictive than intended.
           const { count: tradesLastHour } = await serviceClient
             .from(tables.trades)
             .select("*", { count: "exact", head: true })
             .eq("session_id", sessionId)
+            .eq("action", "open")
             .gte("created_at", oneHourAgo.toISOString());
 
           const { count: tradesLastDay } = await serviceClient
             .from(tables.trades)
             .select("*", { count: "exact", head: true })
             .eq("session_id", sessionId)
+            .eq("action", "open")
             .gte("created_at", oneDayAgo.toISOString());
 
           const tradesLastHourCount = tradesLastHour || 0;
@@ -1837,13 +1887,14 @@ export async function POST(
           // This prevents adding to position too quickly after opening (stacking during volatile initial period)
           // NOTE: Min hold time for EXITS is checked separately in the exit logic sections above
           if (riskResult.passed !== false && marketPosition && allowReentrySameDirection) {
+            // BUGFIX: Use descending to get MOST RECENT open trade, not the oldest ever
             const { data: positionOpenTrade } = await serviceClient
               .from(tables.trades)
               .select("created_at")
               .eq("account_id", account.id)
               .eq("market", market)
               .eq("action", "open")
-              .order("created_at", { ascending: true })
+              .order("created_at", { ascending: false })
               .limit(1)
               .maybeSingle();
             
@@ -1887,7 +1938,8 @@ export async function POST(
           // 4. RISK LIMITS - Strictly enforce max position size, leverage, and daily loss
           if (riskResult.passed !== false) {
             const maxPositionUsd = risk.maxPositionUsd ?? 10000;
-            const maxLeverage = risk.maxLeverage ?? 2;
+            // NOTE: maxLeverage is defined in outer scope (line 1137) with spot/perps distinction
+            // Do NOT redeclare here — spot markets must stay at 1x
             const maxDailyLossPct = risk.maxDailyLossPct ?? 5;
 
           // Check max daily loss
@@ -2016,8 +2068,11 @@ export async function POST(
           // PRODUCTION SAFETY: Check PROJECTED leverage (after this trade), not just current
           // This prevents taking trades that would cause excessive leverage
           if (riskResult.passed !== false) {
+            // Use CURRENT market price for exposure, not entry price — a position that's up 20%
+            // has 20% more real exposure than entry-price calculation would show
             const totalCurrentPositionValue = allPositions.reduce((sum, p) => {
-              return sum + (Number(p.avg_entry) * Number(p.size));
+              const currentPx = pricesByMarket[p.market] || Number(p.avg_entry);
+              return sum + (currentPx * Number(p.size));
             }, 0);
             const projectedPositionValue = totalCurrentPositionValue + positionNotional;
             const projectedLeverage = Number(account.equity) > 0 
@@ -2304,9 +2359,10 @@ export async function POST(
     for (const pos of allPositionsNow) {
       const price = pricesByMarket[pos.market];
       if (price) {
-        const pnl = pos.side === "long" 
-          ? (price - pos.avg_entry) * pos.size
-          : (pos.avg_entry - price) * pos.size;
+        // Explicit Number() coercion — Supabase can return numeric columns as strings
+        const pnl = pos.side === "long"
+          ? (price - Number(pos.avg_entry)) * Number(pos.size)
+          : (Number(pos.avg_entry) - price) * Number(pos.size);
         totalUnrealizedPnlNow += pnl;
       } else {
         // No price available, use stored unrealized_pnl

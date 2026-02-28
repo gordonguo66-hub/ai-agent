@@ -118,7 +118,7 @@ export async function agenticIntentCall(args: {
     entryInstructions: string;
   };
   marketPerformanceStats?: { market: string; wins: number; losses: number; totalPnl: number }[];
-}): Promise<IntentWithUsage> {
+}): Promise<IntentWithUsage & { candleCache?: Map<string, any[]> }> {
   const baseUrl = normalizeBaseUrl(args.baseUrl);
   const isAnthropic =
     args.provider === "anthropic" || baseUrl.includes("anthropic.com");
@@ -158,7 +158,7 @@ export async function agenticIntentCall(args: {
         throw error; // Let tick route handle API failures uniformly
       }
       console.error(`[Agentic] Non-API error:`, error.message);
-      return neutralIntent(args.market, totalUsage, args.model);
+      return { ...neutralIntent(args.market, totalUsage, args.model), candleCache };
     }
 
     // Accumulate usage
@@ -173,7 +173,7 @@ export async function agenticIntentCall(args: {
           const intent = parseIntentJson(response.textContent);
           intent.market = args.market;
           console.log(`[Agentic] ✅ Complete: ${toolCallCount} tool calls, ${totalUsage.totalTokens} tokens, decision: ${intent.bias} (${intent.confidence})`);
-          return { intent, usage: totalUsage, model: args.model };
+          return { intent, usage: totalUsage, model: args.model, candleCache };
         } catch {
           // JSON parse failed — ask AI to retry if we have budget
           if (toolCallCount < maxToolCalls && iteration < maxToolCalls + 1) {
@@ -185,10 +185,10 @@ export async function agenticIntentCall(args: {
             continue;
           }
           console.error(`[Agentic] Failed to parse intent JSON, returning neutral`);
-          return neutralIntent(args.market, totalUsage, args.model);
+          return { ...neutralIntent(args.market, totalUsage, args.model), candleCache };
         }
       }
-      return neutralIntent(args.market, totalUsage, args.model);
+      return { ...neutralIntent(args.market, totalUsage, args.model), candleCache };
     }
 
     // Tool calls — execute them
@@ -235,7 +235,7 @@ export async function agenticIntentCall(args: {
       try {
         const intent = parseIntentJson(finalResponse.textContent);
         intent.market = args.market;
-        return { intent, usage: totalUsage, model: args.model };
+        return { intent, usage: totalUsage, model: args.model, candleCache };
       } catch {
         // Still can't parse
       }
@@ -245,7 +245,7 @@ export async function agenticIntentCall(args: {
     console.error(`[Agentic] Final call failed:`, error.message);
   }
 
-  return neutralIntent(args.market, totalUsage, args.model);
+  return { ...neutralIntent(args.market, totalUsage, args.model), candleCache };
 }
 
 // ─── Initial Message Builder ────────────────────────────────────
