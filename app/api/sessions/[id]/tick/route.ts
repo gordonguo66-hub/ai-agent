@@ -1504,9 +1504,23 @@ export async function POST(
               }
             }
           }
-          
+
+          // MIN CONFIDENCE CHECK FOR AI-DRIVEN EXITS
+          // Exits must also respect the user's min confidence threshold
           if (shouldExitAI) {
-            const exitReason = isExplicitClose 
+            const confidenceControlForExit = entryExit.confidenceControl || {};
+            const minConfidenceForExit = confidenceControlForExit.minConfidence ?? guardrails.minConfidence ?? 0.65;
+
+            if (confidence < minConfidenceForExit) {
+              console.log(`[Tick] ⚠️ AI exit blocked by min confidence: ${(confidence * 100).toFixed(0)}% < ${(minConfidenceForExit * 100).toFixed(0)}%`);
+              shouldExitAI = false;
+              actionSummary = `AI wanted to ${isExplicitClose ? 'close' : 'reverse'} but confidence ${(confidence * 100).toFixed(0)}% below minimum ${(minConfidenceForExit * 100).toFixed(0)}%`;
+              riskResult = { passed: false, reason: actionSummary };
+            }
+          }
+
+          if (shouldExitAI) {
+            const exitReason = isExplicitClose
               ? `AI requested close (P&L: ${unrealizedPnlPct >= 0 ? '+' : ''}${unrealizedPnlPct.toFixed(2)}%)`
               : `AI reversal signal: ${aiIntent} (was ${positionSide})`;
             
