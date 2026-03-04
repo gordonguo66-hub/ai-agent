@@ -100,11 +100,11 @@ const SEED_TRADERS: SeedTraderConfig[] = [
     waypoints: [[0, 100000], [8, 97000], [11, 93000], [13, 140000], [17, 158000], [22, 148000], [28, 145000]],
   },
   {
-    // OUTLIER: peaked then CATASTROPHIC -52% crash, slow grind back → 19%
+    // OUTLIER: peaked then CATASTROPHIC -52% crash, never fully recovered → -12%
     id: "seed-trader-2", displayName: "nateqt", avatarStyle: null,
     avatarUrl: "/avatars/seed/IMG_6380.jpg",
     daysAgo: 24, volatility: 0.018, tradesCount: 34, winRate: 58, maxDrawdownPct: 62.0,
-    waypoints: [[0, 100000], [4, 108000], [8, 120000], [10, 125000], [12, 55000], [16, 48000], [20, 85000], [24, 119000]],
+    waypoints: [[0, 100000], [4, 108000], [8, 120000], [10, 125000], [12, 55000], [16, 48000], [20, 75000], [24, 88000]],
   },
   {
     // Contrarian — bled during chop, spiked during crash, gave back → 33%
@@ -114,11 +114,11 @@ const SEED_TRADERS: SeedTraderConfig[] = [
     waypoints: [[0, 100000], [6, 96000], [8, 91000], [11, 87000], [13, 135000], [19, 143000], [22, 133000]],
   },
   {
-    // Joined mid-range but LOW return — steady boring grinder → 14%
+    // Joined mid-range — steady grinder but slowly bleeding → -5%
     id: "seed-trader-4", displayName: "StacyK", avatarStyle: null,
     avatarUrl: "/avatars/seed/stacyk.jpg",
-    daysAgo: 19, volatility: 0.008, tradesCount: 88, winRate: 55, maxDrawdownPct: 4.0,
-    waypoints: [[0, 100000], [4, 102000], [8, 105000], [12, 108000], [16, 111000], [19, 114000]],
+    daysAgo: 19, volatility: 0.008, tradesCount: 88, winRate: 48, maxDrawdownPct: 8.0,
+    waypoints: [[0, 100000], [4, 102000], [8, 101000], [12, 99000], [16, 97000], [19, 95000]],
   },
   {
     // OUTLIER: almost blown out immediately (-50%), incredible comeback → 25%
@@ -142,11 +142,11 @@ const SEED_TRADERS: SeedTraderConfig[] = [
     waypoints: [[0, 100000], [3, 118000], [6, 94000], [9, 108000], [12, 130000]],
   },
   {
-    // Mountain → valley → up — moderate return → 17%
+    // Mountain → valley → slight recovery but still underwater → -8%
     id: "seed-trader-8", displayName: "ameliav", avatarStyle: null,
     avatarUrl: "/avatars/seed/ameliav.jpg",
-    daysAgo: 10, volatility: 0.012, tradesCount: 102, winRate: 64, maxDrawdownPct: 18.0,
-    waypoints: [[0, 100000], [3, 112000], [6, 92000], [8, 108000], [10, 117000]],
+    daysAgo: 10, volatility: 0.012, tradesCount: 102, winRate: 51, maxDrawdownPct: 18.0,
+    waypoints: [[0, 100000], [3, 112000], [6, 85000], [8, 90000], [10, 92000]],
   },
   {
     // Only 7 days but on a HOT STREAK — caught big moves → 36% (#3!)
@@ -242,12 +242,13 @@ async function getMarketChanges(): Promise<number[]> {
 
 function selectLosers(dayIndex: number): Set<number> {
   const rand = createSeededRandom(`losers-day-${dayIndex}`);
+  const loserCount = 2 + Math.floor(rand() * 3); // 2, 3, or 4 losers
   const indices = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
-  for (let i = 0; i < 2; i++) {
+  for (let i = 0; i < loserCount; i++) {
     const j = i + Math.floor(rand() * (10 - i));
     [indices[i], indices[j]] = [indices[j], indices[i]];
   }
-  return new Set([indices[0], indices[1]]);
+  return new Set(indices.slice(0, loserCount));
 }
 
 // ---------------------------------------------------------------------------
@@ -268,7 +269,7 @@ function getMarketDrivenWaypoints(
   for (let i = 0; i < marketChanges.length; i++) {
     const day = lastDay + i + 1;
     const absChange = Math.abs(marketChanges[i]);
-    const isQuiet = absChange < 0.015; // <1.5% = quiet market
+    const isQuiet = absChange < 0.005; // <0.5% = quiet market
     const losers = selectLosers(i);
     const isLoser = losers.has(traderIndex);
     const rand = createSeededRandom(`${config.id}-market-day-${i}`);
@@ -276,15 +277,15 @@ function getMarketDrivenWaypoints(
     let dailyChange: number;
     if (isQuiet) {
       // Quiet market: tiny noise only (±0.3%)
-      dailyChange = gaussianNoise(rand) * 0.003;
+      dailyChange = gaussianNoise(rand) * 0.008;
     } else if (isLoser) {
       // Loser: moves against the majority
-      const beta = 0.3 + rand() * 1.2;
+      const beta = 0.5 + rand() * 1.5;
       const noise = gaussianNoise(rand) * 0.005;
-      dailyChange = -(absChange * beta * (0.3 + rand() * 0.4) + Math.abs(noise));
+      dailyChange = -(absChange * beta + Math.abs(noise));
     } else {
       // Winner: profits from market volatility
-      const beta = 0.3 + rand() * 1.2;
+      const beta = 0.5 + rand() * 1.5;
       const noise = gaussianNoise(rand) * 0.005;
       dailyChange = absChange * beta + noise;
     }
@@ -450,7 +451,7 @@ function generateEquityCurve(
       const shift = correctedEnd - actualAtEnd;
       for (let i = originalLastStep + 1; i < points.length; i++) {
         const stepsFromTransition = i - originalLastStep;
-        const decay = Math.exp(-REVERSION_STRENGTH * stepsFromTransition);
+        const decay = Math.exp(-REVERSION_STRENGTH * 3 * stepsFromTransition);
         points[i].value = Math.round((points[i].value + shift * decay) * 100) / 100;
       }
     }
@@ -461,7 +462,7 @@ function generateEquityCurve(
   for (let i = Math.max(1, originalLastStep + 1); i < points.length; i++) {
     const dayOffset = (points[i].time - joinTime) / DAY_MS;
     const target = interpolateWaypoints(extendedWaypoints, dayOffset);
-    const band = target * 0.10;
+    const band = target * 0.40;
     points[i].value = Math.min(target + band, Math.max(target - band, points[i].value));
     points[i].value = Math.round(points[i].value * 100) / 100;
   }
@@ -489,7 +490,7 @@ function buildSeedParticipants(marketChanges: number[]) {
     const expectedEquity = extendedWaypoints[extendedWaypoints.length - 1][1];
     let latestEquity =
       data.length > 0 ? data[data.length - 1].value : STARTING_EQUITY;
-    latestEquity = Math.min(expectedEquity * 1.15, Math.max(expectedEquity * 0.85, latestEquity));
+    latestEquity = Math.min(expectedEquity * 1.30, Math.max(expectedEquity * 0.70, latestEquity));
     const returnPct = ((latestEquity / STARTING_EQUITY) - 1) * 100;
 
     return {
@@ -519,7 +520,7 @@ function buildSeedLeaderboard(marketChanges: number[]) {
     const expectedEquity = extendedWaypoints[extendedWaypoints.length - 1][1];
     let latestEquity =
       data.length > 0 ? data[data.length - 1].value : STARTING_EQUITY;
-    latestEquity = Math.min(expectedEquity * 1.15, Math.max(expectedEquity * 0.85, latestEquity));
+    latestEquity = Math.min(expectedEquity * 1.30, Math.max(expectedEquity * 0.70, latestEquity));
     const pnl = latestEquity - STARTING_EQUITY;
     const pnlPct = (pnl / STARTING_EQUITY) * 100;
 
