@@ -40,8 +40,8 @@ export function estimateBacktestCost(args: {
 
   const durationMs = endDate.getTime() - startDate.getTime();
   const resolutionMs = RESOLUTION_MS[resolution] || RESOLUTION_MS["1h"];
-  const ticksPerMarket = Math.ceil(durationMs / resolutionMs);
-  const totalTicks = ticksPerMarket * marketsCount;
+  const totalTicks = Math.ceil(durationMs / resolutionMs);
+  const totalAiCalls = totalTicks * marketsCount; // one AI call per market per tick
   const durationDays = durationMs / (24 * 60 * 60 * 1000);
 
   const baseCostPerTickUsd = calculateCost(
@@ -51,7 +51,7 @@ export function estimateBacktestCost(args: {
   );
 
   const chargedCentsPerTick = Math.max(1, calculateChargedCents(baseCostPerTickUsd, tier));
-  const totalEstimatedCents = chargedCentsPerTick * totalTicks;
+  const totalEstimatedCents = chargedCentsPerTick * totalAiCalls;
 
   return {
     totalTicks,
