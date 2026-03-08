@@ -1536,7 +1536,7 @@ export async function runBacktest(config: BacktestConfig): Promise<void> {
       .from("backtest_runs")
       .update({
         status: "completed",
-        completed_ticks: totalTicks,
+        completed_ticks: totalTicksDb,
         actual_cost_cents: totalActualCostCents,
         result_summary: resultSummary,
         completed_at: new Date().toISOString(),
