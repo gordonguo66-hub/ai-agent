@@ -921,11 +921,12 @@ export async function runBacktest(config: BacktestConfig): Promise<void> {
         const aiResult = aiResults[mi];
 
         if (!aiResult.ok) {
-          console.error(`[Backtest] AI call failed at tick ${tickIndex} market=${market}: ${aiResult.error}`);
+          const errMsg = (aiResult as { ok: false; error: string }).error;
+          console.error(`[Backtest] AI call failed at tick ${tickIndex} market=${market}: ${errMsg}`);
           decisions.push({
             tickIndex, market, tickTimestamp: tickTime, price,
-            intent: { bias: "neutral", error: aiResult.error },
-            confidence: 0, reasoning: `AI error: ${aiResult.error}`,
+            intent: { bias: "neutral", error: errMsg },
+            confidence: 0, reasoning: `AI error: ${errMsg}`,
             actionSummary: "AI call failed — skipped", inputTokens: 0, outputTokens: 0,
           });
           continue;

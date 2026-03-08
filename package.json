@@ -9,7 +9,7 @@
     "lint": "next lint",
     "clean": "rm -rf .next node_modules/.cache",
     "fresh": "lsof -ti:3000 | xargs kill -9 2>/dev/null; sleep 2; npm run clean && npm run dev",
-    "start:backtest-worker": "ts-node --project worker/tsconfig.json -r tsconfig-paths/register worker/backtest-worker.ts"
+    "start:backtest-worker": "ts-node --transpile-only --project worker/tsconfig.json -r tsconfig-paths/register worker/backtest-worker.ts"
   },
   "dependencies": {
     "@nktkas/hyperliquid": "^0.30.2",
