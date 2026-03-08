@@ -515,8 +515,14 @@ export async function runBacktest(config: BacktestConfig): Promise<void> {
     const totalTicks = Math.ceil(
       (config.endDate.getTime() - config.startDate.getTime()) / resolutionMs
     );
+    // effectiveMarketsPerTick: round-robin processes 1 market/tick, "all" processes all markets/tick
+    // Must match the estimator's totalTicks formula (ticksPerMarket * marketsCount)
+    const effectiveMarketsPerTick = (filters.marketProcessingMode === "round-robin" && config.markets.length > 1)
+      ? 1
+      : config.markets.length;
+    const totalTicksDb = totalTicks * effectiveMarketsPerTick;
 
-    const updateFields: any = { total_ticks: totalTicks };
+    const updateFields: any = { total_ticks: totalTicksDb };
     if (resolutionFallback) {
       updateFields.resolution = resolutionFallback;
     }
@@ -1393,7 +1399,7 @@ export async function runBacktest(config: BacktestConfig): Promise<void> {
         await supabase
           .from("backtest_runs")
           .update({
-            completed_ticks: tickIndex + 1,
+            completed_ticks: (tickIndex + 1) * effectiveMarketsPerTick,
             actual_cost_cents: totalActualCostCents,
           })
           .eq("id", config.backtestId);
