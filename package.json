@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "clean": "rm -rf .next node_modules/.cache",
-    "fresh": "lsof -ti:3000 | xargs kill -9 2>/dev/null; sleep 2; npm run clean && npm run dev"
+    "fresh": "lsof -ti:3000 | xargs kill -9 2>/dev/null; sleep 2; npm run clean && npm run dev",
+    "start:backtest-worker": "ts-node --project worker/tsconfig.json -r tsconfig-paths/register worker/backtest-worker.ts"
   },
   "dependencies": {
     "@nktkas/hyperliquid": "^0.30.2",
@@ -28,6 +29,8 @@
     "resend": "^4.0.1",
     "stripe": "^20.3.0",
     "tailwind-merge": "^3.4.0",
+    "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4.2.0",
     "viem": "^2.45.1"
   },
   "devDependencies": {

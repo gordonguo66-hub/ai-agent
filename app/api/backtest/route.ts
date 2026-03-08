@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { getUserFromRequest } from "@/lib/api/serverAuth";
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import { estimateBacktestCost } from "@/lib/backtest/costEstimator";
-import { runBacktest, type BacktestConfig } from "@/lib/backtest/engine";
 
 export const dynamic = "force-dynamic";
 
@@ -98,13 +97,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Strategy not found" }, { status: 404 });
     }
 
-    const runningCount = await supabase
+    // Count pending + running (Railway worker picks up pending, so both count toward the limit)
+    const { count: activeCount } = await supabase
       .from("backtest_runs")
       .select("id", { count: "exact" })
       .eq("user_id", user.id)
-      .eq("status", "running");
+      .in("status", ["pending", "running"]);
 
-    if ((runningCount.count || 0) >= 3) {
+    if ((activeCount || 0) >= 3) {
       return NextResponse.json(
         { error: "Maximum 3 concurrent backtests. Wait for existing ones to finish." },
         { status: 429 }
@@ -155,6 +155,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Insert as "pending" — the Railway backtest worker polls for pending rows and runs them
     const { data: run, error: insertError } = await supabase
       .from("backtest_runs")
       .insert({
@@ -182,26 +183,6 @@ export async function POST(request: NextRequest) {
         { status: 500 }
       );
     }
-
-    const backtestConfig: BacktestConfig = {
-      backtestId: run.id,
-      userId: user.id,
-      strategyId: strategy.id,
-      markets,
-      venue,
-      startDate,
-      endDate,
-      resolution,
-      modelProvider: effectiveProvider,
-      modelName: effectiveModel,
-      startingEquity: 100000,
-      strategyPrompt: strategy.prompt,
-      strategyFilters: strategy.filters,
-    };
-
-    runBacktest(backtestConfig).catch((err) => {
-      console.error(`[Backtest API] Background execution error:`, err);
-    });
 
     return NextResponse.json({
       backtest: run,
