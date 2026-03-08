@@ -38,6 +38,7 @@ export async function placeMarketOrder(params: {
   exitPosition?: { side: "long" | "short"; avgEntry: number };
   exitPositionSize?: number;
   leverage?: number;
+  currentPrice?: number; // Pre-fetched price to pass to virtual broker (prevents price source mismatch)
 }): Promise<{
   success: boolean;
   error?: string;

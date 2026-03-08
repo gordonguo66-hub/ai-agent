@@ -492,8 +492,8 @@ export async function POST(
 
     // Get venue from session (default to hyperliquid for backwards compatibility)
     const sessionVenue: Venue = (session.venue as Venue) || "hyperliquid";
-    // Virtual and Arena venues use Hyperliquid for market data (simulated trading)
-    const priceVenue: Venue = (sessionVenue === "virtual" || sessionVenue === "arena") ? "hyperliquid" : sessionVenue;
+    // Virtual and Arena modes use Hyperliquid for market data (virtual broker always uses Hyperliquid)
+    const priceVenue: Venue = (sessionMode === "virtual" || sessionMode === "arena") ? "hyperliquid" : sessionVenue;
     console.log(`[Tick] 📊 Using venue: ${sessionVenue} (price source: ${priceVenue})`);
 
     // Fetch real prices from exchange based on venue
@@ -703,6 +703,7 @@ export async function POST(
           exitPosition: { side: position.side as "long" | "short", avgEntry: entryPrice },
           exitPositionSize: size, // Exact position size for complete closes
           leverage: position.leverage || 1, // Record position's leverage on exit trade
+          currentPrice: positionPrice, // Use same price as stop-loss check to prevent mismatch
         });
 
         if (exitResult.success) {
@@ -1556,6 +1557,7 @@ export async function POST(
               exitPosition: { side: positionSide as "long" | "short", avgEntry: entryPrice },
               exitPositionSize: posSize, // Exact position size for complete closes
               leverage: marketPosition?.leverage || 1, // Record position's leverage on exit trade
+              currentPrice, // Use same price as PnL check to prevent mismatch
             });
 
             if (exitResult.success) {
@@ -2212,6 +2214,7 @@ export async function POST(
               feeBps: 5, // 0.05% fee
               isExit: false,
               leverage: actualLeverage, // AI decides leverage (scaled by maxLeverage cap)
+              currentPrice, // Use same price as tick context to prevent mismatch
             });
 
             if (orderResult.success) {

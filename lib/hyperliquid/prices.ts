@@ -11,6 +11,7 @@ interface PriceCacheEntry {
 // In-memory cache with TTL
 const priceCache = new Map<string, PriceCacheEntry>();
 const CACHE_TTL_MS = 1000; // 1 second - reduced for more accurate pricing
+const STALE_CACHE_MAX_AGE_MS = 30_000; // 30 seconds - max age for stale cache fallback on API failure
 
 /**
  * Get mid price for a market (e.g., "BTC-PERP")
@@ -69,10 +70,15 @@ export async function getMidPrice(market: string): Promise<number> {
   } catch (error: any) {
     console.error(`Error fetching price for ${market}:`, error);
     
-    // Return cached price if available (even if stale)
+    // Return cached price if available, but only if not too old
+    // Stale prices used for stop-loss checks can trigger incorrect exits
     if (cached) {
-      console.warn(`Using stale cached price for ${market}`);
-      return cached.price;
+      const cacheAge = Date.now() - cached.timestamp;
+      if (cacheAge <= STALE_CACHE_MAX_AGE_MS) {
+        console.warn(`Using stale cached price for ${market} (age: ${(cacheAge / 1000).toFixed(1)}s)`);
+        return cached.price;
+      }
+      console.error(`Stale cache for ${market} too old (${(cacheAge / 1000).toFixed(0)}s > ${STALE_CACHE_MAX_AGE_MS / 1000}s limit), discarding`);
     }
     
     throw error;

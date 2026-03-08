@@ -64,6 +64,7 @@ export async function openAICompatibleIntentCall(args: {
   apiKey: string;
   model: string;
   prompt: string;
+  currentTime?: number;
   context: {
     market: string;
     marketData: any;
@@ -119,13 +120,15 @@ export async function openAICompatibleIntentCall(args: {
       allowShort?: boolean;
     };
     newsContext?: string | null;
-    account?: { starting_equity: number; current_equity: number; cash_balance: number; total_return_pct: number };
+    account?: { starting_equity: number; current_equity: number; cash_balance: number; available_cash?: number; total_return_pct: number };
+    marketPerformanceStats?: { market: string; wins: number; losses: number; totalPnl: number }[];
   };
   provider?: string; // Optional provider hint for API format selection
 }): Promise<IntentWithUsage> {
   const baseUrl = normalizeBaseUrl(args.baseUrl);
   const model = args.model?.trim();
   if (!model) throw new Error("Missing model");
+  const now = args.currentTime ?? Date.now();
 
   const system = [
     "You are a trading decision engine that manages both entries AND exits.",
@@ -315,7 +318,6 @@ export async function openAICompatibleIntentCall(args: {
 
       if (openTrade) {
         const entryTime = new Date(openTrade.timestamp).getTime();
-        const now = Date.now();
         const minutesSinceEntry = Math.floor((now - entryTime) / 60000);
 
         if (minutesSinceEntry < 60) {
@@ -394,14 +396,15 @@ export async function openAICompatibleIntentCall(args: {
   }
 
   // Build recent decisions context with TIME awareness
+  const hideAbsoluteTime = !!args.currentTime;
   const recentDecisions = args.context.recentDecisions;
   const recentDecisionsContext = recentDecisions && recentDecisions.length > 0
     ? `RECENT DECISIONS (learn from these - look for patterns, avoid flip-flops):\n${recentDecisions.map((d, i) => {
-        const timestamp = new Date(d.timestamp).toLocaleString();
-        const minsAgo = Math.floor((Date.now() - new Date(d.timestamp).getTime()) / 60000);
+        const minsAgo = Math.floor((now - new Date(d.timestamp).getTime()) / 60000);
         const timeAgoStr = minsAgo < 60 ? `${minsAgo}min ago` : `${Math.floor(minsAgo/60)}h ${minsAgo%60}m ago`;
+        const timeLabel = hideAbsoluteTime ? timeAgoStr : `${new Date(d.timestamp).toLocaleString()}] (${timeAgoStr}`;
 
-        return `${i + 1}. [${timestamp}] (${timeAgoStr}) Bias: ${d.bias}, Confidence: ${(d.confidence * 100).toFixed(0)}%${d.reasoning ? `, Reason: ${d.reasoning}` : ''} → ${d.actionSummary}`;
+        return `${i + 1}. [${timeLabel}] Bias: ${d.bias}, Confidence: ${(d.confidence * 100).toFixed(0)}%${d.reasoning ? `, Reason: ${d.reasoning}` : ''} → ${d.actionSummary}`;
       }).join('\n')}\n\n⚠️ ANALYZE: Did you flip-flop recently? Did trend actually reverse, or just noise?`
     : null;
 
@@ -409,15 +412,14 @@ export async function openAICompatibleIntentCall(args: {
   const recentTrades = args.context.recentTrades;
   const recentTradesContext = recentTrades && recentTrades.length > 0
     ? `RECENT TRADES (actual executions - see how long positions lasted):\n${recentTrades.map((t, i) => {
-        const timestamp = new Date(t.timestamp).toLocaleString();
-        const minsAgo = Math.floor((Date.now() - new Date(t.timestamp).getTime()) / 60000);
+        const minsAgo = Math.floor((now - new Date(t.timestamp).getTime()) / 60000);
         const timeAgoStr = minsAgo < 60 ? `${minsAgo}min ago` : `${Math.floor(minsAgo/60)}h ago`;
+        const timeLabel = hideAbsoluteTime ? timeAgoStr : `${new Date(t.timestamp).toLocaleString()}] (${timeAgoStr}`;
 
         const pnlStr = t.realizedPnl !== null
           ? ` → PnL: ${t.realizedPnl >= 0 ? '+' : ''}$${t.realizedPnl.toFixed(2)}`
           : '';
 
-        // For "close" actions, try to calculate hold time
         let holdTimeStr = '';
         if (t.action === 'close' && i < recentTrades.length - 1) {
           const openTrade = recentTrades.slice(i + 1).find(
@@ -435,7 +437,7 @@ export async function openAICompatibleIntentCall(args: {
           }
         }
 
-        return `${i + 1}. [${timestamp}] (${timeAgoStr}) ${t.action.toUpperCase()} ${t.side} ${t.market} @ $${t.price.toFixed(2)}${pnlStr}${holdTimeStr}`;
+        return `${i + 1}. [${timeLabel}] ${t.action.toUpperCase()} ${t.side} ${t.market} @ $${t.price.toFixed(2)}${pnlStr}${holdTimeStr}`;
       }).join('\n')}\n\n⚠️ NOTICE: Exits <30min often due to noise, not real reversals.`
     : null;
 
