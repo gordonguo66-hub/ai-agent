@@ -89,7 +89,7 @@ export async function openAICompatibleIntentCall(args: {
       volume?: { avgVolume: number; currentVolumeRatio: number; volumeTrend: string };
     };
     marketAnalysis?: {
-      regime: { trend: string; trendStrength: number; regime: string; confidence: number };
+      regime: { trend: string; trendStrength: number; trendAge: number; regime: string; confidence: number };
       keyLevels: { nearestSupport: number; nearestResistance: number; nearestSupportTouches?: number; nearestResistanceTouches?: number; distanceToSupportPct: number; distanceToResistancePct: number; pricePosition: string } | null;
       htfKeyLevels?: { nearestSupport: number; nearestResistance: number; nearestSupportTouches?: number; nearestResistanceTouches?: number; distanceToSupportPct: number; distanceToResistancePct: number; pricePosition: string } | null;
       multiTimeframe: { htfTrend: string; htfRSI?: number; alignment: string; primaryTimeframe: string; higherTimeframe: string } | null;
