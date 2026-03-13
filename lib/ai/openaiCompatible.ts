@@ -465,7 +465,8 @@ export async function openAICompatibleIntentCall(args: {
   if (marketAnalysis) {
     const analysisParts: string[] = [`MARKET ANALYSIS (pre-processed from your indicators):`];
     const r = marketAnalysis.regime;
-    analysisParts.push(`Regime: ${r.regime.toUpperCase()} | Trend: ${r.trend.replace(/_/g, ' ')} (strength: ${r.trendStrength}/100, confidence: ${(r.confidence * 100).toFixed(0)}%)`);
+    const trendAgeStr = r.trendAge > 0 ? `, running ${r.trendAge} candles` : "";
+    analysisParts.push(`Regime: ${r.regime.toUpperCase()} | Trend: ${r.trend.replace(/_/g, ' ')} (strength: ${r.trendStrength}/100, confidence: ${(r.confidence * 100).toFixed(0)}%${trendAgeStr})`);
     if (marketAnalysis.keyLevels) {
       const kl = marketAnalysis.keyLevels;
       const supT = kl.nearestSupportTouches ? ` (${kl.nearestSupportTouches}x tested)` : "";

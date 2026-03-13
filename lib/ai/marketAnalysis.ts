@@ -20,6 +20,7 @@
 export interface MarketRegime {
   trend: "strong_uptrend" | "uptrend" | "neutral" | "downtrend" | "strong_downtrend";
   trendStrength: number; // 0-100
+  trendAge: number; // candles since trend started (0 = brand new or neutral)
   regime: "trending" | "ranging" | "volatile";
   confidence: number; // 0-1
   recentReversal?: boolean; // V-bounce or inverted-V detected in wider candle window
@@ -56,6 +57,38 @@ export interface MarketAnalysis {
 // ============================================================================
 
 /**
+ * Counts how many candles ago the current trend started.
+ * For uptrends: candles since the most recent lowest close.
+ * For downtrends: candles since the most recent highest close.
+ * Returns 0 for neutral/ranging markets.
+ */
+function calculateTrendAge(
+  candles: { c: number }[],
+  trend: MarketRegime["trend"]
+): number {
+  if (candles.length < 2) return 0;
+  const closes = candles.map(c => c.c);
+
+  if (trend === "uptrend" || trend === "strong_uptrend") {
+    let minIdx = 0;
+    for (let i = 1; i < closes.length; i++) {
+      if (closes[i] < closes[minIdx]) minIdx = i;
+    }
+    return closes.length - 1 - minIdx;
+  }
+
+  if (trend === "downtrend" || trend === "strong_downtrend") {
+    let maxIdx = 0;
+    for (let i = 1; i < closes.length; i++) {
+      if (closes[i] > closes[maxIdx]) maxIdx = i;
+    }
+    return closes.length - 1 - maxIdx;
+  }
+
+  return 0;
+}
+
+/**
  * Detects the current market regime from candles and available indicators.
  * Uses whichever indicators are present - gracefully handles missing ones.
  */
@@ -64,7 +97,7 @@ export function detectMarketRegime(
   indicators: Record<string, any>
 ): MarketRegime {
   if (candles.length < 20) {
-    return { trend: "neutral", trendStrength: 0, regime: "ranging", confidence: 0.3 };
+    return { trend: "neutral", trendStrength: 0, trendAge: 0, regime: "ranging", confidence: 0.3 };
   }
 
   let bullishSignals = 0;
@@ -246,7 +279,8 @@ export function detectMarketRegime(
     regime = "trending";
   }
 
-  return { trend, trendStrength, regime, confidence, recentReversal: recentReversal || undefined };
+  const trendAge = calculateTrendAge(candles, trend);
+  return { trend, trendStrength, trendAge, regime, confidence, recentReversal: recentReversal || undefined };
 }
 
 // ============================================================================
@@ -407,7 +441,8 @@ export function generateMarketSummary(
 
   // Regime
   const regimeLabel = regime.trend.replace(/_/g, " ").toUpperCase();
-  parts.push(`- Regime: ${regimeLabel} (strength: ${regime.trendStrength}/100, ${regime.regime})`);
+  const trendAgeStr = regime.trendAge > 0 ? `, running ${regime.trendAge} candles` : "";
+  parts.push(`- Regime: ${regimeLabel} (strength: ${regime.trendStrength}/100, ${regime.regime}${trendAgeStr})`);
   if (regime.recentReversal) {
     parts.push(`- Recent V-reversal detected: bounce/recovery pattern, trend strength dampened`);
   }

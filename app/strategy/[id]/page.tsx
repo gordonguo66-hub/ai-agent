@@ -48,6 +48,7 @@ function StrategyDetailContent() {
   const [backtestEstimateLoading, setBacktestEstimateLoading] = useState(false);
   const [backtestRunning, setBacktestRunning] = useState(false);
   const [backtestError, setBacktestError] = useState<string | null>(null);
+  const [deletingBacktestId, setDeletingBacktestId] = useState<string | null>(null);
 
   useEffect(() => {
     const load = async () => {
@@ -251,6 +252,20 @@ function StrategyDetailContent() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [backtestDialogOpen, backtestStartDate, backtestEndDate, backtestResolution]);
 
+  const handleDeleteBacktest = async (e: React.MouseEvent, backtestId: string) => {
+    e.stopPropagation();
+    setDeletingBacktestId(backtestId);
+    try {
+      const bearer = await getBearerToken();
+      const res = await fetch(`/api/backtest/${backtestId}`, { method: "DELETE", headers: bearer ? { Authorization: bearer } : {} });
+      if (res.ok) {
+        setBacktestRuns((prev) => prev.filter((r) => r.id !== backtestId));
+      }
+    } finally {
+      setDeletingBacktestId(null);
+    }
+  };
+
   const handleRunBacktest = async () => {
     setBacktestRunning(true);
     setBacktestError(null);
@@ -446,6 +461,17 @@ function StrategyDetailContent() {
                         )}
                         {run.status === "completed" && summary.total_trades !== undefined && (
                           <span className="text-xs text-gray-500">{summary.total_trades} trades</span>
+                        )}
+                        {(run.status === "cancelled" || run.status === "failed") && (
+                          <button
+                            onClick={(e) => handleDeleteBacktest(e, run.id)}
+                            disabled={deletingBacktestId === run.id}
+                            className="p-1 rounded hover:bg-red-900/40 text-gray-600 hover:text-red-400 transition-colors"
+                          >
+                            {deletingBacktestId === run.id
+                              ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              : <X className="h-3.5 w-3.5" />}
+                          </button>
                         )}
                         <ArrowRight className="h-3.5 w-3.5 text-gray-600" />
                       </div>

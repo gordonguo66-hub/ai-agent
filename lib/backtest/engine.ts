@@ -1254,9 +1254,8 @@ export async function runBacktest(config: BacktestConfig): Promise<void> {
 
           let positionNotional = Math.min(maxPositionUsd, remainingLeverageRoom);
 
-          if (confidenceControl.confidenceScaling && confidence > minConfidence) {
-            const confidenceMultiplier = Math.min(1.0, (confidence - minConfidence) / (1.0 - minConfidence));
-            positionNotional = positionNotional * (0.5 + 0.5 * confidenceMultiplier);
+          if (confidenceControl.confidenceScaling && rawConfidence > 0) {
+            positionNotional = positionNotional * rawConfidence;
           }
           positionNotional = Math.min(positionNotional, maxPositionUsd);
 

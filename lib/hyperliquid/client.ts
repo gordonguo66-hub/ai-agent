@@ -328,11 +328,14 @@ export class HyperliquidClient {
     // but we use spotUsdcBalance as the total equity to avoid double-counting
     const unrealizedPnl = marginUsed > 0 ? perpAccountValue - marginUsed : 0;
 
-    // Total equity = spot USDC balance (this IS the total in unified margin mode)
-    const totalEquity = spotUsdcBalance;
+    // Two account types on Hyperliquid:
+    // 1. Unified margin: USDC stays in spot wallet, pledged to perps → spotUsdcBalance is total
+    // 2. Perp-direct: USDC deposited directly into perps → perpAccountValue is total, spot = 0
+    const usingDirectPerp = spotUsdcBalance === 0 && perpAccountValue > 0;
+    const totalEquity = usingDirectPerp ? perpAccountValue : spotUsdcBalance;
 
-    // For backwards compatibility, perpEquity represents just unrealized PnL
-    const perpEquity = unrealizedPnl;
+    // perpEquity: show unrealized PnL for unified accounts, full perp value for direct perp accounts
+    const perpEquity = usingDirectPerp ? perpAccountValue : unrealizedPnl;
 
     console.log(`[Hyperliquid API] Total equity (unified margin) - Spot USDC: $${spotUsdcBalance.toFixed(2)}, Perp accountValue: $${perpAccountValue.toFixed(2)}, Margin used: $${marginUsed.toFixed(2)}, Unrealized PnL: $${unrealizedPnl.toFixed(2)}, Total: $${totalEquity.toFixed(2)}`);
 

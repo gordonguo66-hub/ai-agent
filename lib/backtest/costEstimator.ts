@@ -41,7 +41,6 @@ export function estimateBacktestCost(args: {
   const durationMs = endDate.getTime() - startDate.getTime();
   const resolutionMs = RESOLUTION_MS[resolution] || RESOLUTION_MS["1h"];
   const totalTicks = Math.ceil(durationMs / resolutionMs);
-  const totalAiCalls = totalTicks * marketsCount; // one AI call per market per tick
   const durationDays = durationMs / (24 * 60 * 60 * 1000);
 
   const baseCostPerTickUsd = calculateCost(
@@ -50,8 +49,11 @@ export function estimateBacktestCost(args: {
     AVG_OUTPUT_TOKENS_PER_TICK
   );
 
-  const chargedCentsPerTick = Math.max(1, calculateChargedCents(baseCostPerTickUsd, tier));
-  const totalEstimatedCents = chargedCentsPerTick * totalAiCalls;
+  // Apply the 1-cent minimum per TICK (all markets combined), not per market individually.
+  // The billing RPC rounds sub-cent costs, so 3 cheap markets combined may still only cost 1 cent/tick.
+  const totalBaseCostPerTickUsd = baseCostPerTickUsd * marketsCount;
+  const chargedCentsPerTick = Math.max(1, calculateChargedCents(totalBaseCostPerTickUsd, tier));
+  const totalEstimatedCents = chargedCentsPerTick * totalTicks;
 
   return {
     totalTicks,
