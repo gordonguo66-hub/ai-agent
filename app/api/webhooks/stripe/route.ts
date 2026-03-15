@@ -163,6 +163,22 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
 
     if (result.success) {
       console.log(`[Stripe Webhook] Successfully added $${(amountCents / 100).toFixed(2)} to user ${user_id}. New balance: $${(result.new_balance / 100).toFixed(2)}`);
+
+      // If user is on free plan, upgrade to on_demand (lifts free tier restrictions)
+      const { data: currentSub } = await serviceClient
+        .from("user_subscriptions")
+        .select("plan_id")
+        .eq("user_id", user_id)
+        .single();
+
+      if (currentSub?.plan_id === "free") {
+        await serviceClient
+          .from("user_subscriptions")
+          .update({ plan_id: null, status: "inactive" })
+          .eq("user_id", user_id);
+        console.log(`[Stripe Webhook] User ${user_id} upgraded from free to on_demand after top-up`);
+      }
+
       return;
     }
   }

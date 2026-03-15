@@ -123,34 +123,39 @@ export function Nav() {
 
           {/* Center: Desktop Menu Items */}
           <div className="hidden lg:flex items-center gap-1 xl:gap-2">
-            {navLinks.map((link) => (
-              link.gated ? (
+            {navLinks.map((link) => {
+              const active = isActive(link.href);
+              const className = `relative px-3 xl:px-4 py-2 text-sm xl:text-base font-medium transition-colors duration-200 whitespace-nowrap ${
+                active
+                  ? "text-white"
+                  : "text-gray-400 hover:text-white"
+              }`;
+
+              return link.gated ? (
                 <a
                   key={link.href}
                   href={link.href}
                   onClick={(e) => handleGatedClick(e, link.href)}
-                  className={`px-3 xl:px-4 py-2 text-sm xl:text-base font-medium rounded-lg transition-all duration-300 cursor-pointer whitespace-nowrap ${
-                    isActive(link.href)
-                      ? "bg-blue-900/50 text-white border border-blue-700"
-                      : "text-gray-300 hover:text-white hover:bg-blue-950/30 border border-transparent"
-                  }`}
+                  className={`${className} cursor-pointer`}
                 >
                   {link.label}
+                  {active && (
+                    <span className="absolute bottom-0 left-3 right-3 xl:left-4 xl:right-4 h-px bg-white" />
+                  )}
                 </a>
               ) : (
                 <Link
                   key={link.href}
                   href={link.href}
-                  className={`px-3 xl:px-4 py-2 text-sm xl:text-base font-medium rounded-lg transition-all duration-300 whitespace-nowrap ${
-                    isActive(link.href)
-                      ? "bg-blue-900/50 text-white border border-blue-700"
-                      : "text-gray-300 hover:text-white hover:bg-blue-950/30 border border-transparent"
-                  }`}
+                  className={className}
                 >
                   {link.label}
+                  {active && (
+                    <span className="absolute bottom-0 left-3 right-3 xl:left-4 xl:right-4 h-px bg-white" />
+                  )}
                 </Link>
-              )
-            ))}
+              );
+            })}
           </div>
 
           {/* Right: User Section */}
@@ -326,8 +331,15 @@ export function Nav() {
         <div className="lg:hidden border-t border-blue-500/20 bg-[#070d1a]">
           <div className="container mx-auto px-4 py-4 space-y-2">
             {/* Navigation Links */}
-            {navLinks.map((link) => (
-              link.gated ? (
+            {navLinks.map((link) => {
+              const active = isActive(link.href);
+              const cls = `block px-4 py-3 text-base font-medium rounded-lg transition-colors duration-200 ${
+                active
+                  ? "text-white bg-white/5"
+                  : "text-gray-400 hover:text-white hover:bg-white/5"
+              }`;
+
+              return link.gated ? (
                 <a
                   key={link.href}
                   href={link.href}
@@ -335,11 +347,7 @@ export function Nav() {
                     handleGatedClick(e, link.href);
                     setMobileMenuOpen(false);
                   }}
-                  className={`block px-4 py-3 text-base font-medium rounded-lg transition-all duration-300 ${
-                    isActive(link.href)
-                      ? "bg-blue-900/50 text-white border border-blue-700"
-                      : "text-gray-300 hover:text-white hover:bg-blue-950/30 border border-transparent"
-                  }`}
+                  className={`${cls} cursor-pointer`}
                 >
                   {link.label}
                 </a>
@@ -348,16 +356,12 @@ export function Nav() {
                   key={link.href}
                   href={link.href}
                   onClick={() => setMobileMenuOpen(false)}
-                  className={`block px-4 py-3 text-base font-medium rounded-lg transition-all duration-300 ${
-                    isActive(link.href)
-                      ? "bg-blue-900/50 text-white border border-blue-700"
-                      : "text-gray-300 hover:text-white hover:bg-blue-950/30 border border-transparent"
-                  }`}
+                  className={cls}
                 >
                   {link.label}
                 </Link>
-              )
-            ))}
+              );
+            })}
 
             {/* User Section in Mobile Menu */}
             {user && (

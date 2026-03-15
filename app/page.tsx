@@ -342,10 +342,20 @@ function FloatingCryptoLogos() {
 
 export default function Home() {
   const router = useRouter();
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+
+  useEffect(() => {
+    import("@/lib/supabase/browser").then(({ createClient }) => {
+      const supabase = createClient();
+      supabase.auth.getUser().then(({ data }) => {
+        setIsLoggedIn(!!data.user);
+      });
+    });
+  }, []);
 
   const handleBuildStrategy = (e: React.MouseEvent) => {
     e.preventDefault();
-    router.push("/strategy/new");
+    router.push(isLoggedIn ? "/strategy/new" : "/auth");
   };
 
   return (
@@ -442,22 +452,29 @@ export default function Home() {
                 </p>
               </div>
 
-              <div className="flex flex-row items-center gap-3 sm:gap-4 justify-center lg:justify-start pt-2">
-                <Button
-                  size="lg"
-                  onClick={handleBuildStrategy}
-                  className="group px-6 py-3 sm:px-10 sm:py-4.5 text-sm sm:text-lg font-medium bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white rounded-xl shadow-[0_0_20px_rgba(59,130,246,0.4)] hover:shadow-[0_0_30px_rgba(59,130,246,0.5)] transition-all duration-200 hover:scale-[1.02]"
-                >
-                  Start Building
-                  <svg className="inline-block ml-2 w-4 h-4 transition-transform group-hover:translate-x-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path d="M13 7l5 5m0 0l-5 5m5-5H6" />
-                  </svg>
-                </Button>
-                <Link href="/arena">
-                  <Button size="lg" variant="outline" className="px-6 py-3 sm:px-10 sm:py-4.5 text-sm sm:text-lg font-medium bg-white/[0.03] border border-white/[0.12] text-white/80 hover:text-white hover:border-white/25 hover:bg-white/[0.06] rounded-xl transition-all duration-200 backdrop-blur-sm">
-                    Explore the Arena
+              <div className="flex flex-col items-center lg:items-start gap-4 pt-2">
+                <div className="flex flex-row items-center gap-3 sm:gap-4">
+                  <Button
+                    size="lg"
+                    onClick={handleBuildStrategy}
+                    className="group px-6 py-3 sm:px-10 sm:py-4.5 text-sm sm:text-lg font-medium bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white rounded-xl shadow-[0_0_20px_rgba(59,130,246,0.4)] hover:shadow-[0_0_30px_rgba(59,130,246,0.5)] transition-all duration-200 hover:scale-[1.02]"
+                  >
+                    {isLoggedIn ? "Start Building" : "Try Free"}
+                    <svg className="inline-block ml-2 w-4 h-4 transition-transform group-hover:translate-x-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                    </svg>
                   </Button>
-                </Link>
+                  <Link href="/arena">
+                    <Button size="lg" variant="outline" className="px-6 py-3 sm:px-10 sm:py-4.5 text-sm sm:text-lg font-medium bg-white/[0.03] border border-white/[0.12] text-white/80 hover:text-white hover:border-white/25 hover:bg-white/[0.06] rounded-xl transition-all duration-200 backdrop-blur-sm">
+                      Explore the Arena
+                    </Button>
+                  </Link>
+                </div>
+                {!isLoggedIn && (
+                  <p className="text-sm text-gray-500">
+                    $10 free credit · No card required
+                  </p>
+                )}
               </div>
             </div>
 
@@ -631,17 +648,22 @@ export default function Home() {
           </div>
 
           {/* Final CTA */}
-          <div className="text-center py-20">
-            <p className="text-3xl text-gray-100 font-light mb-16">
+          <div className="text-center py-20 space-y-5">
+            <p className="text-3xl text-gray-100 font-light">
               Start in simulation. Go live when ready.
             </p>
-            <Button 
-              size="lg" 
+            <Button
+              size="lg"
               onClick={handleBuildStrategy}
               className="px-10 py-6 text-lg bg-blue-600 hover:bg-blue-700 text-white rounded-2xl shadow-xl shadow-blue-500/30 hover:shadow-blue-500/60 transition-all hover:scale-105"
             >
-              Build a Strategy
+              {isLoggedIn ? "Build a Strategy" : "Get Started Free"}
             </Button>
+            {!isLoggedIn && (
+              <p className="text-sm text-gray-500">
+                $10 free credit · No card required
+              </p>
+            )}
           </div>
 
         </div>

@@ -11,7 +11,8 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { FormattedDate } from "@/components/formatted-date";
-import { Wallet, ArrowRight, X, FlaskConical, Loader2, AlertTriangle } from "lucide-react";
+import { Wallet, ArrowRight, X, FlaskConical, Loader2, AlertTriangle, Lock } from "lucide-react";
+import { isFreeTier } from "@/lib/tier/constants";
 
 function StrategyDetailContent() {
   const params = useParams();
@@ -98,10 +99,11 @@ function StrategyDetailContent() {
           if (creditsResponse.ok) {
             const creditsJson = await creditsResponse.json();
             const tier = creditsJson.subscription?.plan_id || "on_demand";
-            const hasLimit = tier === "pro" || tier === "on_demand" || !tier;
+            const hasLimit = tier === "free" || tier === "pro" || tier === "on_demand" || !tier;
+            const limit = tier === "free" ? 1 : 3;
             setSessionLimit({
               count: totalSessionCount,
-              limit: hasLimit ? 3 : null,
+              limit: hasLimit ? limit : null,
               tier,
             });
             setCredits({
@@ -135,8 +137,9 @@ function StrategyDetailContent() {
     load();
   }, [strategyId]);
 
-  const hasActivePlan = credits?.plan_id && credits.plan_status === "active";
+  const hasActivePlan = credits?.plan_id && credits.plan_status === "active" && !isFreeTier(credits.plan_id);
   const hasInsufficientFunds = credits && !hasActivePlan && credits.balance_cents <= 0;
+  const isFree = isFreeTier(credits?.plan_id);
 
   const handleStartSession = (mode: "virtual" | "live" | "arena") => {
     if (hasInsufficientFunds) {
@@ -388,12 +391,17 @@ function StrategyDetailContent() {
                   {busy ? "Starting..." : "Start in Arena 🏆"}
                 </Button>
                 <Button
-                  disabled={isDisabled}
+                  disabled={isDisabled || isFree}
                   variant="destructive"
                   onClick={() => handleStartSession("live")}
                   className="bg-red-900 hover:bg-red-800 text-white"
+                  title={isFree ? "Add funds or subscribe to unlock live trading" : undefined}
                 >
-                  Start Live
+                  {isFree ? (
+                    <><Lock className="h-4 w-4 mr-1" /> Live (Paid)</>
+                  ) : (
+                    "Start Live"
+                  )}
                 </Button>
                 <Button variant="outline" onClick={() => router.push("/settings")} className="border-blue-900 text-gray-300 hover:text-white hover:border-blue-800 hover:bg-blue-950/30">
                   Manage Exchange Connection

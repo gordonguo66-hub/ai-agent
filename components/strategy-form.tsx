@@ -13,8 +13,10 @@ import { createClient } from "@/lib/supabase/browser";
 import { CustomSelect, type SelectOption } from "./ui/custom-select";
 import { ProviderLogos } from "./provider-logos";
 import { AuthGateModal } from "./auth-gate-modal";
-import { Zap, Globe, Brain, Target, Shield, ArrowUpRight, ArrowDownRight, Timer, Gauge, ShieldCheck, Scale, Flame, Settings2, Sparkles } from "lucide-react";
+import { Zap, Globe, Brain, Target, Shield, ArrowUpRight, ArrowDownRight, Timer, Gauge, ShieldCheck, Scale, Flame, Settings2, Sparkles, Lock } from "lucide-react";
 import { STRATEGY_PRESETS, type PresetMode, type SetupMode } from "@/lib/strategy/presets";
+import { FREE_TIER_LIMITS, isFreeTier } from "@/lib/tier/constants";
+import { getBearerToken } from "@/lib/api/clientAuth";
 
 const PENDING_STRATEGY_KEY = "pending_strategy_form";
 
@@ -134,6 +136,10 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
 
   // INTX (Coinbase International) access status
   const [coinbaseIntxEnabled, setCoinbaseIntxEnabled] = useState(false);
+
+  // User tier for free tier restrictions
+  const [userTier, setUserTier] = useState<string | null>(null);
+  const isFree = isFreeTier(userTier);
 
   // Dynamic VENUES based on INTX status
   const VENUES = BASE_VENUES.map((v) => {
@@ -667,6 +673,26 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
     fetchExchangeConnections();
   }, []);
 
+  // Fetch user tier for free tier restrictions
+  useEffect(() => {
+    const fetchTier = async () => {
+      try {
+        const bearer = await getBearerToken();
+        if (!bearer) return;
+        const res = await fetch("/api/credits", {
+          headers: { Authorization: bearer },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setUserTier(data.subscription?.plan_id || "on_demand");
+        }
+      } catch (err) {
+        console.error("Failed to fetch user tier:", err);
+      }
+    };
+    fetchTier();
+  }, []);
+
   // Auto-convert spot markets to INTX markets when Coinbase INTX is enabled
   // This handles loading an existing strategy with spot markets when user now has INTX access
   // Only runs when coinbaseIntxEnabled changes (not on every selectedMarkets change to avoid loops)
@@ -772,6 +798,10 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
       setValidationError("Minimum AI cadence is 60 seconds (1 minute)", "basics", "cadence");
       return;
     }
+    if (isFree && totalCadenceSeconds < FREE_TIER_LIMITS.minCadenceSeconds) {
+      setValidationError("Free tier minimum cadence is 10 minutes. Add funds or subscribe to unlock faster cadences.", "basics", "cadence");
+      return;
+    }
     
     // Note: We don't need to validate m > 0 && s > 0 anymore because getTotalCadenceSeconds
     // now automatically ignores seconds when minutes > 0, preventing the double-counting bug
@@ -786,6 +816,10 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
 
     if (finalMarkets.length === 0) {
       setValidationError("Please select at least one market in the Markets tab", "markets");
+      return;
+    }
+    if (isFree && finalMarkets.length > FREE_TIER_LIMITS.maxMarketsPerStrategy) {
+      setValidationError("Free tier allows 1 market per strategy. Add funds to unlock more.", "markets");
       return;
     }
 
@@ -1032,11 +1066,16 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
   };
 
   const toggleMarket = (market: string) => {
-    setSelectedMarkets(prev =>
-      prev.includes(market)
-        ? prev.filter(m => m !== market)
-        : [...prev, market]
-    );
+    setSelectedMarkets(prev => {
+      if (prev.includes(market)) {
+        return prev.filter(m => m !== market);
+      }
+      // Free tier: cap at 1 market
+      if (isFree && prev.length >= FREE_TIER_LIMITS.maxMarketsPerStrategy) {
+        return prev;
+      }
+      return [...prev, market];
+    });
   };
 
   const filteredMarkets = availableMarkets.filter(m =>
@@ -1045,6 +1084,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
   );
 
   const handleSelectAll = () => {
+    if (isFree) return; // Free tier: only 1 market allowed
     const symbols = filteredMarkets.map(m => m.symbol);
     setSelectedMarkets(prev => {
       const newSet = new Set([...prev, ...symbols]);
@@ -1057,6 +1097,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
   };
 
   const handleSelectMajors = () => {
+    if (isFree) return; // Free tier: only 1 market allowed
     let majorMarkets: string[];
     if (venue === "coinbase") {
       majorMarkets = coinbaseIntxEnabled ? MAJOR_MARKETS_CB_INTX : MAJOR_MARKETS_CB;
@@ -1193,6 +1234,18 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
             </CardDescription>
           </CardHeader>
           <CardContent className="px-4 sm:px-6">
+            {isFree && (
+              <div className="mb-4 p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-sm">
+                <p className="font-medium flex items-center gap-1.5">
+                  <Lock size={14} /> Free Tier Restrictions
+                </p>
+                <p className="mt-1 text-amber-700">
+                  DeepSeek models only, 1 market, 10-minute minimum cadence, paper + arena trading.{" "}
+                  <a href="/settings/billing" className="underline font-medium">Add funds</a> or{" "}
+                  <a href="/pricing" className="underline font-medium">subscribe</a> to unlock everything.
+                </p>
+              </div>
+            )}
             <form onSubmit={handleSubmit} className="space-y-6">
               <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
                 <TabsList className="grid w-full grid-cols-5 gap-0.5">
@@ -1386,7 +1439,10 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                     </label>
                     <div className={selectBorder("model-provider", !!modelProvider)}>
                       <CustomSelect
-                        options={PROVIDERS.map((p) => ({
+                        options={(isFree
+                          ? PROVIDERS.filter(p => (FREE_TIER_LIMITS.allowedProviders as readonly string[]).includes(p.id))
+                          : PROVIDERS
+                        ).map((p) => ({
                           value: p.id,
                           label: p.name,
                           icon: ProviderLogos[p.id],
@@ -1398,6 +1454,11 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                         }}
                         placeholder="Select a provider..."
                       />
+                      {isFree && (
+                        <p className="text-xs text-amber-600 mt-1 flex items-center gap-1">
+                          <Lock size={12} /> Free tier: DeepSeek models only. Add funds to unlock all providers.
+                        </p>
+                      )}
                     </div>
                   </div>
 
@@ -1510,7 +1571,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                                   variant="outline"
                                   size="sm"
                                   onClick={handleSelectAll}
-                                  disabled={filteredMarkets.length === 0}
+                                  disabled={filteredMarkets.length === 0 || isFree}
                                 >
                                   Select All Filtered ({filteredMarkets.length})
                                 </Button>
@@ -1519,6 +1580,7 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                                   variant="outline"
                                   size="sm"
                                   onClick={handleSelectMajors}
+                                  disabled={isFree}
                                 >
                                   Select Majors (BTC/ETH/SOL)
                                 </Button>
@@ -1532,6 +1594,12 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                                   Clear ({selectedMarkets.length})
                                 </Button>
                               </div>
+
+                              {isFree && (
+                                <p className="text-xs text-amber-600 mb-3 flex items-center gap-1">
+                                  <Lock size={12} /> Free tier: 1 market per strategy. Add funds to unlock multi-market strategies.
+                                </p>
+                              )}
 
                               {/* Selected chips */}
                               {selectedMarkets.length > 0 && (
@@ -1774,6 +1842,11 @@ export function StrategyForm({ strategyId, initialData }: StrategyFormProps) {
                       <p className="text-xs text-muted-foreground">
                         How often the AI will evaluate the market and make decisions
                       </p>
+                      {isFree && (
+                        <p className="text-xs text-amber-600 flex items-center gap-1">
+                          <Lock size={12} /> Free tier minimum: 10 minutes. Add funds to unlock faster cadences.
+                        </p>
+                      )}
                       {getTotalCadenceSeconds() > 0 && (
                         <p className="text-xs text-muted-foreground">
                           Total: {formatCadenceDisplay()} ({getTotalCadenceSeconds()} seconds)

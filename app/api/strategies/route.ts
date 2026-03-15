@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import { getUserFromRequest } from "@/lib/api/serverAuth";
 import { requireValidOrigin } from "@/lib/api/csrfProtection";
+import { FREE_TIER_LIMITS, isFreeTier } from "@/lib/tier/constants";
 
 export async function POST(request: NextRequest) {
   try {
@@ -40,6 +41,36 @@ export async function POST(request: NextRequest) {
     }
 
     const serviceClient = createServiceRoleClient();
+
+    // Check free tier restrictions
+    const { data: userSub } = await serviceClient
+      .from("user_subscriptions")
+      .select("plan_id, status")
+      .eq("user_id", user.id)
+      .single();
+
+    const tier = (userSub?.status === "active" && userSub?.plan_id) ? userSub.plan_id : "on_demand";
+
+    if (isFreeTier(tier)) {
+      if (!FREE_TIER_LIMITS.allowedProviders.includes(model_provider)) {
+        return NextResponse.json({
+          error: "Free tier only supports DeepSeek models",
+          message: "Add funds or subscribe to unlock all AI providers.",
+        }, { status: 403 });
+      }
+      if (filters?.markets && filters.markets.length > FREE_TIER_LIMITS.maxMarketsPerStrategy) {
+        return NextResponse.json({
+          error: "Free tier allows 1 market per strategy",
+          message: "Add funds or subscribe to unlock multi-market strategies.",
+        }, { status: 403 });
+      }
+      if (filters?.cadenceSeconds && filters.cadenceSeconds < FREE_TIER_LIMITS.minCadenceSeconds) {
+        return NextResponse.json({
+          error: "Free tier minimum cadence is 10 minutes",
+          message: "Add funds or subscribe to unlock faster cadences.",
+        }, { status: 403 });
+      }
+    }
 
     // Prepare strategy data - always use platform keys (no user API keys)
     const strategyData: any = {

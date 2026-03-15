@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Check, Zap, TrendingUp, Crown } from "lucide-react";
+import { Check, Zap, TrendingUp, Crown, Gift } from "lucide-react";
 import { useAuthGate } from "@/components/auth-gate-provider";
 import { getBearerToken } from "@/lib/api/clientAuth";
 
@@ -231,15 +231,15 @@ export default function PricingPage() {
 
             {/* Current balance display */}
             {user && userBalance && (
-              <div className="inline-flex items-center gap-3 px-6 py-3 rounded-xl bg-blue-950/30 border border-blue-500/20">
-                <span className="text-gray-400">Your balance:</span>
-                <span className="text-2xl font-semibold text-blue-400">
-                  {formatBalance(userBalance.balance_cents)}
-                </span>
-                <Badge variant="outline" className="ml-2 border-blue-500/30 text-blue-400">
-                  {userBalance.subscription.plan_name}
-                </Badge>
-              </div>
+              <Link
+                href="/settings/billing"
+                className="inline-flex items-center gap-3 mt-2 hover:opacity-80 transition-opacity"
+              >
+                <span className="text-2xl font-semibold text-white">{formatBalance(userBalance.balance_cents)}</span>
+                {userBalance.subscription.plan_name && userBalance.subscription.plan_name !== "No Plan" && (
+                  <span className="text-sm text-gray-500 border-l border-gray-700 pl-3">{userBalance.subscription.plan_name}</span>
+                )}
+              </Link>
             )}
           </div>
 
@@ -248,53 +248,60 @@ export default function PricingPage() {
             <div className="text-center text-gray-400 py-20">Loading plans...</div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-6xl mx-auto">
-              {/* Pay As You Go Card */}
+              {/* Free Tier Card */}
               <div className="relative group rounded-2xl p-8 transition-all duration-300 bg-white border border-gray-200 hover:border-emerald-400 hover:shadow-lg">
+                {userBalance?.subscription?.plan_id === "free" && (
+                  <div className="absolute -top-3 right-4">
+                    <Badge variant="outline" className="bg-green-50 text-green-600 border-green-300">
+                      Current Plan
+                    </Badge>
+                  </div>
+                )}
                 <div className="flex flex-col h-full space-y-6">
                   <div className="flex items-center gap-3">
                     <div className="p-3 rounded-xl bg-emerald-100 text-emerald-600 border border-emerald-200">
-                      <Zap className="w-6 h-6" />
+                      <Gift className="w-6 h-6" />
                     </div>
                     <div>
-                      <h3 className="text-xl font-semibold text-gray-900">Pay as you go</h3>
-                      <p className="text-sm text-gray-500">No commitment</p>
+                      <h3 className="text-xl font-semibold text-gray-900">Free</h3>
+                      <p className="text-sm text-gray-500">Try AI trading for free</p>
                     </div>
                   </div>
 
                   <div className="space-y-2">
                     <div className="flex items-baseline gap-1">
                       <span className="text-4xl font-bold text-gray-900">$0</span>
-                      <span className="text-gray-500">/month</span>
+                      <span className="text-gray-500">/forever</span>
                     </div>
                     <p className="text-emerald-600 font-semibold">
-                      Only pay for what you use
+                      $10 free credit on signup
                     </p>
                   </div>
 
                   <ul className="space-y-3 flex-grow">
                     <li className="flex items-start gap-3">
                       <Check className="w-5 h-5 text-emerald-500 flex-shrink-0 mt-0.5" />
-                      <span className="text-gray-600 text-sm">No monthly fee</span>
+                      <span className="text-gray-600 text-sm">$10 signup credit</span>
                     </li>
                     <li className="flex items-start gap-3">
                       <Check className="w-5 h-5 text-emerald-500 flex-shrink-0 mt-0.5" />
-                      <span className="text-gray-600 text-sm">Up to 3 sessions</span>
+                      <span className="text-gray-600 text-sm">DeepSeek AI models</span>
                     </li>
                     <li className="flex items-start gap-3">
                       <Check className="w-5 h-5 text-emerald-500 flex-shrink-0 mt-0.5" />
-                      <span className="text-gray-600 text-sm">Paper & live trading</span>
+                      <span className="text-gray-600 text-sm">1 market, 1 session</span>
                     </li>
                     <li className="flex items-start gap-3">
                       <Check className="w-5 h-5 text-emerald-500 flex-shrink-0 mt-0.5" />
-                      <span className="text-gray-600 text-sm">Add funds anytime</span>
+                      <span className="text-gray-600 text-sm">Paper & arena trading</span>
                     </li>
                   </ul>
 
-                  <Link href={user ? "/settings/billing" : "/auth"} className="block">
+                  <Link href={user ? "/dashboard" : "/auth"} className="block">
                     <Button
                       className="w-full py-6 text-base rounded-xl transition-all bg-emerald-600 hover:bg-emerald-700 text-white"
                     >
-                      Add Funds
+                      {user ? "Go to Dashboard" : "Get Started Free"}
                     </Button>
                   </Link>
                 </div>
@@ -380,6 +387,21 @@ export default function PricingPage() {
             </div>
           )}
 
+          {/* On Demand */}
+          <div className="max-w-xl mx-auto flex items-center gap-6 px-6 py-4 rounded-lg border-l-2 border-blue-500/40 bg-white/[0.02]">
+            <div className="flex-grow min-w-0">
+              <p className="text-white text-sm font-medium">Pay as you go</p>
+              <p className="text-gray-500 text-sm mt-0.5">
+                All models · Live trading · 3 sessions · No subscription
+              </p>
+            </div>
+            <Link href={user ? "/settings/billing" : "/auth"} className="flex-shrink-0">
+              <span className="text-sm text-blue-400 hover:text-blue-300 transition-colors whitespace-nowrap">
+                {user ? "Add funds →" : "Get started →"}
+              </span>
+            </Link>
+          </div>
+
           {/* Divider */}
           <div className="relative py-8">
             <div className="h-px bg-gradient-to-r from-transparent via-blue-500/30 to-transparent" />
@@ -409,6 +431,16 @@ export default function PricingPage() {
                   </div>
                   <div className="p-4 border-b border-blue-500/20">
                     <p className="text-gray-400 text-sm">Sessions</p>
+                  </div>
+
+                  <div className="p-4 border-b border-r border-blue-500/20">
+                    <p className="text-white font-medium">Free</p>
+                  </div>
+                  <div className="p-4 border-b border-r border-blue-500/20">
+                    <p className="text-gray-400">$1.00 of AI usage</p>
+                  </div>
+                  <div className="p-4 border-b border-blue-500/20">
+                    <p className="text-gray-400">1</p>
                   </div>
 
                   <div className="p-4 border-b border-r border-blue-500/20">

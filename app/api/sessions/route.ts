@@ -4,6 +4,7 @@ import { getUserFromRequest } from "@/lib/api/serverAuth";
 import { requireValidOrigin } from "@/lib/api/csrfProtection";
 import { getOrCreateLiveAccount } from "@/lib/brokers/liveBroker";
 import { getMidPrices } from "@/lib/hyperliquid/prices";
+import { FREE_TIER_LIMITS, isFreeTier } from "@/lib/tier/constants";
 
 export async function GET(request: NextRequest) {
   try {
@@ -175,8 +176,32 @@ export async function POST(request: NextRequest) {
 
     const tier = (userSub?.status === "active" && userSub?.plan_id) ? userSub.plan_id : "on_demand";
 
+    // Free tier: block live mode (paper + arena only)
+    if (isFreeTier(tier) && mode === "live") {
+      return NextResponse.json({
+        error: "Free tier is limited to paper and arena trading",
+        message: "Add funds or subscribe to unlock live trading.",
+      }, { status: 403 });
+    }
+
+    // Free tier: max 1 session
+    if (isFreeTier(tier)) {
+      const { count } = await serviceClient
+        .from("strategy_sessions")
+        .select("*", { count: "exact", head: true })
+        .eq("user_id", user.id);
+
+      if ((count || 0) >= FREE_TIER_LIMITS.maxSessions) {
+        return NextResponse.json({
+          error: "Free tier session limit reached",
+          message: "Free tier allows 1 session. Add funds or subscribe to unlock more.",
+          limit: FREE_TIER_LIMITS.maxSessions,
+          current: count,
+        }, { status: 403 });
+      }
+    }
     // Pro and on-demand users have max 3 sessions
-    if (tier === "pro" || tier === "on_demand" || !tier) {
+    else if (tier === "pro" || tier === "on_demand" || !tier) {
       const { count } = await serviceClient
         .from("strategy_sessions")
         .select("*", { count: "exact", head: true })
@@ -222,6 +247,28 @@ export async function POST(request: NextRequest) {
 
     if (markets.length === 0) {
       return NextResponse.json({ error: "Strategy must have at least one market configured" }, { status: 400 });
+    }
+
+    // Free tier: validate strategy configuration is within limits
+    if (isFreeTier(tier)) {
+      if (!FREE_TIER_LIMITS.allowedProviders.includes(strategy.model_provider)) {
+        return NextResponse.json({
+          error: "Free tier only supports DeepSeek models",
+          message: "Edit your strategy to use a DeepSeek model, or add funds to unlock all providers.",
+        }, { status: 403 });
+      }
+      if (markets.length > FREE_TIER_LIMITS.maxMarketsPerStrategy) {
+        return NextResponse.json({
+          error: "Free tier allows 1 market per strategy",
+          message: "Edit your strategy to use a single market, or add funds to unlock multi-market strategies.",
+        }, { status: 403 });
+      }
+      if (cadenceSeconds < FREE_TIER_LIMITS.minCadenceSeconds) {
+        return NextResponse.json({
+          error: "Free tier minimum cadence is 10 minutes",
+          message: "Edit your strategy cadence to 10+ minutes, or add funds to unlock faster cadences.",
+        }, { status: 403 });
+      }
     }
 
     // Validate required strategy configuration before allowing session creation

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import { getUserFromRequest } from "@/lib/api/serverAuth";
 import { requireValidOrigin } from "@/lib/api/csrfProtection";
+import { FREE_TIER_LIMITS, isFreeTier } from "@/lib/tier/constants";
 
 export async function GET(
   request: NextRequest,
@@ -65,6 +66,41 @@ export async function PATCH(
 
     if (fetchError || !existingStrategy) {
       return NextResponse.json({ error: "Strategy not found" }, { status: 404 });
+    }
+
+    // Check free tier restrictions
+    const { data: userSub } = await serviceClient
+      .from("user_subscriptions")
+      .select("plan_id, status")
+      .eq("user_id", user.id)
+      .single();
+
+    const tier = (userSub?.status === "active" && userSub?.plan_id) ? userSub.plan_id : "on_demand";
+
+    if (isFreeTier(tier)) {
+      const effectiveProvider = model_provider ?? existingStrategy.model_provider;
+      const effectiveFilters = filters ?? existingStrategy.filters ?? {};
+      const effectiveMarkets = effectiveFilters.markets || [];
+      const effectiveCadence = effectiveFilters.cadenceSeconds;
+
+      if (!FREE_TIER_LIMITS.allowedProviders.includes(effectiveProvider)) {
+        return NextResponse.json({
+          error: "Free tier only supports DeepSeek models",
+          message: "Add funds or subscribe to unlock all AI providers.",
+        }, { status: 403 });
+      }
+      if (effectiveMarkets.length > FREE_TIER_LIMITS.maxMarketsPerStrategy) {
+        return NextResponse.json({
+          error: "Free tier allows 1 market per strategy",
+          message: "Add funds or subscribe to unlock multi-market strategies.",
+        }, { status: 403 });
+      }
+      if (effectiveCadence && effectiveCadence < FREE_TIER_LIMITS.minCadenceSeconds) {
+        return NextResponse.json({
+          error: "Free tier minimum cadence is 10 minutes",
+          message: "Add funds or subscribe to unlock faster cadences.",
+        }, { status: 403 });
+      }
     }
 
     // Build update object
