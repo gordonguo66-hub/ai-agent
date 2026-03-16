@@ -29,6 +29,7 @@ import {
   Clock,
   Trash2,
 } from "lucide-react";
+import { BacktestWhatIf } from "@/components/backtest-what-if";
 
 function BacktestResultContent() {
   const params = useParams();
@@ -41,6 +42,7 @@ function BacktestResultContent() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [expandedTradeId, setExpandedTradeId] = useState<string | null>(null);
 
   const fetchData = async () => {
     try {
@@ -377,6 +379,15 @@ function BacktestResultContent() {
             </Card>
           )}
 
+          {isCompleted && (
+            <BacktestWhatIf
+              backtestId={backtestId}
+              backtest={backtest}
+              originalEquityPoints={chartData}
+              originalSummary={summary}
+            />
+          )}
+
           <Card className="mb-6 bg-[#0A0E1A] border-blue-900/50">
             <CardHeader>
               <CardTitle className="text-white">Configuration</CardTitle>
@@ -434,66 +445,90 @@ function BacktestResultContent() {
                       </tr>
                     </thead>
                     <tbody>
-                      {trades.map((t: any, i: number) => (
-                        <tr
-                          key={t.id}
-                          className="border-b border-blue-900/10 hover:bg-blue-950/20"
-                        >
-                          <td className="py-2 pr-3 text-gray-500">{i + 1}</td>
-                          <td className="py-2 pr-3 text-gray-400 whitespace-nowrap">
-                            {new Date(t.tick_timestamp).toLocaleString("en-US", {
-                              month: "short",
-                              day: "numeric",
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}
-                          </td>
-                          <td className="py-2 pr-3 text-gray-300">{t.market}</td>
-                          <td className="py-2 pr-3">
-                            <Badge
-                              variant="outline"
-                              className={
-                                t.action === "open"
-                                  ? "border-blue-500 text-blue-400"
-                                  : "border-gray-500 text-gray-400"
-                              }
+                      {trades.map((t: any, i: number) => {
+                        const isExpanded = expandedTradeId === t.id;
+                        return (
+                          <>
+                            <tr
+                              key={t.id}
+                              className="border-b border-blue-900/10 hover:bg-blue-950/20"
                             >
-                              {t.action}
-                            </Badge>
-                          </td>
-                          <td className="py-2 pr-3">
-                            <span
-                              className={
-                                t.side === "buy" ? "text-green-400" : "text-red-400"
-                              }
-                            >
-                              {t.side}
-                            </span>
-                          </td>
-                          <td className="py-2 pr-3 text-right text-gray-300 font-mono">
-                            ${Number(t.price).toFixed(2)}
-                          </td>
-                          <td className="py-2 pr-3 text-right text-gray-400 font-mono">
-                            {Number(t.size).toFixed(6)}
-                          </td>
-                          <td
-                            className={`py-2 pr-3 text-right font-mono ${
-                              Number(t.realized_pnl) > 0
-                                ? "text-green-400"
-                                : Number(t.realized_pnl) < 0
-                                ? "text-red-400"
-                                : "text-gray-500"
-                            }`}
-                          >
-                            {t.action === "close" || t.action === "flip"
-                              ? `${Number(t.realized_pnl) >= 0 ? "+" : ""}$${Number(t.realized_pnl).toFixed(2)}`
-                              : "-"}
-                          </td>
-                          <td className="py-2 text-gray-500 text-xs max-w-[200px] truncate">
-                            {t.reasoning || "-"}
-                          </td>
-                        </tr>
-                      ))}
+                              <td className="py-2 pr-3 text-gray-500">{i + 1}</td>
+                              <td className="py-2 pr-3 text-gray-400 whitespace-nowrap">
+                                {new Date(t.tick_timestamp).toLocaleString("en-US", {
+                                  month: "short",
+                                  day: "numeric",
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                })}
+                              </td>
+                              <td className="py-2 pr-3 text-gray-300">{t.market}</td>
+                              <td className="py-2 pr-3">
+                                <Badge
+                                  variant="outline"
+                                  className={
+                                    t.action === "open"
+                                      ? "border-blue-500 text-blue-400"
+                                      : "border-gray-500 text-gray-400"
+                                  }
+                                >
+                                  {t.action}
+                                </Badge>
+                              </td>
+                              <td className="py-2 pr-3">
+                                <span
+                                  className={
+                                    t.side === "buy" ? "text-green-400" : "text-red-400"
+                                  }
+                                >
+                                  {t.side}
+                                </span>
+                              </td>
+                              <td className="py-2 pr-3 text-right text-gray-300 font-mono">
+                                ${Number(t.price).toFixed(2)}
+                              </td>
+                              <td className="py-2 pr-3 text-right text-gray-400 font-mono">
+                                {Number(t.size).toFixed(6)}
+                              </td>
+                              <td
+                                className={`py-2 pr-3 text-right font-mono ${
+                                  Number(t.realized_pnl) > 0
+                                    ? "text-green-400"
+                                    : Number(t.realized_pnl) < 0
+                                    ? "text-red-400"
+                                    : "text-gray-500"
+                                }`}
+                              >
+                                {t.action === "close" || t.action === "flip"
+                                  ? `${Number(t.realized_pnl) >= 0 ? "+" : ""}$${Number(t.realized_pnl).toFixed(2)}`
+                                  : "-"}
+                              </td>
+                              <td
+                                className={`py-2 text-xs max-w-[200px] truncate ${t.reasoning ? "cursor-pointer text-blue-400/70 hover:text-blue-400 select-none" : "text-gray-500"}`}
+                                onClick={() => t.reasoning && setExpandedTradeId(isExpanded ? null : t.id)}
+                              >
+                                <span className="flex items-center gap-1">
+                                  {t.reasoning ? (
+                                    <>
+                                      <span className="text-gray-600">{isExpanded ? "▲" : "▼"}</span>
+                                      <span className="truncate">{t.reasoning}</span>
+                                    </>
+                                  ) : "-"}
+                                </span>
+                              </td>
+                            </tr>
+                            {isExpanded && t.reasoning && (
+                              <tr key={`${t.id}-expanded`} className="border-b border-blue-900/20 bg-blue-950/10">
+                                <td colSpan={9} className="px-4 py-3">
+                                  <p className="text-xs text-gray-300 whitespace-pre-wrap leading-relaxed">
+                                    {t.reasoning}
+                                  </p>
+                                </td>
+                              </tr>
+                            )}
+                          </>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>

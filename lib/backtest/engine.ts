@@ -8,10 +8,10 @@ import { normalizeModelName } from "@/lib/ai/normalizeModel";
 import { calculateCost, calculateChargedCents, getMarkupForTier } from "@/lib/pricing/apiCosts";
 import { runMarketAnalysis } from "@/lib/ai/marketAnalysis";
 
-const FEE_BPS = 5;
-const SLIPPAGE_BPS = 10;
+export const FEE_BPS = 5;
+export const SLIPPAGE_BPS = 10;
 
-const RESOLUTION_MS: Record<string, number> = {
+export const RESOLUTION_MS: Record<string, number> = {
   "1m": 60 * 1000,
   "5m": 5 * 60 * 1000,
   "15m": 15 * 60 * 1000,
@@ -96,7 +96,7 @@ export interface BacktestConfig {
   strategyFilters: any;
 }
 
-async function fetchHistoricalCandles(
+export async function fetchHistoricalCandles(
   market: string,
   venue: string,
   startTime: number,
