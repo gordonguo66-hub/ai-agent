@@ -623,8 +623,9 @@ function StrategyDetailContent() {
 
               <div>
                 <label className="text-xs text-gray-500 mb-1 block">Resolution (tick interval)</label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-4 gap-2">
                   {[
+                    { value: "5m", label: "5 min", desc: "Ultra detail" },
                     { value: "15m", label: "15 min", desc: "High detail" },
                     { value: "1h", label: "1 hour", desc: "Recommended" },
                     { value: "4h", label: "4 hours", desc: "Low cost" },

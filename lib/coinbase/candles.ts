@@ -213,3 +213,165 @@ function normalizeInterval(interval: string): string {
       return "5m"; // Default fallback
   }
 }
+
+/**
+ * Convert a Hyperliquid-style market name to Coinbase spot product ID.
+ * BTC-PERP → BTC-USD, ETH-SPOT → ETH-USD, SOL → SOL-USD
+ */
+export function toCoinbaseProductId(market: string): string {
+  const base = market
+    .replace("-PERP-INTX", "")
+    .replace("-PERP", "")
+    .replace("-SPOT", "")
+    .replace("-INTX", "");
+  return `${base}-USD`;
+}
+
+/**
+ * Fetch historical candles from Coinbase for an arbitrary time range.
+ * Handles pagination (max 300 candles per request) automatically.
+ * Use this for backtest data when Hyperliquid doesn't have data far enough back.
+ *
+ * @param productId - Coinbase product ID (e.g., "BTC-USD") or Hyperliquid market (auto-mapped)
+ * @param startTimeMs - Start timestamp in milliseconds
+ * @param endTimeMs - End timestamp in milliseconds
+ * @param interval - Candle interval (5m, 15m, 1h, 4h, 1d)
+ */
+export async function getHistoricalCandles(
+  productId: string,
+  startTimeMs: number,
+  endTimeMs: number,
+  interval: string
+): Promise<Candle[]> {
+  // Auto-map Hyperliquid market names to Coinbase
+  const actualProductId = productId.includes("-USD")
+    ? productId
+    : toCoinbaseProductId(productId);
+
+  // Coinbase doesn't have native 4h — use 1h and aggregate
+  const useAggregation = interval === "4h";
+  const fetchInterval = useAggregation ? "1h" : normalizeInterval(interval);
+  const granularitySec = GRANULARITY_MAP[fetchInterval];
+
+  if (!granularitySec) {
+    throw new Error(`[Coinbase Historical] Unsupported interval: ${interval}`);
+  }
+
+  const allCandles: Candle[] = [];
+  let currentStart = startTimeMs;
+  const BATCH_SIZE = 300;
+
+  while (currentStart < endTimeMs) {
+    const batchEnd = Math.min(
+      currentStart + BATCH_SIZE * granularitySec * 1000,
+      endTimeMs
+    );
+
+    try {
+      const url = new URL(
+        `https://api.exchange.coinbase.com/products/${actualProductId}/candles`
+      );
+      url.searchParams.set("start", new Date(currentStart).toISOString());
+      url.searchParams.set("end", new Date(batchEnd).toISOString());
+      url.searchParams.set("granularity", granularitySec.toString());
+
+      const response = await fetch(url.toString(), {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Coinbase API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      if (!Array.isArray(data)) break;
+
+      const candles: Candle[] = data
+        .reverse()
+        .map((c: number[]) => ({
+          t: c[0] * 1000,
+          T: c[0] * 1000 + granularitySec * 1000,
+          o: c[3],
+          h: c[2],
+          l: c[1],
+          c: c[4],
+          v: c[5],
+          n: 0,
+        }))
+        .filter((c: Candle) => c.t >= startTimeMs && c.t < endTimeMs);
+
+      allCandles.push(...candles);
+    } catch (err) {
+      console.error(
+        `[Coinbase Historical] Failed batch ${new Date(currentStart).toISOString()} → ${new Date(batchEnd).toISOString()}:`,
+        err
+      );
+    }
+
+    currentStart = batchEnd;
+
+    // Small delay between batches to respect rate limits
+    if (currentStart < endTimeMs) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+  }
+
+  allCandles.sort((a, b) => a.t - b.t);
+
+  // Deduplicate
+  const seen = new Set<number>();
+  const deduped = allCandles.filter((c) => {
+    if (seen.has(c.t)) return false;
+    seen.add(c.t);
+    return true;
+  });
+
+  // If 4h was requested, aggregate 1h candles into 4h
+  if (useAggregation) {
+    return aggregate1hTo4h(deduped);
+  }
+
+  console.log(
+    `[Coinbase Historical] Fetched ${deduped.length} ${interval} candles for ${actualProductId}`
+  );
+  return deduped;
+}
+
+/**
+ * Aggregate 1h candles into 4h candles.
+ * Groups by 4-hour boundaries (0:00, 4:00, 8:00, 12:00, 16:00, 20:00 UTC).
+ */
+function aggregate1hTo4h(hourlyCandles: Candle[]): Candle[] {
+  const FOUR_HOURS_MS = 4 * 60 * 60 * 1000;
+  const groups = new Map<number, Candle[]>();
+
+  for (const c of hourlyCandles) {
+    const bucket = Math.floor(c.t / FOUR_HOURS_MS) * FOUR_HOURS_MS;
+    const arr = groups.get(bucket) || [];
+    arr.push(c);
+    groups.set(bucket, arr);
+  }
+
+  const result: Candle[] = [];
+  for (const [bucket, candles] of groups) {
+    if (candles.length === 0) continue;
+    candles.sort((a, b) => a.t - b.t);
+    result.push({
+      t: bucket,
+      T: bucket + FOUR_HOURS_MS,
+      o: candles[0].o,
+      h: Math.max(...candles.map((c) => c.h)),
+      l: Math.min(...candles.map((c) => c.l)),
+      c: candles[candles.length - 1].c,
+      v: candles.reduce((sum, c) => sum + c.v, 0),
+      n: 0,
+    });
+  }
+
+  result.sort((a, b) => a.t - b.t);
+  console.log(
+    `[Coinbase Historical] Aggregated ${hourlyCandles.length} 1h candles into ${result.length} 4h candles`
+  );
+  return result;
+}

@@ -68,18 +68,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const maxDurationDays = 90;
-    const durationMs = endDate.getTime() - startDate.getTime();
-    if (durationMs > maxDurationDays * 24 * 60 * 60 * 1000) {
+    if (!["5m", "15m", "1h", "4h"].includes(resolution)) {
       return NextResponse.json(
-        { error: `Maximum backtest duration is ${maxDurationDays} days` },
-        { status: 400 }
-      );
-    }
-
-    if (!["15m", "1h", "4h"].includes(resolution)) {
-      return NextResponse.json(
-        { error: "Resolution must be 15m, 1h, or 4h" },
+        { error: "Resolution must be 5m, 15m, 1h, or 4h" },
         { status: 400 }
       );
     }

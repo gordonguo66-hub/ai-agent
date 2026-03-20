@@ -1,6 +1,6 @@
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import { getCandles as getHyperliquidCandles, type Candle } from "@/lib/hyperliquid/candles";
-import { getCandles as getCoinbaseCandles } from "@/lib/coinbase/candles";
+import { getCandles as getCoinbaseCandles, getHistoricalCandles as getCoinbaseHistoricalCandles, toCoinbaseProductId } from "@/lib/coinbase/candles";
 import { calculateIndicators } from "@/lib/indicators/calculations";
 import { openAICompatibleIntentCall, type IntentWithUsage } from "@/lib/ai/openaiCompatible";
 import { resolveStrategyApiKey } from "@/lib/ai/resolveApiKey";
@@ -106,20 +106,28 @@ export async function fetchHistoricalCandles(
   const intervalMs = RESOLUTION_MS[interval] || 60 * 60 * 1000;
   const totalCandles = Math.ceil((endTime - startTime) / intervalMs);
 
+  // For Coinbase venue, use Coinbase historical fetch directly
+  if (venue === "coinbase") {
+    const candles = await getCoinbaseHistoricalCandles(market, startTime, endTime, interval);
+    console.log(`[Backtest] Fetched ${candles.length} candles from Coinbase for ${market} (expected ~${totalCandles})`);
+    return candles;
+  }
+
+  // Hyperliquid venue: fetch in batches, fall back to Coinbase if no data
   const allCandles: Candle[] = [];
   let currentStart = startTime;
-  const batchSize = venue === "coinbase" ? 300 : 5000;
+  const batchSize = 5000;
+  let hyperliquidHasData = true;
+  let coinbaseFallbackUsed = false;
 
   while (currentStart < endTime) {
     const batchEnd = Math.min(currentStart + batchSize * intervalMs, endTime);
+    let batchCandles: Candle[] = [];
 
-    for (let retryAttempt = 0; retryAttempt < 3; retryAttempt++) {
-      try {
-        let candles: Candle[];
-        if (venue === "coinbase") {
-          const count = Math.ceil((batchEnd - currentStart) / intervalMs);
-          candles = await getCoinbaseCandles(market, interval, count);
-        } else {
+    // Try Hyperliquid first
+    if (hyperliquidHasData) {
+      for (let retryAttempt = 0; retryAttempt < 3; retryAttempt++) {
+        try {
           const baseSymbol = market.replace("-PERP", "").replace("-SPOT", "");
           const response = await fetch("https://api.hyperliquid.xyz/info", {
             method: "POST",
@@ -138,7 +146,7 @@ export async function fetchHistoricalCandles(
           if (!response.ok) throw new Error(`Hyperliquid API error: ${response.status}`);
           const data = await response.json();
           const rawCandles = Array.isArray(data) ? data : [];
-          candles = rawCandles.map((c: any) => ({
+          batchCandles = rawCandles.map((c: any) => ({
             t: Number(c.t || 0),
             T: Number(c.T || 0),
             o: Number(c.o || 0),
@@ -148,18 +156,33 @@ export async function fetchHistoricalCandles(
             v: Number(c.v || 0),
             n: Number(c.n || 0),
           }));
+          break;
+        } catch (err) {
+          console.error(`[Backtest] Failed to fetch candles batch (attempt ${retryAttempt + 1}/3): ${err}`);
+          if (retryAttempt < 2) await new Promise(r => setTimeout(r, 1000 * (retryAttempt + 1)));
         }
+      }
+    }
 
-        candles.sort((a, b) => a.t - b.t);
-        for (const c of candles) {
-          if (c.t >= startTime && c.t < endTime) {
-            allCandles.push(c);
-          }
-        }
-        break;
+    // If Hyperliquid returned 0 candles for this batch, fall back to Coinbase
+    if (batchCandles.length === 0) {
+      if (hyperliquidHasData) {
+        console.log(`[Backtest] No Hyperliquid ${interval} data for ${market} at ${new Date(currentStart).toISOString()}, falling back to Coinbase`);
+        hyperliquidHasData = false;
+        coinbaseFallbackUsed = true;
+      }
+      try {
+        const cbCandles = await getCoinbaseHistoricalCandles(market, currentStart, batchEnd, interval);
+        batchCandles = cbCandles as unknown as Candle[];
       } catch (err) {
-        console.error(`[Backtest] Failed to fetch candles batch (attempt ${retryAttempt + 1}/3): ${err}`);
-        if (retryAttempt < 2) await new Promise(r => setTimeout(r, 1000 * (retryAttempt + 1)));
+        console.error(`[Backtest] Coinbase fallback also failed for ${market}:`, err);
+      }
+    }
+
+    batchCandles.sort((a, b) => a.t - b.t);
+    for (const c of batchCandles) {
+      if (c.t >= startTime && c.t < endTime) {
+        allCandles.push(c);
       }
     }
 
@@ -175,7 +198,8 @@ export async function fetchHistoricalCandles(
     return true;
   });
 
-  console.log(`[Backtest] Fetched ${deduped.length} candles for ${market} (expected ~${totalCandles})`);
+  const source = coinbaseFallbackUsed ? " (with Coinbase fallback)" : "";
+  console.log(`[Backtest] Fetched ${deduped.length} candles for ${market}${source} (expected ~${totalCandles})`);
   return deduped;
 }
 

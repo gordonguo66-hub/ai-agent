@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getUserFromRequest } from "@/lib/api/serverAuth";
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import { estimateBacktestCost } from "@/lib/backtest/costEstimator";
+import { toCoinbaseProductId } from "@/lib/coinbase/candles";
 
 export const dynamic = "force-dynamic";
 
@@ -59,17 +60,13 @@ export async function POST(request: NextRequest) {
 
     // --- Data availability probe ---
     // Quick check if candle data exists at the requested resolution
-    const RESOLUTION_MS: Record<string, number> = {
-      "15m": 15 * 60 * 1000,
-      "1h": 60 * 60 * 1000,
-      "4h": 4 * 60 * 60 * 1000,
-      "1d": 24 * 60 * 60 * 1000,
-    };
-    const FALLBACK_CHAIN: Record<string, string[]> = {
-      "15m": ["1h", "4h", "1d"],
-      "1h": ["4h", "1d"],
-      "4h": ["1d"],
-      "1d": [],
+    // Coinbase granularity mapping for probe
+    const COINBASE_GRANULARITY: Record<string, number> = {
+      "5m": 300,
+      "15m": 900,
+      "1h": 3600,
+      "4h": 3600, // Coinbase has no 4h, probe with 1h
+      "1d": 86400,
     };
 
     let effectiveResolution = resolution;
@@ -79,8 +76,12 @@ export async function POST(request: NextRequest) {
       const probeMarket = markets[0];
       const baseSymbol = probeMarket.replace("-PERP", "").replace("-SPOT", "");
       const probeStart = startDate.getTime();
-      const probeEnd = Math.min(probeStart + 7 * 24 * 60 * 60 * 1000, endDate.getTime());
+      // Probe window must fit within Coinbase's 300-candle limit
+      // 5m: 300*5min = 25h, 15m: 300*15min = 75h, 1h+: 7 days is fine
+      const probeWindowMs = (COINBASE_GRANULARITY[resolution] || 3600) * 250 * 1000; // ~250 candles worth
+      const probeEnd = Math.min(probeStart + probeWindowMs, endDate.getTime());
 
+      // 1. Try Hyperliquid first
       let probeCount = 0;
       try {
         const probeRes = await fetch("https://api.hyperliquid.xyz/info", {
@@ -97,36 +98,37 @@ export async function POST(request: NextRequest) {
         }
       } catch {}
 
+      // 2. If Hyperliquid has no data, try Coinbase at the SAME resolution before downgrading
       if (probeCount === 0) {
-        const fallbacks = FALLBACK_CHAIN[resolution] || [];
-        for (const fb of fallbacks) {
+        const cbProductId = toCoinbaseProductId(probeMarket);
+        const cbGranularity = COINBASE_GRANULARITY[resolution];
+
+        if (cbGranularity) {
           try {
-            const fbRes = await fetch("https://api.hyperliquid.xyz/info", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                type: "candleSnapshot",
-                req: { coin: baseSymbol, interval: fb, startTime: probeStart, endTime: probeEnd },
-              }),
-            });
-            if (fbRes.ok) {
-              const fbData = await fbRes.json();
-              if (Array.isArray(fbData) && fbData.length > 0) {
-                effectiveResolution = fb;
-                dataWarning = `No ${resolution} candle data available for this date range. Will automatically use ${fb} resolution instead.`;
-                break;
+            const cbProbeStart = new Date(probeStart).toISOString();
+            const cbProbeEnd = new Date(probeEnd).toISOString();
+            const cbRes = await fetch(
+              `https://api.exchange.coinbase.com/products/${cbProductId}/candles?start=${cbProbeStart}&end=${cbProbeEnd}&granularity=${cbGranularity}`,
+              { headers: { "Content-Type": "application/json" } }
+            );
+            if (cbRes.ok) {
+              const cbData = await cbRes.json();
+              if (Array.isArray(cbData) && cbData.length > 0) {
+                probeCount = cbData.length;
+                dataWarning = `Using Coinbase spot data for historical ${resolution} candles (Hyperliquid data not available this far back).`;
               }
             }
           } catch {}
         }
+      }
 
-        if (effectiveResolution === resolution && probeCount === 0) {
-          return NextResponse.json({
-            estimate: null,
-            data_available: false,
-            error: `No historical candle data available for ${probeMarket} in the selected date range. The data provider may not have data this far back. Try a more recent date range (last ~6 months for hourly data).`,
-          });
-        }
+      // 3. If neither source has data at this resolution, it's truly unavailable
+      if (probeCount === 0) {
+        return NextResponse.json({
+          estimate: null,
+          data_available: false,
+          error: `No historical ${resolution} candle data available for ${probeMarket} in the selected date range from any data source.`,
+        });
       }
     }
 
