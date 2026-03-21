@@ -30,6 +30,14 @@ interface BacktestWhatIfProps {
   originalSummary: any;
 }
 
+interface OriginalExitConfig {
+  mode: string;
+  stopLossPct?: number | null;
+  takeProfitPct?: number | null;
+  trailingStopPct?: number | null;
+  maxHoldMinutes?: number | null;
+}
+
 interface WhatIfData {
   entry_trades: EntryTrade[];
   candles: Record<string, CandlePoint[]>;
@@ -52,8 +60,10 @@ export function BacktestWhatIf({
   const [dataLoading, setDataLoading] = useState(false);
   const [dataError, setDataError] = useState<string | null>(null);
   const [whatIfData, setWhatIfData] = useState<WhatIfData | null>(null);
+  const [originalExit, setOriginalExit] = useState<OriginalExitConfig | null>(null);
+  const [initialized, setInitialized] = useState(false);
 
-  // Parameter state
+  // Parameter state — will be initialized from original exit config
   const [slEnabled, setSlEnabled] = useState(true);
   const [tpEnabled, setTpEnabled] = useState(true);
   const [trailingEnabled, setTrailingEnabled] = useState(false);
@@ -87,13 +97,29 @@ export function BacktestWhatIf({
         candles: data.candles,
         constants: data.constants,
       });
+
+      // Initialize sliders from original exit config
+      const exit = data.original_exit_config;
+      if (exit && !initialized) {
+        setOriginalExit(exit);
+        if (exit.stopLossPct != null) { setSlEnabled(true); setStopLossPct(exit.stopLossPct); }
+        else { setSlEnabled(false); }
+        if (exit.takeProfitPct != null) { setTpEnabled(true); setTakeProfitPct(exit.takeProfitPct); }
+        else { setTpEnabled(false); }
+        if (exit.trailingStopPct != null) { setTrailingEnabled(true); setTrailingStopPct(exit.trailingStopPct); }
+        else { setTrailingEnabled(false); }
+        if (exit.maxHoldMinutes != null) { setTimeEnabled(true); setMaxHoldHours(exit.maxHoldMinutes / 60); }
+        else { setTimeEnabled(false); }
+        setInitialized(true);
+      }
+
       setDataLoaded(true);
     } catch (err: any) {
       setDataError(err.message || "Failed to load data");
     } finally {
       setDataLoading(false);
     }
-  }, [backtestId]);
+  }, [backtestId, initialized]);
 
   // Auto-load data on mount
   useEffect(() => {
@@ -192,6 +218,16 @@ export function BacktestWhatIf({
       </CardHeader>
       <CardContent className="space-y-6">
         {/* Parameter Controls */}
+        {originalExit && (
+          <div className="text-xs text-gray-500 bg-gray-800/30 rounded-lg px-3 py-2">
+            <span className="text-gray-400 font-medium">Original exit:</span>{" "}
+            {originalExit.mode === "tp_sl" ? "TP/SL" : originalExit.mode === "trailing" ? "Trailing" : originalExit.mode === "signal" ? "Signal" : originalExit.mode}
+            {originalExit.stopLossPct != null && <> · SL {originalExit.stopLossPct}%</>}
+            {originalExit.takeProfitPct != null && <> · TP {originalExit.takeProfitPct}%</>}
+            {originalExit.trailingStopPct != null && <> · Trail {originalExit.trailingStopPct}%</>}
+            {originalExit.maxHoldMinutes != null && <> · Hold {originalExit.maxHoldMinutes / 60}h</>}
+          </div>
+        )}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <ParamSlider
             label="Stop Loss"
@@ -203,6 +239,7 @@ export function BacktestWhatIf({
             max={20}
             step={0.25}
             suffix="%"
+            originalValue={originalExit?.stopLossPct}
           />
           <ParamSlider
             label="Take Profit"
@@ -214,6 +251,7 @@ export function BacktestWhatIf({
             max={30}
             step={0.25}
             suffix="%"
+            originalValue={originalExit?.takeProfitPct}
           />
           <ParamSlider
             label="Trailing Stop"
@@ -225,6 +263,7 @@ export function BacktestWhatIf({
             max={15}
             step={0.25}
             suffix="%"
+            originalValue={originalExit?.trailingStopPct}
           />
           <ParamSlider
             label="Max Hold Time"
@@ -236,6 +275,7 @@ export function BacktestWhatIf({
             max={168}
             step={1}
             suffix="h"
+            originalValue={originalExit?.maxHoldMinutes != null ? originalExit.maxHoldMinutes / 60 : undefined}
           />
         </div>
 
@@ -383,6 +423,7 @@ function ParamSlider({
   max,
   step,
   suffix,
+  originalValue,
 }: {
   label: string;
   enabled: boolean;
@@ -393,7 +434,10 @@ function ParamSlider({
   max: number;
   step: number;
   suffix: string;
+  originalValue?: number | null;
 }) {
+  const isChanged = originalValue != null && enabled && Math.abs(value - originalValue) > 0.01;
+
   return (
     <div
       className={`rounded-lg border p-3 transition-colors ${
@@ -411,8 +455,11 @@ function ParamSlider({
             className="rounded border-gray-600 bg-gray-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-0 h-3.5 w-3.5"
           />
           <span className="text-sm font-medium text-gray-300">{label}</span>
+          {originalValue != null && (
+            <span className="text-[10px] text-gray-500">(original: {originalValue}{suffix})</span>
+          )}
         </label>
-        <span className="text-sm font-mono text-white">
+        <span className={`text-sm font-mono ${isChanged ? "text-amber-400" : "text-white"}`}>
           {value}{suffix}
         </span>
       </div>

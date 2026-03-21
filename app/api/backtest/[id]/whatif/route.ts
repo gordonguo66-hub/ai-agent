@@ -37,6 +37,15 @@ export async function GET(
       );
     }
 
+    // Fetch strategy exit config
+    const { data: strategy } = await supabase
+      .from("strategies")
+      .select("filters")
+      .eq("id", run.strategy_id)
+      .single();
+
+    const exitConfig = strategy?.filters?.entryExit?.exit || null;
+
     // Fetch entry trades (action = 'open')
     const { data: entryTrades } = await supabase
       .from("backtest_trades")
@@ -120,6 +129,7 @@ export async function GET(
         startDateMs: startTime,
         endDateMs: endTime,
       },
+      original_exit_config: exitConfig,
     });
   } catch (err: any) {
     console.error("[WhatIf] Error:", err);
