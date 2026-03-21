@@ -98,18 +98,32 @@ export function BacktestWhatIf({
         constants: data.constants,
       });
 
-      // Initialize sliders from original exit config
+      // Initialize sliders from original exit config — only enable params active in the original mode
       const exit = data.original_exit_config;
       if (exit && !initialized) {
-        setOriginalExit(exit);
-        if (exit.stopLossPct != null) { setSlEnabled(true); setStopLossPct(exit.stopLossPct); }
-        else { setSlEnabled(false); }
-        if (exit.takeProfitPct != null) { setTpEnabled(true); setTakeProfitPct(exit.takeProfitPct); }
-        else { setTpEnabled(false); }
-        if (exit.trailingStopPct != null) { setTrailingEnabled(true); setTrailingStopPct(exit.trailingStopPct); }
-        else { setTrailingEnabled(false); }
-        if (exit.maxHoldMinutes != null) { setTimeEnabled(true); setMaxHoldHours(exit.maxHoldMinutes / 60); }
-        else { setTimeEnabled(false); }
+        const mode = exit.mode || "tp_sl";
+        // Build originalExit with only the values that were ACTIVE
+        const activeExit: OriginalExitConfig = { mode };
+
+        // Reset all to defaults first
+        setSlEnabled(false); setStopLossPct(3);
+        setTpEnabled(false); setTakeProfitPct(6);
+        setTrailingEnabled(false); setTrailingStopPct(2);
+        setTimeEnabled(false); setMaxHoldHours(48);
+
+        // Then enable only what was active in the original mode
+        if (mode === "tp_sl") {
+          if (exit.stopLossPct != null) { setSlEnabled(true); setStopLossPct(exit.stopLossPct); activeExit.stopLossPct = exit.stopLossPct; }
+          if (exit.takeProfitPct != null) { setTpEnabled(true); setTakeProfitPct(exit.takeProfitPct); activeExit.takeProfitPct = exit.takeProfitPct; }
+        } else if (mode === "trailing") {
+          if (exit.trailingStopPct != null) { setTrailingEnabled(true); setTrailingStopPct(exit.trailingStopPct); activeExit.trailingStopPct = exit.trailingStopPct; }
+          if (exit.initialStopLossPct != null) { setSlEnabled(true); setStopLossPct(exit.initialStopLossPct); activeExit.stopLossPct = exit.initialStopLossPct; }
+        } else if (mode === "time") {
+          if (exit.maxHoldMinutes != null) { setTimeEnabled(true); setMaxHoldHours(exit.maxHoldMinutes / 60); activeExit.maxHoldMinutes = exit.maxHoldMinutes; }
+        }
+        // signal mode: everything stays disabled (AI handles exits)
+
+        setOriginalExit(activeExit);
         setInitialized(true);
       }
 
@@ -185,17 +199,17 @@ export function BacktestWhatIf({
 
   if (!dataLoaded) {
     return (
-      <Card className="mb-6 bg-[#0A0E1A] border-blue-900/50">
+      <Card className="mb-6 bg-white border-gray-200 shadow-sm">
         <CardContent className="py-8">
           <div className="text-center">
             {dataError ? (
               <>
-                <p className="text-sm text-red-400 mb-3">{dataError}</p>
-                <Button onClick={loadData} variant="outline" size="sm">Retry</Button>
+                <p className="text-sm text-red-600 mb-3">{dataError}</p>
+                <Button onClick={loadData} variant="outline" size="sm" className="border-gray-300 text-gray-700 hover:bg-gray-50">Retry</Button>
               </>
             ) : (
-              <div className="flex items-center justify-center gap-2 text-gray-400 text-sm">
-                <Loader2 className="h-4 w-4 animate-spin" />
+              <div className="flex items-center justify-center gap-2 text-gray-500 text-sm">
+                <Loader2 className="h-4 w-4 animate-spin text-[#0A1628]" />
                 Loading What-If Analysis...
               </div>
             )}
@@ -209,25 +223,15 @@ export function BacktestWhatIf({
   const o = originalSummary || {};
 
   return (
-    <Card className="mb-6 bg-[#0A0E1A] border-blue-900/50">
+    <Card className="mb-6 bg-white border-gray-200 shadow-sm">
       <CardHeader className="pb-4">
-        <CardTitle className="text-white flex items-center gap-2">
-          <SlidersHorizontal className="h-5 w-5 text-blue-400" />
+        <CardTitle className="text-gray-900 flex items-center gap-2">
+          <SlidersHorizontal className="h-5 w-5 text-[#0A1628]" />
           What-If Analysis
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-6">
         {/* Parameter Controls */}
-        {originalExit && (
-          <div className="text-xs text-gray-500 bg-gray-800/30 rounded-lg px-3 py-2">
-            <span className="text-gray-400 font-medium">Original exit:</span>{" "}
-            {originalExit.mode === "tp_sl" ? "TP/SL" : originalExit.mode === "trailing" ? "Trailing" : originalExit.mode === "signal" ? "Signal" : originalExit.mode}
-            {originalExit.stopLossPct != null && <> · SL {originalExit.stopLossPct}%</>}
-            {originalExit.takeProfitPct != null && <> · TP {originalExit.takeProfitPct}%</>}
-            {originalExit.trailingStopPct != null && <> · Trail {originalExit.trailingStopPct}%</>}
-            {originalExit.maxHoldMinutes != null && <> · Hold {originalExit.maxHoldMinutes / 60}h</>}
-          </div>
-        )}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <ParamSlider
             label="Stop Loss"
@@ -284,14 +288,14 @@ export function BacktestWhatIf({
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-gray-800">
+                <tr className="border-b border-gray-200">
                   <th className="text-left py-2 text-gray-400 font-medium">Metric</th>
                   <th className="text-right py-2 text-gray-400 font-medium">Original</th>
                   <th className="text-right py-2 text-gray-400 font-medium">What-If</th>
                   <th className="text-right py-2 text-gray-400 font-medium">Change</th>
                 </tr>
               </thead>
-              <tbody className="text-gray-300">
+              <tbody className="text-gray-700">
                 <CompRow
                   label="Return"
                   original={o.return_pct}
@@ -345,7 +349,7 @@ export function BacktestWhatIf({
             <div className="h-[300px]">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={chartData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                   <XAxis
                     dataKey="time"
                     type="number"
@@ -354,21 +358,22 @@ export function BacktestWhatIf({
                       const d = new Date(v);
                       return `${d.getMonth() + 1}/${d.getDate()}`;
                     }}
-                    stroke="#4b5563"
+                    stroke="#d1d5db"
                     tick={{ fill: "#6b7280", fontSize: 11 }}
                   />
                   <YAxis
-                    stroke="#4b5563"
+                    stroke="#d1d5db"
                     tick={{ fill: "#6b7280", fontSize: 11 }}
                     tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
                   />
                   <Tooltip
                     contentStyle={{
-                      backgroundColor: "#0f172a",
-                      border: "1px solid #1e3a5f",
+                      backgroundColor: "#ffffff",
+                      border: "1px solid #e5e7eb",
                       borderRadius: "8px",
-                      color: "#e5e7eb",
+                      color: "#111827",
                       fontSize: 12,
+                      boxShadow: "0 4px 6px -1px rgba(0,0,0,0.1)",
                     }}
                     labelFormatter={(v) => new Date(v).toLocaleDateString()}
                     formatter={(value: number, name: string) => [
@@ -377,13 +382,13 @@ export function BacktestWhatIf({
                     ]}
                   />
                   <Legend
-                    wrapperStyle={{ fontSize: 12, color: "#9ca3af" }}
+                    wrapperStyle={{ fontSize: 12, color: "#6b7280" }}
                     formatter={(value) => (value === "original" ? "Original" : "What-If")}
                   />
                   <Line
                     type="monotone"
                     dataKey="original"
-                    stroke="#6b7280"
+                    stroke="#9ca3af"
                     strokeWidth={1.5}
                     strokeDasharray="6 3"
                     dot={false}
@@ -394,7 +399,7 @@ export function BacktestWhatIf({
                     type="monotone"
                     dataKey="whatIf"
                     stroke={
-                      m && m.returnPct >= 0 ? "#22c55e" : "#ef4444"
+                      m && m.returnPct >= 0 ? "#059669" : "#dc2626"
                     }
                     strokeWidth={2}
                     dot={false}
@@ -436,14 +441,28 @@ function ParamSlider({
   suffix: string;
   originalValue?: number | null;
 }) {
-  const isChanged = originalValue != null && enabled && Math.abs(value - originalValue) > 0.01;
+  const isAtOriginal = originalValue != null && Math.abs(value - originalValue) < 0.01;
+  const isChanged = originalValue != null && enabled && !isAtOriginal;
+  const originalPct = originalValue != null ? ((originalValue - min) / (max - min)) * 100 : null;
+
+  // Snap to original when close
+  const handleChange = (rawValue: number) => {
+    if (originalValue != null) {
+      const snapRange = (max - min) * 0.015; // 1.5% of range
+      if (Math.abs(rawValue - originalValue) <= snapRange) {
+        onChange(originalValue);
+        return;
+      }
+    }
+    onChange(rawValue);
+  };
 
   return (
     <div
       className={`rounded-lg border p-3 transition-colors ${
         enabled
-          ? "border-blue-900/50 bg-blue-950/20"
-          : "border-gray-800 bg-transparent opacity-50"
+          ? "border-gray-200 bg-gray-50"
+          : "border-gray-100 bg-transparent opacity-50"
       }`}
     >
       <div className="flex items-center justify-between mb-2">
@@ -452,30 +471,43 @@ function ParamSlider({
             type="checkbox"
             checked={enabled}
             onChange={(e) => onToggle(e.target.checked)}
-            className="rounded border-gray-600 bg-gray-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-0 h-3.5 w-3.5"
+            className="rounded border-gray-300 bg-white text-[#0A1628] focus:ring-[#0A1628] focus:ring-offset-0 h-3.5 w-3.5"
           />
-          <span className="text-sm font-medium text-gray-300">{label}</span>
-          {originalValue != null && (
-            <span className="text-[10px] text-gray-500">(original: {originalValue}{suffix})</span>
-          )}
+          <span className="text-sm font-medium text-gray-700">{label}</span>
         </label>
-        <span className={`text-sm font-mono ${isChanged ? "text-amber-400" : "text-white"}`}>
-          {value}{suffix}
-        </span>
+        <div className="flex items-center gap-1.5">
+          {isAtOriginal && originalValue != null && (
+            <span className="text-[10px] text-emerald-600 font-medium">original</span>
+          )}
+          <span className={`text-sm font-mono ${isAtOriginal ? "text-emerald-600" : isChanged ? "text-amber-600" : "text-gray-900"}`}>
+            {value}{suffix}
+          </span>
+        </div>
       </div>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-        disabled={!enabled}
-        className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500 disabled:cursor-not-allowed"
-      />
+      <div className="relative">
+        {/* Original value marker — small triangle above track */}
+        {originalPct != null && enabled && !isAtOriginal && (
+          <div
+            className="absolute -top-1 -translate-x-1/2 z-20 pointer-events-none"
+            style={{ left: `${originalPct}%` }}
+          >
+            <div className="w-0 h-0 border-l-[3px] border-r-[3px] border-t-[4px] border-l-transparent border-r-transparent border-t-gray-400" />
+          </div>
+        )}
+        <input
+          type="range"
+          min={min}
+          max={max}
+          step={step}
+          value={value}
+          onChange={(e) => handleChange(Number(e.target.value))}
+          disabled={!enabled}
+          className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#0A1628] disabled:cursor-not-allowed relative z-10"
+        />
+      </div>
       <div className="flex justify-between mt-1">
-        <span className="text-[10px] text-gray-600">{min}{suffix}</span>
-        <span className="text-[10px] text-gray-600">{max}{suffix}</span>
+        <span className="text-[10px] text-gray-400">{min}{suffix}</span>
+        <span className="text-[10px] text-gray-400">{max}{suffix}</span>
       </div>
     </div>
   );
@@ -499,18 +531,18 @@ function CompRow({
   const origVal = original ?? 0;
   const diff = whatIf - origVal;
 
-  let changeColor = "text-gray-500";
+  let changeColor = "text-gray-400";
   if (higherIsBetter) {
-    changeColor = diff > 0.01 ? "text-green-400" : diff < -0.01 ? "text-red-400" : "text-gray-500";
+    changeColor = diff > 0.01 ? "text-emerald-600" : diff < -0.01 ? "text-red-600" : "text-gray-400";
   } else if (lowerIsBetter) {
-    changeColor = diff < -0.01 ? "text-green-400" : diff > 0.01 ? "text-red-400" : "text-gray-500";
+    changeColor = diff < -0.01 ? "text-emerald-600" : diff > 0.01 ? "text-red-600" : "text-gray-400";
   }
 
   return (
-    <tr className="border-b border-gray-800/50">
-      <td className="py-2 text-gray-400">{label}</td>
+    <tr className="border-b border-gray-100">
+      <td className="py-2 text-gray-500">{label}</td>
       <td className="py-2 text-right font-mono">{original !== undefined ? format(origVal) : "--"}</td>
-      <td className="py-2 text-right font-mono text-white">{format(whatIf)}</td>
+      <td className="py-2 text-right font-mono text-gray-900">{format(whatIf)}</td>
       <td className={`py-2 text-right font-mono ${changeColor}`}>
         {diff > 0 ? "+" : ""}{diff.toFixed(2)}
       </td>

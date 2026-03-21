@@ -30,6 +30,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { BacktestWhatIf } from "@/components/backtest-what-if";
+import { BacktestAnalysisChat } from "@/components/backtest-analysis-chat";
 
 function BacktestResultContent() {
   const params = useParams();
@@ -119,17 +120,17 @@ function BacktestResultContent() {
 
   if (loading) {
     return (
-      <div className="min-h-[calc(100vh-4rem)] bg-[#070d1a] flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-blue-400" />
+      <div className="min-h-[calc(100vh-4rem)] bg-gray-50 flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-[#0A1628]" />
       </div>
     );
   }
 
   if (error || !backtest) {
     return (
-      <div className="min-h-[calc(100vh-4rem)] bg-[#070d1a] container mx-auto px-4 py-16 text-center">
-        <p className="text-red-400">{error || "Backtest not found"}</p>
-        <Button variant="outline" onClick={() => router.back()} className="mt-4">
+      <div className="min-h-[calc(100vh-4rem)] bg-gray-50 container mx-auto px-4 py-16 text-center">
+        <p className="text-red-600">{error || "Backtest not found"}</p>
+        <Button variant="outline" onClick={() => router.back()} className="mt-4 border-gray-300 text-gray-700 hover:bg-gray-100">
           Go Back
         </Button>
       </div>
@@ -142,39 +143,44 @@ function BacktestResultContent() {
       : 0;
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] bg-[#070d1a]">
-      <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
-        <div className="max-w-5xl mx-auto">
-          <div className="flex items-center gap-3 mb-6">
+    <div className="min-h-[calc(100vh-4rem)] bg-gray-50">
+      <div className={`mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 ${isCompleted ? "max-w-[1600px]" : "max-w-7xl"}`}>
+        {/* Header — always full width above both columns */}
+        <div className="flex items-center gap-3 mb-8">
             <Button
               variant="ghost"
               size="sm"
               onClick={() => router.back()}
-              className="text-gray-400 hover:text-white"
+              className="text-gray-500 hover:text-gray-900 hover:bg-gray-100"
             >
               <ArrowLeft className="h-4 w-4 mr-1" />
               Back
             </Button>
-            <h1 className="text-2xl font-bold text-white">Backtest Results</h1>
+            <h1 className="text-2xl font-bold text-gray-900">Backtest Results</h1>
             <Badge
+              variant="outline"
               className={
                 isRunning
-                  ? "bg-blue-600 text-white"
+                  ? "border-[#0A1628]/30 text-[#0A1628] bg-[#0A1628]/5"
                   : isCompleted
-                  ? "bg-green-600 text-white"
-                  : "bg-red-600 text-white"
+                  ? "border-emerald-500/40 text-emerald-700 bg-emerald-50"
+                  : "border-red-300 text-red-700 bg-red-50"
               }
             >
               {backtest.status}
             </Badge>
           </div>
 
+        {/* Two-column layout: content left, chat right */}
+        <div className={`${isCompleted ? "flex gap-6" : ""}`}>
+        <div className={`${isCompleted ? "flex-1 min-w-0" : ""}`}>
+
           {isRunning && (
-            <Card className="mb-6 bg-[#0A0E1A] border-blue-900/50">
+            <Card className="mb-6 bg-white border-gray-200 shadow-sm">
               <CardContent className="py-5">
                 <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2 text-blue-400">
-                    <Loader2 className="h-4 w-4 animate-spin" />
+                  <div className="flex items-center gap-2 text-gray-700">
+                    <Loader2 className="h-4 w-4 animate-spin text-[#0A1628]" />
                     <span className="text-sm font-medium">
                       Running... {backtest.completed_ticks}/{backtest.total_ticks} ticks
                     </span>
@@ -183,18 +189,18 @@ function BacktestResultContent() {
                     variant="outline"
                     size="sm"
                     onClick={handleCancel}
-                    className="border-red-800 text-red-400 hover:bg-red-950/30"
+                    className="border-red-300 text-red-600 hover:bg-red-50"
                   >
                     Cancel
                   </Button>
                 </div>
-                <div className="w-full bg-blue-950/50 rounded-full h-2">
+                <div className="w-full bg-gray-100 rounded-full h-1.5">
                   <div
-                    className="bg-blue-500 h-2 rounded-full transition-all duration-500"
+                    className="bg-[#0A1628] h-1.5 rounded-full transition-all duration-500"
                     style={{ width: `${progressPct}%` }}
                   />
                 </div>
-                <p className="text-xs text-gray-500 mt-2">
+                <p className="text-xs text-gray-400 mt-2">
                   Cost so far: ${(backtest.actual_cost_cents / 100).toFixed(2)}
                 </p>
               </CardContent>
@@ -202,9 +208,9 @@ function BacktestResultContent() {
           )}
 
           {isFailed && backtest.error_message && (
-            <Card className="mb-6 bg-[#0A0E1A] border-red-900/50">
+            <Card className="mb-6 bg-red-50 border-red-200">
               <CardContent className="py-4">
-                <div className="flex items-center gap-2 text-red-400">
+                <div className="flex items-center gap-2 text-red-700">
                   <AlertTriangle className="h-4 w-4" />
                   <span className="text-sm">{backtest.error_message}</span>
                 </div>
@@ -213,9 +219,9 @@ function BacktestResultContent() {
           )}
 
           {summary.resolution_fallback && (
-            <Card className="mb-6 bg-[#0A0E1A] border-amber-900/50">
+            <Card className="mb-6 bg-amber-50 border-amber-200">
               <CardContent className="py-4">
-                <div className="flex items-center gap-2 text-amber-400">
+                <div className="flex items-center gap-2 text-amber-700">
                   <AlertTriangle className="h-4 w-4 flex-shrink-0" />
                   <span className="text-sm">{summary.resolution_fallback.reason}</span>
                 </div>
@@ -232,7 +238,7 @@ function BacktestResultContent() {
                   : "--"
               }
               icon={summary.return_pct >= 0 ? TrendingUp : TrendingDown}
-              color={summary.return_pct >= 0 ? "text-green-400" : "text-red-400"}
+              valueColor={summary.return_pct >= 0 ? "text-emerald-600" : "text-red-600"}
             />
             <MetricCard
               label="Win Rate"
@@ -242,13 +248,11 @@ function BacktestResultContent() {
                   : "--"
               }
               icon={Target}
-              color="text-blue-400"
             />
             <MetricCard
               label="Total Trades"
               value={summary.total_trades?.toString() || "--"}
               icon={BarChart3}
-              color="text-purple-400"
             />
             <MetricCard
               label="Max Drawdown"
@@ -258,7 +262,7 @@ function BacktestResultContent() {
                   : "--"
               }
               icon={AlertTriangle}
-              color="text-amber-400"
+              valueColor="text-amber-600"
             />
           </div>
 
@@ -271,7 +275,7 @@ function BacktestResultContent() {
                   : "--"
               }
               icon={DollarSign}
-              color={summary.total_pnl >= 0 ? "text-green-400" : "text-red-400"}
+              valueColor={summary.total_pnl >= 0 ? "text-emerald-600" : "text-red-600"}
             />
             <MetricCard
               label="Avg Trade PnL"
@@ -281,27 +285,25 @@ function BacktestResultContent() {
                   : "--"
               }
               icon={DollarSign}
-              color={summary.avg_trade_pnl >= 0 ? "text-green-400" : "text-red-400"}
+              valueColor={summary.avg_trade_pnl >= 0 ? "text-emerald-600" : "text-red-600"}
             />
             <MetricCard
               label="W / L"
               value={`${summary.winning_trades || 0} / ${summary.losing_trades || 0}`}
               icon={BarChart3}
-              color="text-gray-300"
             />
             <MetricCard
               label="Backtest Cost"
               value={`$${(backtest.actual_cost_cents / 100).toFixed(2)}`}
               icon={Clock}
-              color="text-gray-400"
             />
           </div>
 
           {chartData.length > 1 && (
-            <Card className="mb-6 bg-[#0A0E1A] border-blue-900/50">
+            <Card className="mb-6 bg-white border-gray-200 shadow-sm">
               <CardHeader>
-                <CardTitle className="text-white">Equity Curve</CardTitle>
-                <CardDescription className="text-gray-400">
+                <CardTitle className="text-gray-900">Equity Curve</CardTitle>
+                <CardDescription className="text-gray-500">
                   Portfolio value over the backtest period (starting: $
                   {(backtest.starting_equity || 100000).toLocaleString()})
                 </CardDescription>
@@ -313,7 +315,7 @@ function BacktestResultContent() {
                       data={chartData}
                       margin={{ top: 10, right: 10, left: 0, bottom: 30 }}
                     >
-                      <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                       <XAxis
                         dataKey="time"
                         type="number"
@@ -322,32 +324,33 @@ function BacktestResultContent() {
                           const d = new Date(t);
                           return `${d.getMonth() + 1}/${d.getDate()}`;
                         }}
-                        stroke="#475569"
-                        tick={{ fontSize: 11, fill: "#94a3b8" }}
+                        stroke="#d1d5db"
+                        tick={{ fontSize: 11, fill: "#6b7280" }}
                         minTickGap={40}
                       />
                       <YAxis
                         tickFormatter={(v) =>
                           v >= 1000 ? `${(v / 1000).toFixed(1)}K` : v.toFixed(0)
                         }
-                        stroke="#475569"
-                        tick={{ fontSize: 11, fill: "#94a3b8" }}
+                        stroke="#d1d5db"
+                        tick={{ fontSize: 11, fill: "#6b7280" }}
                         width={55}
                       />
                       <ReferenceLine
                         y={backtest.starting_equity || 100000}
-                        stroke="#475569"
+                        stroke="#d1d5db"
                         strokeDasharray="3 3"
                       />
                       <Tooltip
                         contentStyle={{
-                          background: "#0f172a",
-                          border: "1px solid #1e293b",
+                          background: "#ffffff",
+                          border: "1px solid #e5e7eb",
                           borderRadius: 8,
-                          color: "#e2e8f0",
+                          color: "#111827",
+                          boxShadow: "0 4px 6px -1px rgba(0,0,0,0.1)",
                         }}
                         labelStyle={{
-                          color: "#94a3b8",
+                          color: "#6b7280",
                           marginBottom: 4,
                           fontSize: 13,
                         }}
@@ -373,8 +376,8 @@ function BacktestResultContent() {
                         stroke={
                           chartData.length > 0 &&
                           chartData[chartData.length - 1].pnl >= 0
-                            ? "#10b981"
-                            : "#ef4444"
+                            ? "#059669"
+                            : "#dc2626"
                         }
                         strokeWidth={2}
                         dot={false}
@@ -396,43 +399,43 @@ function BacktestResultContent() {
             />
           )}
 
-          <Card className="mb-6 bg-[#0A0E1A] border-blue-900/50">
+          <Card className="mb-6 bg-white border-gray-200 shadow-sm">
             <CardHeader>
-              <CardTitle className="text-white">Configuration</CardTitle>
+              <CardTitle className="text-gray-900">Configuration</CardTitle>
             </CardHeader>
-            <CardContent className="text-sm text-gray-300 space-y-1.5">
+            <CardContent className="text-sm text-gray-700 space-y-1.5">
               <div className="grid grid-cols-2 gap-x-8 gap-y-1.5">
                 <div>
-                  <span className="text-gray-500">Period:</span>{" "}
+                  <span className="text-gray-400">Period:</span>{" "}
                   {new Date(backtest.start_date).toLocaleDateString()} –{" "}
                   {new Date(backtest.end_date).toLocaleDateString()}
                 </div>
                 <div>
-                  <span className="text-gray-500">Resolution:</span> {backtest.resolution}
+                  <span className="text-gray-400">Resolution:</span> {backtest.resolution}
                 </div>
                 <div>
-                  <span className="text-gray-500">Markets:</span>{" "}
+                  <span className="text-gray-400">Markets:</span>{" "}
                   {(backtest.markets || []).join(", ")}
                 </div>
                 <div>
-                  <span className="text-gray-500">Model:</span>{" "}
+                  <span className="text-gray-400">Model:</span>{" "}
                   {backtest.model_provider}/{backtest.model_name}
                 </div>
                 <div>
-                  <span className="text-gray-500">Starting Equity:</span> $
+                  <span className="text-gray-400">Starting Equity:</span> $
                   {(backtest.starting_equity || 100000).toLocaleString()}
                 </div>
                 <div>
-                  <span className="text-gray-500">Venue:</span> {backtest.venue}
+                  <span className="text-gray-400">Venue:</span> {backtest.venue}
                 </div>
               </div>
             </CardContent>
           </Card>
 
           {trades.length > 0 && (
-            <Card className="mb-6 bg-[#0A0E1A] border-blue-900/50">
+            <Card className="mb-6 bg-white border-gray-200 shadow-sm">
               <CardHeader>
-                <CardTitle className="text-white">
+                <CardTitle className="text-gray-900">
                   Trade Log ({trades.length} trades)
                 </CardTitle>
               </CardHeader>
@@ -440,7 +443,7 @@ function BacktestResultContent() {
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="border-b border-blue-900/30 text-gray-500 text-xs">
+                      <tr className="border-b border-gray-200 text-gray-400 text-xs">
                         <th className="text-left py-2 pr-3">#</th>
                         <th className="text-left py-2 pr-3">Time</th>
                         <th className="text-left py-2 pr-3">Market</th>
@@ -458,10 +461,10 @@ function BacktestResultContent() {
                         return (
                           <React.Fragment key={t.id}>
                             <tr
-                              className="border-b border-blue-900/10 hover:bg-blue-950/20"
+                              className="border-b border-gray-100 hover:bg-gray-50"
                             >
-                              <td className="py-2 pr-3 text-gray-500">{i + 1}</td>
-                              <td className="py-2 pr-3 text-gray-400 whitespace-nowrap">
+                              <td className="py-2 pr-3 text-gray-400">{i + 1}</td>
+                              <td className="py-2 pr-3 text-gray-500 whitespace-nowrap">
                                 {new Date(t.tick_timestamp).toLocaleString("en-US", {
                                   month: "short",
                                   day: "numeric",
@@ -469,14 +472,14 @@ function BacktestResultContent() {
                                   minute: "2-digit",
                                 })}
                               </td>
-                              <td className="py-2 pr-3 text-gray-300">{t.market}</td>
+                              <td className="py-2 pr-3 text-gray-700">{t.market}</td>
                               <td className="py-2 pr-3">
                                 <Badge
                                   variant="outline"
                                   className={
                                     t.action === "open"
-                                      ? "border-blue-500 text-blue-400"
-                                      : "border-gray-500 text-gray-400"
+                                      ? "border-[#0A1628]/30 text-[#0A1628] bg-[#0A1628]/5"
+                                      : "border-gray-300 text-gray-500"
                                   }
                                 >
                                   {t.action}
@@ -485,25 +488,25 @@ function BacktestResultContent() {
                               <td className="py-2 pr-3">
                                 <span
                                   className={
-                                    t.side === "buy" ? "text-green-400" : "text-red-400"
+                                    t.side === "buy" ? "text-emerald-600" : "text-red-600"
                                   }
                                 >
                                   {t.side}
                                 </span>
                               </td>
-                              <td className="py-2 pr-3 text-right text-gray-300 font-mono">
+                              <td className="py-2 pr-3 text-right text-gray-700 font-mono">
                                 ${Number(t.price).toFixed(2)}
                               </td>
-                              <td className="py-2 pr-3 text-right text-gray-400 font-mono">
+                              <td className="py-2 pr-3 text-right text-gray-500 font-mono">
                                 {Number(t.size).toFixed(6)}
                               </td>
                               <td
                                 className={`py-2 pr-3 text-right font-mono ${
                                   Number(t.realized_pnl) > 0
-                                    ? "text-green-400"
+                                    ? "text-emerald-600"
                                     : Number(t.realized_pnl) < 0
-                                    ? "text-red-400"
-                                    : "text-gray-500"
+                                    ? "text-red-600"
+                                    : "text-gray-400"
                                 }`}
                               >
                                 {t.action === "close" || t.action === "flip"
@@ -511,13 +514,13 @@ function BacktestResultContent() {
                                   : "-"}
                               </td>
                               <td
-                                className={`py-2 text-xs max-w-[200px] truncate ${t.reasoning ? "cursor-pointer text-blue-400/70 hover:text-blue-400 select-none" : "text-gray-500"}`}
+                                className={`py-2 text-xs max-w-[200px] truncate ${t.reasoning ? "cursor-pointer text-gray-500 hover:text-gray-900 select-none" : "text-gray-400"}`}
                                 onClick={() => t.reasoning && setExpandedTradeId(isExpanded ? null : t.id)}
                               >
                                 <span className="flex items-center gap-1">
                                   {t.reasoning ? (
                                     <>
-                                      <span className="text-gray-600">{isExpanded ? "▲" : "▼"}</span>
+                                      <span className="text-gray-300">{isExpanded ? "▲" : "▼"}</span>
                                       <span className="truncate">{t.reasoning}</span>
                                     </>
                                   ) : "-"}
@@ -525,9 +528,9 @@ function BacktestResultContent() {
                               </td>
                             </tr>
                             {isExpanded && t.reasoning && (
-                              <tr key={`${t.id}-expanded`} className="border-b border-blue-900/20 bg-blue-950/10">
+                              <tr key={`${t.id}-expanded`} className="border-b border-gray-100 bg-gray-50">
                                 <td colSpan={9} className="px-4 py-3">
-                                  <p className="text-xs text-gray-300 whitespace-pre-wrap leading-relaxed">
+                                  <p className="text-xs text-gray-600 whitespace-pre-wrap leading-relaxed">
                                     {t.reasoning}
                                   </p>
                                 </td>
@@ -550,7 +553,7 @@ function BacktestResultContent() {
                 size="sm"
                 onClick={handleDelete}
                 disabled={deleting}
-                className="border-red-900/50 text-red-400 hover:bg-red-950/30 hover:text-red-300"
+                className="border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
               >
                 {deleting ? (
                   <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
@@ -562,6 +565,18 @@ function BacktestResultContent() {
             </div>
           )}
         </div>
+        {/* Right column: chat panel */}
+        {isCompleted && (
+          <div className="hidden lg:block w-[380px] flex-shrink-0">
+            <div className="sticky top-[7rem]">
+              <BacktestAnalysisChat
+                backtestId={backtestId}
+                backtest={backtest}
+              />
+            </div>
+          </div>
+        )}
+        </div>
       </div>
     </div>
   );
@@ -571,21 +586,21 @@ function MetricCard({
   label,
   value,
   icon: Icon,
-  color,
+  valueColor,
 }: {
   label: string;
   value: string;
   icon: any;
-  color: string;
+  valueColor?: string;
 }) {
   return (
-    <Card className="bg-[#0A0E1A] border-blue-900/50">
+    <Card className="bg-white border-gray-200 shadow-sm">
       <CardContent className="py-3 px-4">
         <div className="flex items-center gap-2 mb-1">
-          <Icon className={`h-3.5 w-3.5 ${color}`} />
-          <span className="text-xs text-gray-500">{label}</span>
+          <Icon className="h-3.5 w-3.5 text-gray-400" />
+          <span className="text-xs text-gray-400">{label}</span>
         </div>
-        <p className={`text-lg font-semibold font-mono ${color}`}>{value}</p>
+        <p className={`text-lg font-semibold font-mono ${valueColor || "text-gray-900"}`}>{value}</p>
       </CardContent>
     </Card>
   );
