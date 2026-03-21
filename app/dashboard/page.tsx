@@ -176,26 +176,26 @@ function DashboardContent() {
 
   return (
     <div className="min-h-[calc(100vh-4rem)] bg-white">
-      <div className="max-w-[1060px] mx-auto px-8 py-14">
+      <div className="max-w-[1060px] mx-auto px-4 sm:px-8 py-8 sm:py-14">
 
         {/* ── Header ── */}
-        <div className="flex items-start justify-between gap-6 mb-14">
+        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 sm:gap-6 mb-8 sm:mb-14">
           <div>
-            <h1 className="text-4xl font-bold text-black">Dashboard</h1>
-            <p className="text-lg text-gray-500 mt-1.5">Manage your strategies and view performance</p>
+            <h1 className="text-2xl sm:text-4xl font-bold text-black">Dashboard</h1>
+            <p className="text-sm sm:text-lg text-gray-500 mt-1">Manage your strategies and view performance</p>
           </div>
           <Link href="/strategy/new">
-            <button className="h-12 px-7 text-lg font-medium rounded-lg bg-black text-white hover:bg-gray-800 transition-colors">
+            <button className="h-10 sm:h-12 px-5 sm:px-7 text-sm sm:text-lg font-medium rounded-lg bg-black text-white hover:bg-gray-800 transition-colors">
               + Create Strategy
             </button>
           </Link>
         </div>
 
         {/* ── Strategies ── */}
-        <div className="mb-14">
-          <div className="flex items-center justify-between mb-5">
-            <h2 className="text-xl font-semibold text-black">Strategies</h2>
-            <span className="text-base text-gray-400">{strategies.length} total</span>
+        <div className="mb-8 sm:mb-14">
+          <div className="flex items-center justify-between mb-4 sm:mb-5">
+            <h2 className="text-lg sm:text-xl font-semibold text-black">Strategies</h2>
+            <span className="text-sm sm:text-base text-gray-400">{strategies.length} total</span>
           </div>
 
           {strategies.length === 0 ? (
@@ -216,45 +216,45 @@ function DashboardContent() {
                 return (
                   <div
                     key={strategy.id}
-                    className={`flex items-center justify-between px-6 py-5 hover:bg-gray-50 transition-colors group ${
+                    className={`flex flex-col sm:flex-row sm:items-center justify-between px-4 sm:px-6 py-4 sm:py-5 hover:bg-gray-50 transition-colors group gap-3 sm:gap-0 ${
                       i > 0 ? "border-t border-gray-100" : ""
                     }`}
                   >
-                    <div className="flex items-center gap-4 min-w-0 flex-1">
+                    <div className="flex items-center gap-3 sm:gap-4 min-w-0 flex-1">
                       <div className="min-w-0 flex-1">
                         <Link href={`/strategy/${strategy.id}`} className="group/link">
-                          <h3 className="text-lg font-semibold text-black group-hover/link:text-blue-600 transition-colors truncate">
+                          <h3 className="text-base sm:text-lg font-semibold text-black group-hover/link:text-blue-600 transition-colors truncate">
                             {strategy.name}
                           </h3>
                         </Link>
-                        <p className="text-base text-gray-500 mt-0.5">
+                        <p className="text-sm sm:text-base text-gray-500 mt-0.5 truncate">
                           {strategy.model_provider} / {strategy.model_name}
                         </p>
                       </div>
                       {runningCount > 0 && (
                         <div className="flex items-center gap-1.5 flex-shrink-0">
-                          <span className="h-2.5 w-2.5 rounded-full bg-green-500" />
-                          <span className="text-base text-gray-500">{runningCount} active</span>
+                          <span className="h-2 w-2 sm:h-2.5 sm:w-2.5 rounded-full bg-green-500" />
+                          <span className="text-sm sm:text-base text-gray-500">{runningCount} active</span>
                         </div>
                       )}
                       {strategySessions.length > 0 && runningCount === 0 && (
-                        <span className="text-base text-gray-400 flex-shrink-0">{strategySessions.length} session{strategySessions.length !== 1 ? "s" : ""}</span>
+                        <span className="text-sm sm:text-base text-gray-400 flex-shrink-0">{strategySessions.length} session{strategySessions.length !== 1 ? "s" : ""}</span>
                       )}
                     </div>
-                    <div className="flex items-center gap-2.5 ml-4 flex-shrink-0">
+                    <div className="flex items-center gap-2 sm:gap-2.5 sm:ml-4 flex-shrink-0">
                       <Link href={`/strategy/${strategy.id}/edit`}>
-                        <button className="h-10 px-4 text-base rounded-lg border border-gray-200 text-gray-500 hover:text-black hover:border-gray-300 hover:bg-gray-50 transition-all">
+                        <button className="h-9 sm:h-10 px-3 sm:px-4 text-sm sm:text-base rounded-lg border border-gray-200 text-gray-500 hover:text-black hover:border-gray-300 hover:bg-gray-50 transition-all">
                           Edit
                         </button>
                       </Link>
                       <Link href={`/strategy/${strategy.id}`}>
-                        <button className="h-10 px-4 text-base font-medium rounded-lg bg-black text-white hover:bg-gray-800 transition-colors">
+                        <button className="h-9 sm:h-10 px-3 sm:px-4 text-sm sm:text-base font-medium rounded-lg bg-black text-white hover:bg-gray-800 transition-colors">
                           View
                         </button>
                       </Link>
                       <button
                         onClick={(e) => { e.stopPropagation(); handleDeleteClick(strategy.id); }}
-                        className="h-9 w-9 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 flex items-center justify-center transition-all opacity-0 group-hover:opacity-100"
+                        className="h-9 w-9 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 flex items-center justify-center transition-all sm:opacity-0 sm:group-hover:opacity-100"
                         title="Delete strategy"
                       >
                         <span className="text-lg">×</span>
@@ -269,8 +269,8 @@ function DashboardContent() {
 
         {/* ── Trading Sessions ── */}
         <div>
-          <div className="flex items-center justify-between mb-5">
-            <h2 className="text-xl font-semibold text-black">Trading Sessions</h2>
+          <div className="flex items-center justify-between mb-4 sm:mb-5">
+            <h2 className="text-lg sm:text-xl font-semibold text-black">Trading Sessions</h2>
             {sessions.length > 0 && (
               <div className="flex items-center gap-3">
                 {activeCount > 0 && (
@@ -317,22 +317,32 @@ function DashboardContent() {
                 return (
                   <div
                     key={session.id}
-                    className={`flex items-center justify-between px-6 py-5 hover:bg-gray-50 transition-colors group ${
+                    className={`flex flex-col sm:flex-row sm:items-center justify-between px-4 sm:px-6 py-4 sm:py-5 hover:bg-gray-50 transition-colors group gap-3 sm:gap-0 ${
                       i > 0 ? "border-t border-gray-100" : ""
                     }`}
                   >
-                    <div className="flex items-center gap-3.5 min-w-0 flex-1">
-                      <span className={`h-2.5 w-2.5 rounded-full flex-shrink-0 ${statusDot}`} />
-                      <span className={`text-sm font-medium px-2.5 py-0.5 rounded border flex-shrink-0 ${modeStyle}`}>
-                        {session.mode}
-                      </span>
+                    <div className="flex items-start sm:items-center gap-2.5 sm:gap-3.5 min-w-0 flex-1">
+                      <span className={`h-2 w-2 sm:h-2.5 sm:w-2.5 rounded-full flex-shrink-0 mt-1.5 sm:mt-0 ${statusDot}`} />
                       <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 mb-0.5">
+                          <span className={`text-xs sm:text-sm font-medium px-2 sm:px-2.5 py-0.5 rounded border flex-shrink-0 ${modeStyle}`}>
+                            {session.mode}
+                          </span>
+                          {equity != null && pnl != null && (
+                            <span className="sm:hidden text-sm font-semibold text-black tabular-nums ml-auto">
+                              ${equity.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              <span className={`ml-1 text-xs ${pnl >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                                {pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}
+                              </span>
+                            </span>
+                          )}
+                        </div>
                         <Link href={`/dashboard/sessions/${session.id}`}>
-                          <h3 className="text-lg font-medium text-black hover:text-blue-600 transition-colors truncate">
+                          <h3 className="text-sm sm:text-lg font-medium text-black hover:text-blue-600 transition-colors truncate">
                             {strategy.name || "Unknown Strategy"}
                           </h3>
                         </Link>
-                        <p className="text-base text-gray-500 mt-0.5">
+                        <p className="text-xs sm:text-base text-gray-500 mt-0.5 truncate">
                           {session.market} · {session.strategies?.filters?.cadenceSeconds || session.cadence_seconds}s cadence
                           {session.last_tick_at && (
                             <> · Last tick <FormattedDate date={session.last_tick_at} /></>
@@ -341,9 +351,9 @@ function DashboardContent() {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-4 ml-4 flex-shrink-0">
+                    <div className="flex items-center gap-2 sm:gap-4 sm:ml-4 flex-shrink-0">
                       {equity != null && pnl != null && (
-                        <div className="text-right">
+                        <div className="text-right hidden sm:block">
                           <p className="text-lg font-semibold text-black tabular-nums">${equity.toFixed(2)}</p>
                           <p className={`text-base tabular-nums ${pnl >= 0 ? "text-emerald-600" : "text-red-600"}`}>
                             {pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}
@@ -351,13 +361,13 @@ function DashboardContent() {
                         </div>
                       )}
                       <Link href={`/dashboard/sessions/${session.id}`}>
-                        <button className="h-10 px-4 text-base font-medium rounded-lg border border-gray-200 text-gray-600 hover:text-black hover:border-gray-300 hover:bg-gray-50 transition-all">
+                        <button className="h-9 sm:h-10 px-3 sm:px-4 text-sm sm:text-base font-medium rounded-lg border border-gray-200 text-gray-600 hover:text-black hover:border-gray-300 hover:bg-gray-50 transition-all">
                           View
                         </button>
                       </Link>
                       <button
                         onClick={(e) => { e.stopPropagation(); handleSessionDeleteClick(session.id); }}
-                        className="h-9 w-9 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 flex items-center justify-center transition-all opacity-0 group-hover:opacity-100"
+                        className="h-9 w-9 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 flex items-center justify-center transition-all sm:opacity-0 sm:group-hover:opacity-100"
                         title="Delete session"
                       >
                         <span className="text-lg">×</span>

@@ -294,20 +294,20 @@ function StrategyDetailContent() {
 
   return (
     <div className="min-h-[calc(100vh-4rem)] bg-white">
-      <div className="max-w-[960px] mx-auto px-6 py-12">
+      <div className="max-w-[960px] mx-auto px-4 sm:px-6 py-8 sm:py-12">
 
         {/* ── Header ── */}
-        <div className="flex items-start justify-between gap-6">
+        <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
-            <h1 className="text-3xl font-bold text-black truncate">{strategy.name}</h1>
-            <p className="text-base text-gray-500 mt-1.5">
+            <h1 className="text-2xl sm:text-3xl font-bold text-black truncate">{strategy.name}</h1>
+            <p className="text-sm sm:text-base text-gray-500 mt-1 truncate">
               {strategy.model_provider} / {strategy.model_name}
               {strategy.use_platform_key && " · Billed to balance"}
             </p>
           </div>
           <button
             onClick={() => router.push(`/strategy/${strategyId}/edit`)}
-            className="text-base text-gray-500 hover:text-black transition-colors flex-shrink-0"
+            className="text-sm sm:text-base text-gray-500 hover:text-black transition-colors flex-shrink-0"
           >
             Edit strategy
           </button>
@@ -322,25 +322,25 @@ function StrategyDetailContent() {
         )}
 
         {/* ── Deploy ── */}
-        <div className="flex items-center gap-2 mt-8">
+        <div className="flex flex-wrap items-center gap-2 mt-6 sm:mt-8">
           <button
             disabled={isDisabled}
             onClick={() => handleStartSession("virtual")}
-            className="h-11 px-6 text-base font-medium rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 hover:text-black hover:border-gray-400 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+            className="h-10 sm:h-11 px-4 sm:px-6 text-sm sm:text-base font-medium rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 hover:text-black hover:border-gray-400 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
           >
             {busy ? "Starting…" : "Start Virtual"}
           </button>
           <button
             disabled={isDisabled}
             onClick={() => handleStartSession("arena")}
-            className="h-11 px-6 text-base font-medium rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 hover:text-black hover:border-gray-400 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+            className="h-10 sm:h-11 px-4 sm:px-6 text-sm sm:text-base font-medium rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 hover:text-black hover:border-gray-400 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
           >
             Start Arena
           </button>
           <button
             disabled={isDisabled || !!isFree}
             onClick={() => handleStartSession("live")}
-            className="h-11 px-6 text-base font-medium rounded-lg bg-red-50 border border-red-300 text-red-700 hover:bg-red-100 hover:text-red-800 hover:border-red-400 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+            className="h-10 sm:h-11 px-4 sm:px-6 text-sm sm:text-base font-medium rounded-lg bg-red-50 border border-red-300 text-red-700 hover:bg-red-100 hover:text-red-800 hover:border-red-400 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
           >
             Start Live{isFree ? " (paid)" : ""}
           </button>
@@ -363,8 +363,8 @@ function StrategyDetailContent() {
 
         {/* ── Recent Backtests ── */}
         {backtestRuns.length > 0 && (
-          <div className="border-t border-gray-200 mt-10 pt-6">
-            <h3 className="text-lg font-semibold text-black mb-4">Recent Backtests</h3>
+          <div className="border-t border-gray-200 mt-8 sm:mt-10 pt-5 sm:pt-6">
+            <h3 className="text-base sm:text-lg font-semibold text-black mb-3 sm:mb-4">Recent Backtests</h3>
             <div className="rounded-lg border border-gray-200 overflow-hidden">
               {backtestRuns.map((run, i) => {
                 const summary = run.result_summary || {};
@@ -385,15 +385,15 @@ function StrategyDetailContent() {
                       i > 0 ? "border-t border-gray-100" : ""
                     }`}
                   >
-                    <div className="flex items-center gap-3 min-w-0">
+                    <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
                       <span className={`h-1.5 w-1.5 rounded-full flex-shrink-0 ${dotColor}`} />
                       <div className="min-w-0">
-                        <span className="text-base text-gray-800">
+                        <span className="text-sm sm:text-base text-gray-800">
                           {run.start_date && run.end_date
                             ? `${new Date(run.start_date).toLocaleDateString()} – ${new Date(run.end_date).toLocaleDateString()}`
                             : <FormattedDate date={run.created_at} />}
                         </span>
-                        <div className="text-sm text-gray-500 mt-0.5">
+                        <div className="text-xs sm:text-sm text-gray-500 mt-0.5 truncate">
                           {(Array.isArray(markets) ? markets : []).join(", ") || "—"} · {run.resolution || "—"}
                         </div>
                       </div>
@@ -428,10 +428,10 @@ function StrategyDetailContent() {
         )}
 
         {/* ── Risk Filters ── */}
-        <div className="border-t border-gray-200 mt-10 pt-6">
-          <h3 className="text-lg font-semibold text-black mb-1">Risk Filters</h3>
-          <p className="text-sm text-gray-500 mb-4">Applied to both Virtual and Live sessions</p>
-          <div className="space-y-3 text-base">
+        <div className="border-t border-gray-200 mt-8 sm:mt-10 pt-5 sm:pt-6">
+          <h3 className="text-base sm:text-lg font-semibold text-black mb-1">Risk Filters</h3>
+          <p className="text-xs sm:text-sm text-gray-500 mb-3 sm:mb-4">Applied to both Virtual and Live sessions</p>
+          <div className="space-y-3 text-sm sm:text-base">
             <div className="flex items-center justify-between">
               <span className="text-gray-500">Max Position</span>
               <span className="text-black tabular-nums font-medium">${strategy.filters?.risk?.maxPositionUsd ?? "—"}</span>
