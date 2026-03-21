@@ -354,9 +354,10 @@ function BacktestResultContent() {
                           })
                         }
                         formatter={(value: number, name: string) => {
+                          const formatted = `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
                           if (name === "equity")
-                            return [`$${value.toFixed(2)}`, "Equity"];
-                          return [`$${value.toFixed(2)}`, name];
+                            return [formatted, "Equity"];
+                          return [formatted, name];
                         }}
                       />
                       <Line
