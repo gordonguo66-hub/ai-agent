@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { AuthGuard } from "@/components/auth-guard";
 import { getBearerToken } from "@/lib/api/clientAuth";
@@ -456,9 +456,8 @@ function BacktestResultContent() {
                       {trades.map((t: any, i: number) => {
                         const isExpanded = expandedTradeId === t.id;
                         return (
-                          <>
+                          <React.Fragment key={t.id}>
                             <tr
-                              key={t.id}
                               className="border-b border-blue-900/10 hover:bg-blue-950/20"
                             >
                               <td className="py-2 pr-3 text-gray-500">{i + 1}</td>
@@ -534,7 +533,7 @@ function BacktestResultContent() {
                                 </td>
                               </tr>
                             )}
-                          </>
+                          </React.Fragment>
                         );
                       })}
                     </tbody>
