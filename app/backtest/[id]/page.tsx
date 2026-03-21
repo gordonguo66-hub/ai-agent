@@ -344,7 +344,14 @@ function BacktestResultContent() {
                           background: "#0f172a",
                           border: "1px solid #1e293b",
                           borderRadius: 8,
+                          color: "#e2e8f0",
                         }}
+                        labelStyle={{
+                          color: "#94a3b8",
+                          marginBottom: 4,
+                          fontSize: 13,
+                        }}
+                        separator=": "
                         labelFormatter={(t) =>
                           new Date(t).toLocaleString("en-US", {
                             month: "short",
