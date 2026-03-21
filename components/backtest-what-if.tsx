@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
 import { getBearerToken } from "@/lib/api/clientAuth";
@@ -95,6 +95,11 @@ export function BacktestWhatIf({
     }
   }, [backtestId]);
 
+  // Auto-load data on mount
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
   // Run replay whenever params change
   const params: WhatIfParams = useMemo(
     () => ({
@@ -157,29 +162,17 @@ export function BacktestWhatIf({
       <Card className="mb-6 bg-[#0A0E1A] border-blue-900/50">
         <CardContent className="py-8">
           <div className="text-center">
-            <SlidersHorizontal className="h-8 w-8 text-gray-500 mx-auto mb-3" />
-            <h3 className="text-lg font-semibold text-white mb-2">What-If Analysis</h3>
-            <p className="text-sm text-gray-400 mb-4 max-w-md mx-auto">
-              Adjust exit parameters (SL, TP, trailing stop, hold time) and instantly see
-              how results would change. Entry decisions stay the same.
-            </p>
-            {dataError && (
-              <p className="text-sm text-red-400 mb-3">{dataError}</p>
+            {dataError ? (
+              <>
+                <p className="text-sm text-red-400 mb-3">{dataError}</p>
+                <Button onClick={loadData} variant="outline" size="sm">Retry</Button>
+              </>
+            ) : (
+              <div className="flex items-center justify-center gap-2 text-gray-400 text-sm">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading What-If Analysis...
+              </div>
             )}
-            <Button
-              onClick={loadData}
-              disabled={dataLoading}
-              className="px-6"
-            >
-              {dataLoading ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                  Loading market data...
-                </>
-              ) : (
-                "Load What-If Data"
-              )}
-            </Button>
           </div>
         </CardContent>
       </Card>
