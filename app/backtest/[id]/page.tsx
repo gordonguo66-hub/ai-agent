@@ -194,11 +194,19 @@ function BacktestResultContent() {
                     Cancel
                   </Button>
                 </div>
-                <div className="w-full bg-gray-100 rounded-full h-1.5">
+                <div className="relative w-full bg-gray-100 rounded-full h-1.5">
                   <div
                     className="bg-gradient-to-r from-[#0a1628] to-[#1a3a6e] h-1.5 rounded-full transition-all duration-500"
                     style={{ width: `${progressPct}%` }}
                   />
+                  <div
+                    className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 transition-all duration-500"
+                    style={{ left: `${progressPct}%` }}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="rotate-90">
+                      <path d="M12 2L4 14h6v8l8-12h-6V2z" fill="#1a3a6e" />
+                    </svg>
+                  </div>
                 </div>
                 <p className="text-xs text-gray-400 mt-2">
                   Cost so far: ${(backtest.actual_cost_cents / 100).toFixed(2)}
