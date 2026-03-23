@@ -176,33 +176,47 @@ function BacktestResultContent() {
         <div className={`${isCompleted ? "flex-1 min-w-0" : ""}`}>
 
           {isRunning && (
-            <Card className="mb-6 bg-white border-gray-200 shadow-sm">
-              <CardContent className="py-5">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2 text-gray-700">
-                    <Loader2 className="h-4 w-4 animate-spin text-[#0A1628]" />
-                    <span className="text-sm font-medium">
-                      Running... {backtest.completed_ticks}/{backtest.total_ticks} ticks
-                    </span>
+            <Card className="mb-6 bg-gradient-to-br from-[#040810] to-[#0a1628] border-[#1a2744] shadow-lg overflow-hidden">
+              <CardContent className="py-6 px-6">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="text-2xl animate-bounce">🚀</div>
+                    <div>
+                      <span className="text-sm font-semibold text-white">
+                        Backtest in progress
+                      </span>
+                      <p className="text-xs text-blue-300/70 mt-0.5">
+                        Tick {backtest.completed_ticks} of {backtest.total_ticks} · {progressPct}% complete
+                      </p>
+                    </div>
                   </div>
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={handleCancel}
-                    className="border-red-300 text-red-600 hover:bg-red-50"
+                    className="border-red-400/30 text-red-400 hover:bg-red-500/10 hover:text-red-300 hover:border-red-400/50 bg-transparent"
                   >
                     Cancel
                   </Button>
                 </div>
-                <div className="w-full bg-gray-100 rounded-full h-1.5">
+                <div className="relative w-full bg-[#0f1d35] rounded-full h-2.5 overflow-hidden">
                   <div
-                    className="bg-[#0A1628] h-1.5 rounded-full transition-all duration-500"
-                    style={{ width: `${progressPct}%` }}
+                    className="h-full rounded-full transition-all duration-700 ease-out bg-gradient-to-r from-blue-600 via-blue-400 to-cyan-400"
+                    style={{ width: `${Math.max(progressPct, 1)}%` }}
+                  />
+                  <div
+                    className="absolute top-0 h-full rounded-full transition-all duration-700 ease-out bg-gradient-to-r from-transparent via-white/20 to-transparent animate-pulse"
+                    style={{ width: `${Math.max(progressPct, 1)}%` }}
                   />
                 </div>
-                <p className="text-xs text-gray-400 mt-2">
-                  Cost so far: ${(backtest.actual_cost_cents / 100).toFixed(2)}
-                </p>
+                <div className="flex items-center justify-between mt-3">
+                  <p className="text-xs text-blue-300/50">
+                    Cost so far: ${(backtest.actual_cost_cents / 100).toFixed(2)}
+                  </p>
+                  <p className="text-xs text-blue-300/50">
+                    {backtest.total_ticks - backtest.completed_ticks} ticks remaining
+                  </p>
+                </div>
               </CardContent>
             </Card>
           )}
