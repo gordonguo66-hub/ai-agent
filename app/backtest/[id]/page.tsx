@@ -200,11 +200,11 @@ function BacktestResultContent() {
                     style={{ width: `${progressPct}%` }}
                   />
                   <div
-                    className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 transition-all duration-500"
+                    className="absolute top-1/2 -translate-y-1/2 transition-all duration-500"
                     style={{ left: `${progressPct}%` }}
                   >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="rotate-90">
-                      <path d="M12 2L4 14h6v8l8-12h-6V2z" fill="#1a3a6e" />
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="#1a3a6e" className="-rotate-45">
+                      <path d="M13.13 22.19L11.5 18.36C13.07 17.78 14.54 17 15.9 16.09L13.13 22.19ZM5.64 12.5L1.81 10.87L7.91 8.1C7 9.46 6.22 10.93 5.64 12.5ZM21.61 2.39C21.61 2.39 16.66 .269 11 5.93C8.81 8.12 7.5 10.53 6.65 12.64C6.37 13.39 6.56 14.21 7.11 14.77L9.24 16.89C9.79 17.45 10.61 17.63 11.36 17.35C13.5 16.53 15.88 15.19 18.07 13C23.73 7.34 21.61 2.39 21.61 2.39ZM14.54 11.46C13.76 10.68 13.76 9.41 14.54 8.63C15.32 7.85 16.59 7.85 17.37 8.63C18.14 9.41 18.15 10.68 17.37 11.46C16.59 12.24 15.32 12.24 14.54 11.46Z"/>
                     </svg>
                   </div>
                 </div>
