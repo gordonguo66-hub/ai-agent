@@ -114,7 +114,7 @@ console.log('[Worker] ========================================');
 console.log('[Worker] Tick Worker Started');
 console.log('[Worker] ========================================');
 console.log(`[Worker] App URL: ${APP_URL}`);
-console.log(`[Worker] API Key: ${API_KEY.substring(0, 8)}...`);
+console.log(`[Worker] API Key: [configured]`);
 console.log(`[Worker] Tick interval: ${TICK_INTERVAL_MS / 1000} seconds`);
 console.log('[Worker] ========================================');
 

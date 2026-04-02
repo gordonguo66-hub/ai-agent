@@ -192,7 +192,7 @@ function SettingsContent() {
 
   const getConnectionIdentifier = (conn: any) => {
     if (conn.venue === "coinbase") {
-      return conn.identifier || conn.api_key?.split("/").pop() || "Connected";
+      return conn.identifier || "Connected";
     }
     return conn.wallet_address
       ? `${conn.wallet_address.slice(0, 6)}...${conn.wallet_address.slice(-4)}`

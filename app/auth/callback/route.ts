@@ -28,7 +28,8 @@ export async function GET(request: NextRequest) {
 
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (!error) {
-      if (next) {
+      // SECURITY: Only allow relative paths starting with / to prevent open redirect attacks
+      if (next && next.startsWith("/") && !next.startsWith("//")) {
         return NextResponse.redirect(`${origin}${next}`);
       }
       // No next param — redirect to auth page which will check for

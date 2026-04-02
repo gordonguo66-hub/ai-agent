@@ -11,8 +11,8 @@ const nextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
-  // Enable sourcemaps in production to reveal real stack traces
-  productionBrowserSourceMaps: true,
+  // SECURITY: Disable source maps in production to prevent exposing source code
+  productionBrowserSourceMaps: false,
 
   // Security headers to prevent common web vulnerabilities
   async headers() {

@@ -59,7 +59,6 @@ export async function placeMarketOrder(
 }> {
   try {
     console.log(`[Hyperliquid Order] ⚠️ REAL ORDER EXECUTION: Placing ${side} order for ${market}: $${sizeUsd.toFixed(2)} (slippage: ${(slippage * 100).toFixed(1)}%, leverage: ${leverage}x)`);
-    console.log(`[Hyperliquid Order] Stack trace:`, new Error().stack);
 
     // Validate inputs
     if (!privateKey || !market || !side || sizeUsd <= 0) {

@@ -237,12 +237,15 @@ async function handleCoinbaseConnection(userId: string, body: any) {
     );
   }
 
-  // Don't return sensitive fields to client
-  const { api_secret_encrypted: _, ...safeConnection } = connection;
+  // Don't return sensitive fields to client - strip both encrypted secret AND raw api_key
+  const { api_secret_encrypted: _secret, api_key: rawKey, ...safeConnection } = connection;
 
   return NextResponse.json(
     {
-      connection: safeConnection,
+      connection: {
+        ...safeConnection,
+        identifier: rawKey?.split("/").pop() || "Connected",
+      },
       verified: true,
     },
     { status: 201 }
@@ -267,20 +270,21 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // Transform connections to show appropriate identifier per venue
+    // Transform connections - NEVER return raw API keys or secrets to the client
     const safeConnections = (connections || []).map((conn) => ({
       id: conn.id,
       venue: conn.venue,
       credential_type: conn.credential_type,
-      // Show wallet address for Hyperliquid, truncated API key for Coinbase
+      // Safe display identifier: truncated API key ID for Coinbase, wallet address for Hyperliquid
       identifier:
         conn.venue === "coinbase"
           ? conn.api_key?.split("/").pop() || "Connected"
-          : conn.wallet_address,
+          : conn.wallet_address || "Connected",
+      // Wallet addresses are public blockchain data, safe to return
       wallet_address: conn.wallet_address,
-      api_key: conn.api_key,
       intx_enabled: conn.intx_enabled || false,
       created_at: conn.created_at,
+      // NOTE: api_key, api_secret_encrypted, key_material_encrypted are intentionally excluded
     }));
 
     return NextResponse.json({ connections: safeConnections });

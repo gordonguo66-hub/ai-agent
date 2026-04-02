@@ -21,7 +21,7 @@ export async function POST(
     // Get the connection
     const { data: connection, error: connError } = await serviceClient
       .from("exchange_connections")
-      .select("*")
+      .select("id, user_id, venue, wallet_address, api_key, api_secret_encrypted, key_material_encrypted, intx_enabled")
       .eq("id", connectionId)
       .eq("user_id", user.id)
       .single();
@@ -144,7 +144,7 @@ async function verifyCoinbaseConnection(connection: any) {
       success: true,
       message: "Connection verified successfully",
       account: {
-        api_key: connection.api_key,
+        identifier: connection.api_key?.split("/").pop() || "Connected",
         equity: totalEquity,
         balances_count: nonDustBalances.length,
         balances: nonDustBalances.slice(0, 5).map((b) => ({

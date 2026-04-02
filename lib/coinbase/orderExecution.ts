@@ -149,11 +149,11 @@ async function placeIntxMarketOrder(
       },
     };
 
-    console.log(`[Coinbase INTX] Order config:`, JSON.stringify(orderConfig, null, 2));
+    console.log(`[Coinbase INTX] Order: ${orderConfig.side} ${orderConfig.product_id} size=${orderConfig.order_configuration?.market_market_ioc?.base_size}`);
 
     const result = await client.submitOrder(orderConfig) as any;
 
-    console.log(`[Coinbase INTX] Order result:`, JSON.stringify(result, null, 2));
+    console.log(`[Coinbase INTX] Order result: success=${result.success} order_id=${result.order_id || result.success_response?.order_id || 'unknown'}`);
 
     // Check for success
     if (result.success) {
@@ -430,18 +430,12 @@ export async function placeMarketOrder(
       };
     }
 
-    console.log(
-      `[Coinbase Order] Submitting order:`,
-      JSON.stringify(orderConfig, null, 2)
-    );
+    console.log(`[Coinbase Order] Submitting: ${orderConfig.side} ${orderConfig.product_id} size=${orderConfig.order_configuration?.market_market_ioc?.base_size || orderConfig.order_configuration?.limit_limit_gtc?.base_size || 'unknown'}`);
 
     // Place the order
     const result = await client.submitOrder(orderConfig) as any;
 
-    console.log(
-      `[Coinbase Order] Order result:`,
-      JSON.stringify(result, null, 2)
-    );
+    console.log(`[Coinbase Order] Result: success=${result.success} order_id=${result.order_id || result.success_response?.order_id || 'unknown'}`);
 
     if (result.success) {
       const orderId =

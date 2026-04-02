@@ -1,8 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceRoleClient } from "@/lib/supabase/server";
+import { checkRateLimit } from "@/lib/api/rateLimit";
 
 export async function POST(request: NextRequest) {
   try {
+    // Rate limit by IP to prevent username enumeration
+    const clientIp = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+    const rateCheck = checkRateLimit(`check-username:${clientIp}`, 10, 60_000);
+    if (rateCheck.limited) {
+      return NextResponse.json(
+        { error: "Too many requests. Please try again later." },
+        { status: 429 }
+      );
+    }
+
     const body = await request.json();
     const { username } = body;
 
