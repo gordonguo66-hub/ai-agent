@@ -16,6 +16,7 @@ import { PostHogPageView } from "./posthog-pageview";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://coreboundai.io"),
   title: "Corebound",
   description: "AI executes. Human strategy sets the limits.",
   icons: {
@@ -30,13 +31,13 @@ export const metadata: Metadata = {
     title: "Corebound",
     description: "AI executes. Human strategy sets the limits.",
     type: "website",
-    images: ["/brand/og-image.png"],
+    url: "https://coreboundai.io",
+    siteName: "Corebound",
   },
   twitter: {
     card: "summary_large_image",
     title: "Corebound",
     description: "AI executes. Human strategy sets the limits.",
-    images: ["/brand/og-image.png"],
   },
 };
 
