@@ -156,11 +156,24 @@ export async function placeMarketOrder(
     // For sell: limit = current * (1 - slippage)
     const slippageMultiplier = side === "buy" ? (1 + slippage) : (1 - slippage);
     const limitPrice = currentPrice * slippageMultiplier;
-    
-    // Always use 2 decimal places - this works for all assets and matches the working broker
-    const roundedLimitPrice = limitPrice.toFixed(2);
 
-    console.log(`[Hyperliquid Order] Limit price: $${currentPrice.toFixed(2)} + ${(slippage * 100).toFixed(1)}% = $${roundedLimitPrice}`);
+    // Hyperliquid price rules:
+    //   1. Max 5 significant figures (integers are always allowed, any number of digits)
+    //   2. Max (MAX_DECIMALS - szDecimals) decimal places for perps (MAX_DECIMALS = 6)
+    // Using toFixed(2) unconditionally produced "invalid price" errors on high-priced
+    // assets like BTC (szDecimals=5 → max 1 decimal place allowed).
+    const MAX_DECIMALS_PERP = 6;
+    const maxDecimalPlaces = Math.max(0, MAX_DECIMALS_PERP - sizeDecimals);
+    // Round to 5 significant figures, then cap decimals
+    const magnitude = Math.floor(Math.log10(Math.abs(limitPrice)));
+    const sigFigFactor = Math.pow(10, 4 - magnitude);
+    const sigFigRounded = Math.round(limitPrice * sigFigFactor) / sigFigFactor;
+    const decimalCapped = Math.round(sigFigRounded * Math.pow(10, maxDecimalPlaces)) / Math.pow(10, maxDecimalPlaces);
+    // toString() avoids trailing zeros that would push sig figs over 5.
+    // e.g. (117150).toString() = "117150" (valid integer), not "117150.0" (6 sig figs — invalid)
+    const roundedLimitPrice = decimalCapped.toString();
+
+    console.log(`[Hyperliquid Order] Limit price: $${currentPrice.toFixed(2)} + ${(slippage * 100).toFixed(1)}% = $${roundedLimitPrice} (szDecimals=${sizeDecimals}, maxDec=${maxDecimalPlaces})`);
 
     // Place order using SDK with short field names (new API format)
     // a = asset index, b = is_buy, p = price, s = size, r = reduce_only, t = order_type
